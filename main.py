@@ -40,8 +40,8 @@ from KMC import KMC
 import numpy as np
 import time
 
-save_data = False
-lammps_file = False
+save_data = True
+lammps_file = True
 
 # def main():
 
@@ -53,7 +53,7 @@ for n_sim in range(0,1):
         
     System_state.plot_crystal(45,45,paths['data'],0)    
     j = 0
-
+    
     snapshoots_steps = int(5e1)
     starting_time = time.time()
 # =============================================================================

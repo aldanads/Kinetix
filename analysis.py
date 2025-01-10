@@ -500,7 +500,7 @@ system = ['Windows','Linux']
 choose_system = system[1]
 file_variables = ['variables','variables2']
 
-for i in range(2):
+for i in range(1):
     if choose_system == 'Windows':
         import shelve
         

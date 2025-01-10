@@ -6,7 +6,7 @@ activation_energies_memristors.json
 video_via_images.py
 images_to_video.py
 Figure.csv
-Histogram_neighbor.csv
+Histogram_neighbors.csv
 Histogram_terraces.csv
 Occupation_rate.csv
 ovito_files.py

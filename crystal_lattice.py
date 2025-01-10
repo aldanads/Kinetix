@@ -234,9 +234,10 @@ class Crystal_Lattice():
                         
                         # If not in the boundary region, where we should apply periodic boundary conditions
                         if tuple(pos) == pos_aux:
-                           self.grid_crystal[neigh_idx] = Site("Empty",
-                                tuple(pos),
-                                self.activation_energies)
+
+                            self.grid_crystal[neigh_idx] = Site("Empty",
+                                 tuple(pos),
+                                 self.activation_energies)
                 
                 self.domain_height = domain_height
                 
@@ -291,6 +292,7 @@ class Crystal_Lattice():
         else:
             
             self.grid_crystal = grid_crystal
+            self.domain_height = self.crystal_size[2]
             
             for site in self.grid_crystal.values():
                 site.Act_E_list = self.activation_energies
@@ -1095,7 +1097,7 @@ class Crystal_Lattice():
     def average_thickness(self):
         
         grid_crystal = self.grid_crystal
-        z_step = next((vec[2] for vec in self.basis_vectors if vec[2] > 0), None)
+        z_step = next((vec[2]*2 for vec in self.basis_vectors if vec[2] > 1e-10), None)
         z_steps = round(self.crystal_size[2]/z_step + 1)
         layers = [0] * z_steps  # Initialize each layer separately
 
@@ -1119,7 +1121,7 @@ class Crystal_Lattice():
         
         layers = self.layers[0]
         grid_crystal = self.grid_crystal
-        z_step = next((vec[2] for vec in self.basis_vectors if vec[2] > 0), None)
+        z_step = next((vec[2]*2 for vec in self.basis_vectors if vec[2] > 0), None)
         z_steps = round(self.crystal_size[2]/z_step + 1)
         sites_per_layer = len(grid_crystal)/z_steps
 
@@ -1146,10 +1148,10 @@ class Crystal_Lattice():
         sites_occupied = self.sites_occupied
         
         # Size of histogram: number of neighbors that a particle can have, plus particle without neighbors
-        histogram_neighbors = [0] * (len(self.latt.get_neighbors(0,0,0)) + 1)
+        histogram_neighbors = [0] * (self.num_event - 1)
         
         for site in sites_occupied:
-            if 'bottom_layer' in grid_crystal[site].supp_by: 
+            if 'bottom_layer' in grid_crystal[site].supp_by or 'Substrate' in grid_crystal[site].supp_by: 
                 histogram_neighbors[len(grid_crystal[site].supp_by)-1] += 1
             else:
                 histogram_neighbors[len(grid_crystal[site].supp_by)] += 1
@@ -1166,7 +1168,7 @@ class Crystal_Lattice():
         count_islands = [0] * len(normalized_layers)
         layers_no_complete = np.where(np.array(normalized_layers) != 1.0)
         count_islands[normalized_layers == 1] = 1
-        z_step = next((vec[2] for vec in self.basis_vectors if vec[2] > 0), None)
+        z_step = next((vec[2]*2 for vec in self.basis_vectors if vec[2] > 0), None)
 
 
         islands_list = []
@@ -1408,7 +1410,7 @@ class Crystal_Lattice():
     def obtain_surface_coord(self):
         
         grid_crystal = self.grid_crystal
-        z_step = next((vec[2] for vec in self.basis_vectors if vec[2] > 0), None)
+        z_step = next((vec[2]*2 for vec in self.basis_vectors if vec[2] > 0), None)
 
         x = []
         y = []

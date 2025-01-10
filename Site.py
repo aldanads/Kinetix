@@ -35,9 +35,9 @@ class Site():
         tol = 1e-6
 
         for idx,pos in zip(neigh_idx,neigh_cart):
-                
+            
             if tuple(idx) in grid_crystal:
-                
+                    
                 self.nearest_neighbors_idx.append(tuple(idx))             
                 self.nearest_neighbors_cart.append(tuple(pos))
                 
@@ -423,7 +423,7 @@ class Site():
         if cache_key in self.cache_edges:
             self.cache_edges[cache_key]
             return 
-        
+
         self.edges_v = {i:None for i in self.mig_paths_plane.keys()}
         
         bottom_support = all(site_idx in self.supp_by for site_idx, num_event in self.migration_paths['Down'])
@@ -490,7 +490,7 @@ class Island:
     def layers_calculation(self,System_state):
         
         grid_crystal = System_state.grid_crystal
-        z_step = System_state.basis_vectors[0][2]
+        z_step = next((vec[2] for vec in System_state.basis_vectors if vec[2] > 0), None)
         z_steps = int(System_state.crystal_size[2]/z_step + 1)
         layers = [0] * z_steps  # Initialize each layer separately
         
@@ -506,7 +506,7 @@ class Island:
     def island_terrace(self,System_state):
         
         grid_crystal = System_state.grid_crystal
-        z_step = System_state.basis_vectors[0][2]
+        z_step = next((vec[2] for vec in System_state.basis_vectors if vec[2] > 0), None)
         z_steps = int(System_state.crystal_size[2]/z_step + 1)
         sites_per_layer = len(grid_crystal)/z_steps
 
