@@ -598,11 +598,13 @@ class Crystal_Lattice():
                 site.Act_E_list = copy.deepcopy(self.activation_energies)
         
         
+
         # If we include grain boundaries, we should modify the activation energies
         if hasattr(self, 'gb_configurations'):
           self.gb_model = GrainBoundary(self.crystal_size,self.gb_configurations)
           for site in self.grid_crystal.values():
             self.gb_model.modify_act_energy_GB(site,self.migration_pathways)
+            
             
            
     def _handle_missing_neighbors(self,radius_neighbors, affected_site):
@@ -1453,7 +1455,7 @@ class Crystal_Lattice():
 #         Redox reactions
 # =============================================================================         
         elif chosen_event[2] == 'reduction':
-            if np.isclose(self.grid_crystal[chosen_event[1]].position[2], self.crystal_size[2]) and False:
+            if np.isclose(self.grid_crystal[chosen_event[1]].position[2], self.crystal_size[2]) and self.V < 0:
               # Remove particle --> Re-adsorbed at the interface
               update_specie_events,update_supp_av = self.remove_specie_site(chosen_event[-1],update_specie_events,update_supp_av)
             else:

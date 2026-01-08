@@ -834,9 +834,9 @@ class PoissonSolver():
           if touches_bottom and touches_top:
             print('BC: Touches bottom and top')
             # Bridging cluster: Apply per layer potential drop
-            V_across_cluster = cluster.voltage_across_cluster(top_value, bottom_value)
-            for cluster_slice, V_slice in zip(cluster.slice_internal_positions_per_slice, V_across_cluster):
-              apply_cluster_bc(cluster_slice, V_slice)
+            #V_across_cluster = cluster.voltage_across_cluster(top_value, bottom_value)
+            #for cluster_slice, V_slice in zip(cluster.slice_internal_positions_per_slice, V_across_cluster):
+            #  apply_cluster_bc(cluster_slice, V_slice)
               
           elif touches_bottom:
             print('BC: Touches bottom')

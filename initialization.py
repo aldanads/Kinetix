@@ -35,7 +35,7 @@ def initialization(n_sim):
     save_data = True
     lammps_file = True
     snapshoots_steps = int(4e1)
-    total_steps = int(snapshoots_steps * 30)
+    total_steps = int(snapshoots_steps * 25)
     
     simulation_parameters = {
       'save_data':save_data, 'snapshoots_steps':snapshoots_steps,
@@ -47,7 +47,8 @@ def initialization(n_sim):
     
     if save_data:
         files_copy = ['initialization.py', 'crystal_lattice.py','Site.py','main.py','KMC.py',
-                      'balanced_tree.py','analysis.py','superbasin.py','activation_energies_deposition.json']
+                      'balanced_tree.py','analysis.py','superbasin.py', 'PoissonSolver.py' , 'ElectricalController.py'
+                      'activation_energies_deposition.json', 'activation_energies_memristors.json']
         
         if platform.system() == 'Windows': # When running in laptop
             dst = Path(r'\\FS1\Docs2\samuel.delgado\My Documents\Publications\Memristor ECM\Simulations\Tests')
@@ -370,22 +371,25 @@ def initialization(n_sim):
         # -----------------
         # Grain boundaries
         # -----------------
-
+        
         gb_configurations = [
           {
           'type':'cylindrical',
           'center': [crystal_size[0] * 0.5, crystal_size[1] * 0.5],
           'radius': 4.0,
+          'outer_radius': 20.0,
           'Act_E_diff_GB': 2.7
           }
         ]
+        
         """
         gb_configurations = [
           {
           'type':'vertical_planar',
           'orientation':'xz',
-          'position':crystal_size[1] * 0.5, # Position in y
-          'width':8.0,
+          'position':crystal_size[1] * 0.5 + 2.0, # Position in y
+          'width':4.0,
+          'outer_width':5.0,
           'Act_E_diff_GB': 2.7
           }
         ]

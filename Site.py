@@ -495,7 +495,7 @@ class Site():
         atom_to_cluster = kwargs.get("atom_to_cluster", {})
         self.in_cluster_with_electrode = {'bottom_layer': False, 'top_layer': False}
               
-        if len(atom_to_cluster) > 0 and self.ion_charge > 0:        
+        if len(atom_to_cluster) > 0:        
           for nb in self.supp_by:
             if (not isinstance(nb, str) and nb in atom_to_cluster):    
               cid = atom_to_cluster[nb]
@@ -504,6 +504,7 @@ class Site():
                 self.in_cluster_with_electrode['bottom_layer'] = True
               if cluster.attached_layer['top_layer']:
                 self.in_cluster_with_electrode['top_layer'] = True
+          
                 
         
         # Iterate over site_events directly, no need to use range(len(...))
@@ -520,11 +521,22 @@ class Site():
                 
                 # Cluster bridging both electrodes
                 if self.in_cluster_with_electrode['top_layer'] and self.in_cluster_with_electrode['bottom_layer']:
-                  field_along_pathway = [round(np.dot(E_site_field,migration_pathways[event[2]]) * 1e-10,3) for event in self.site_events if not isinstance(event[2],str)]
+                  #field_along_pathway = [round(np.dot(E_site_field,migration_pathways[event[2]]) * 1e-10,3) for event in self.site_events if not isinstance(event[2],str)]
                   
-                  if field_along_pathway:
-                    Act_E_pathway = [event[-1] + 0.5 * field for field in field_along_pathway]
-                    Act_E = max(min(Act_E_pathway), 0.3)
+                  #field_along_pathway = field_along_pathway * 0
+                  #if field_along_pathway:
+                  #  Act_E_pathway = [event[-1] + 0.5 * field for field in field_along_pathway]
+                  #  Act_E = max(min(Act_E_pathway), 0.3)
+                  
+                    #if self.in_cluster_with_electrode['bottom_layer'] or 'bottom_layer' in self.supp_by:
+                    # Positive bias facilitate reduction --> Field helps add electrons
+                    #Act_E = max(event[-1] + 0.5 * round(np.dot(E_site_field,[0,0,1]) * 1e-10,3), 0.3)
+                  if self.in_cluster_with_electrode['top_layer'] or 'top_layer' in self.supp_by: 
+                    # Positive bias hinder reduction --> Field helps remove electrons
+                    Act_E = max(event[-1] - 0.5 * round(np.dot(E_site_field,[0,0,1]) * 1e-10,3), 0.3)
+                  if self.in_cluster_with_electrode['bottom_layer'] or 'bottom_layer' in self.supp_by:
+                    #Positive bias facilitate reduction --> Field helps add electrons
+                    Act_E = max(event[-1] + 0.5 * round(np.dot(E_site_field,[0,0,1]) * 1e-10,3), 0.3)
 
                 else:
                   if self.in_cluster_with_electrode['top_layer'] or 'top_layer' in self.supp_by: 
@@ -543,11 +555,22 @@ class Site():
                 
                 # Cluster bridging both electrodes
                 if self.in_cluster_with_electrode['top_layer'] and self.in_cluster_with_electrode['bottom_layer']:
-                  field_along_pathway = [round(np.dot(E_site_field,migration_pathways[event[2]]) * 1e-10,3) for event in self.site_events if not isinstance(event[2],str)]
+                  #field_along_pathway = [round(np.dot(E_site_field,migration_pathways[event[2]]) * 1e-10,3) for event in self.site_events if not isinstance(event[2],str)]
                   
-                  if field_along_pathway:
-                    Act_E_pathway = [event[-1] - 0.5 * field for field in field_along_pathway]
-                    Act_E = max(min(Act_E_pathway), self.Act_E_list['E_min_gen'])
+                  #field_along_pathway = field_along_pathway * 0
+                  
+                  #if field_along_pathway:
+                  #  Act_E_pathway = [event[-1] - 0.5 * field for field in field_along_pathway]
+                  #  Act_E = max(min(Act_E_pathway), self.Act_E_list['E_min_gen'])
+                  
+                    #if self.in_cluster_with_electrode['bottom_layer'] or 'bottom_layer' in self.supp_by:
+                    #  Act_E = max(event[-1] + 0.5 * round(np.dot(E_site_field,[0,0,-1]) * 1e-10,3), self.Act_E_list['E_min_gen'])
+                  if self.in_cluster_with_electrode['top_layer'] or 'top_layer' in self.supp_by: 
+                    Act_E = max(event[-1] - 0.5 * round(np.dot(E_site_field,[0,0,-1]) * 1e-10,3), self.Act_E_list['E_min_gen'])
+                  
+                  if self.in_cluster_with_electrode['bottom_layer'] or 'bottom_layer' in self.supp_by:
+                    Act_E = max(event[-1] + 0.5 * round(np.dot(E_site_field,[0,0,-1]) * 1e-10,3), self.Act_E_list['E_min_gen']) 
+                    
                 else:
                   if self.in_cluster_with_electrode['top_layer'] or 'top_layer' in self.supp_by: 
                     Act_E = max(event[-1] - 0.5 * round(np.dot(E_site_field,[0,0,-1]) * 1e-10,3), self.Act_E_list['E_min_gen'])
@@ -830,6 +853,7 @@ class GrainBoundary:
           'type':'cylindrical',
           'center': [self.domain_size[0] * 0.5, self.domain_size[1] * 0.5],
           'radius': 2.0,
+          'outer_radius': 10.0,
           'Act_E_diff_GB': 1
         }
       ])
@@ -852,14 +876,67 @@ class GrainBoundary:
         """
         self.vertical_gbs = []
         self.cylindrical_gbs = []
+        self.triple_junction_gbs = []
         
         for config in self.gb_configurations:
+          # Add linear interpolation parameters for all GB types
+          if 'outer_radius' in config or 'outer_width' in config:
+            # Determine the distance metric for this GB type
+            if config['type'] == 'vertical_planar':
+              inner_boundary = config['width'] / 2
+              outer_boundary = config.get('outer_width',config['width']) / 2
+              distance_function = self._distance_to_planar_gb
+            elif config['type'] == 'cylindrical':
+              inner_boundary = config['radius']
+              outer_boundary = config['outer_radius']
+              distance_function = self._distance_to_cylindrical_gb  
+            elif config['type'] == 'triple_junction_planes':
+              inner_boundary = config['width'] / 2
+              outer_boundary = config.get('outer_width',config['width']) / 2
+              # NEED TO WRITE THE FUNCTION: self._distance_to_triple_junction_gb
+              #distance_function = self._distance_to_triple_junction_gb
+            
+            # Calculate linear interpolation parameters
+            act_e_diff = config['Act_E_diff_GB']
+          
+            # Linear function: Act_E = slope * distance + intercept
+            # At radius: Act_E = act_e_diff (inside GB)
+            # At outer_radius: Act_E = 0 (outside GB)
+            if outer_boundary > inner_boundary:
+              slope = -act_e_diff / (outer_boundary - inner_boundary)
+              intercept = act_e_diff - slope * inner_boundary
+            else:
+              slope = 0
+              intercept = act_e_diff
+              
+            config['linear_slope'] = slope
+            config['linear_intercept'] = intercept
+            config['inner_boundary'] = inner_boundary
+            config['outer_boundary'] = outer_boundary
+            config['distance_function'] = distance_function
+            
           if config['type'] == 'vertical_planar':
             self.vertical_gbs.append(config)
-          elif config['type'] == 'cylindrical':
+          elif config['type'] == 'cylindrical':  
             self.cylindrical_gbs.append(config)
           elif config['type'] == 'triple_junction_planes':
             self.triple_junction_gbs.append(config)
+            
+    def _distance_to_planar_gb(self,site_pos,gb_config):
+      """Calculate distance to planar GB core"""
+      x, y, z = site_pos
+      if gb_config['orientation'] == 'yz':
+        return abs(x - gb_config['position'])
+      elif gb_config['orientation'] == 'xz':
+        return abs(y - gb_config['position'])
+      elif gb_config['orientation'] == 'xy':
+        return abs(z - gb_config['position'])
+        
+    def _distance_to_cylindrical_gb(self,site_pos,gb_config):
+      """Calculate distance to cylindrical GB axis"""
+      x, y, z = site_pos
+      cx, cy = gb_config['center']
+      return np.sqrt((x - cx)**2 + (y - cy)**2)
             
     def _is_site_in_grain_boundary(self, site_position: tuple) -> bool:
       """
@@ -871,29 +948,66 @@ class GrainBoundary:
       for gb in self.vertical_gbs:
         if gb['orientation'] == 'yz':
           # Vertical YZ place at specific x-position
-          if abs(x - gb['position']) <= gb['width'] / 2: return True
+          if abs(x - gb['position']) <= gb['outer_boundary']: return True
           
         elif gb['orientation'] == 'xz':
           # Vertical XZ place at specific y-position
-          if abs(y - gb['position']) <= gb['width'] / 2: return True
+          if abs(y - gb['position']) <= gb['outer_boundary']: return True
           
         elif gb['orientation'] == 'xy':
           # Horizontal XY place at specific z-position
-          if abs(z - gb['position']) <= gb['width'] / 2: return True
+          if abs(z - gb['position']) <= gb['outer_boundary']: return True
           
       # Check cylindrical boundaries
       for gb in self.cylindrical_gbs:
         cx, cy = gb['center']
-        radius = gb['radius']
+        #radius = gb['inner_boundary']
+        outer_radius = gb['outer_boundary']
         
         # Distance from cylinder axis
         distance_from_axis = np.sqrt((x - cx)**2 + (y - cy)**2)
         
-        if distance_from_axis <= radius: return True
+        #if distance_from_axis <= radius: return True
+        if distance_from_axis <= outer_radius: return True
         
       return False
       
-    def get_activation_energy_GB(self, site_position: tuple) -> float:
+    
+    def get_activation_energy_GB(self, site_position:tuple) -> float:
+      """
+      Get activation energy with unified linear interpolation
+      
+      Parameters:
+      -----------
+      site_position : tuple (x, y, z)
+        Site coordinates in Angstroms
+            
+      Returns:
+      --------
+      float : Activation energy at site
+      """
+      x, y, z = np.array(site_position)
+      
+      for gb_list in [self.vertical_gbs, self.cylindrical_gbs, self.triple_junction_gbs]:
+        for gb in gb_list:
+          if 'linear_slope' in gb: # Has transition region
+            distance = gb['distance_function'](site_position, gb)
+            
+            if distance <= gb['inner_boundary']:
+              # Inside GB core
+              return gb['Act_E_diff_GB']
+            elif distance <= gb['outer_boundary']:
+              # In transition region
+              energy = gb['linear_slope'] * distance + gb['linear_intercept']
+              return max(energy,0)
+            # Else: continue to next GB (not in this GB's region)
+            
+      return 0 # Not in any GB
+      
+    """
+    DEPRECATING 2026/01/05
+    """
+    def get_activation_energy_GB_2(self, site_position: tuple) -> float:
       """
       Get additional activation energy outside GB
       
@@ -923,10 +1037,21 @@ class GrainBoundary:
       for gb in self.cylindrical_gbs:
         cx, cy = gb['center']
         radius = gb['radius']
+        outer_radius = gb['outer_radius']
         
         distance_from_axis = np.sqrt((x - cx)**2 + (y - cy)**2)
         
-        if distance_from_axis <= radius: return gb['Act_E_diff_GB']
+        if distance_from_axis <= radius:
+          # Inside the core GB 
+          return gb['Act_E_diff_GB']
+        elif radius <= distance_from_axis <= outer_radius:
+          # In the transition region - linear interpolation
+          slope = gb['linear_slope']
+          intercept = gb['linear_intercept']
+          return max(slope * distance_from_axis + intercept, 0)
+          # Outside outer_radius: return 0 (no effect)
+        
+      return 0 # Not in any GB
           
       
     
@@ -968,6 +1093,7 @@ class GrainBoundary:
           in_GB = True
           # Lower barrier to enter GB (particles prefer GB)
           modified_energy = base_energy - self.get_activation_energy_GB(dest_pos)
+
         else:
           # No modification for bulk destinations (base case)
           out_GB = True

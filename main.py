@@ -234,6 +234,14 @@ def main():
                   
                         else:
                           clusters = None
+                          
+                        if j == 25: 
+                          V_top = -1.0
+                          System_state.save_electric_bias(V_top)
+                        
+                        if j == 100: 
+                          V_top = 1.0
+                          System_state.save_electric_bias(V_top)
                 
                         clusters = comm.bcast(clusters, root=0)
                         poisson_solver.set_boundary_conditions(V_top, 0.0,clusters)
@@ -264,6 +272,7 @@ def main():
                 if rank == 0:       
                   System_state,KMC_time_step, chosen_event = KMC(System_state,rng)  
                   events_tracking[chosen_event[2]] += 1
+                      
                    
                   
                 # Synchronize before continuing
@@ -280,6 +289,7 @@ def main():
     
                         # System_state.measurements_crystal()
                         print(str(j)+"/"+str(int(total_steps/snapshoots_steps)),'| Total time: ',System_state.list_time[-1])
+                        print(f'Voltage: {V_top}')
                         end_time = time.time()
                         
                         # if save_data:
