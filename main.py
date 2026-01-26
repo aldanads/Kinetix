@@ -23,7 +23,7 @@ def main():
 
     for n_sim in range(1,2):
         
-        System_state,rng,paths,Results,simulation_parameters = initialization(n_sim)
+        System_state,rng,paths,Results,simulation_parameters,Elec_controller = initialization(n_sim)
         
         print(f'System size: {System_state.crystal_size}')
         
@@ -93,11 +93,6 @@ def main():
         
                     System_state.plot_crystal(45,45,paths['data'],j)
                     
-                    # print('j = ',j)
-                    # if j == 5:
-                    #     sys.exit()
-                        
-    
     
     # =============================================================================
     #     Annealing  
@@ -170,7 +165,7 @@ def main():
             save_Poisson = System_state.poissonSolver_parameters['save_Poisson']
             
             events_tracking = {}
-            V_top = 1.0
+            V_top = Elec_controller.apply_ramp_voltage_cycle(System_state.time)
             System_state.save_electric_bias(V_top)
        
             # Dolfinx only works in Linux
@@ -194,17 +189,38 @@ def main():
                 comm = None
             
     
-            
-            i = 0
             # list_sites_occu = []
             from collections import Counter
             events_tracking = Counter()
             
-    
-            while j*snapshoots_steps < total_steps:
-                
+            
+            simulation_active = True
+            System_state.last_poisson_time = -float('inf')
+            tol = 1e-15
+            
+            while simulation_active:
+            #while j*snapshoots_steps < total_steps:
+            
+                # Time based control
+                if System_state.time >= Elec_controller._ramp_total_time:
+                  simulation_active = False
+                  break
+                  
+                should_solve_poisson_now = False
+                snapshoots = False    
                 if solve_Poisson and platform.system() == 'Linux': 
-                
+                  # Solve Poisson when voltage has been updated (based on voltage_update_interval)
+                  next_solve_time = System_state.last_poisson_time + Elec_controller.voltage_update_time
+                  if System_state.time >= next_solve_time - tol:
+                    should_solve_poisson_now = True
+                    snapshoots = True
+                    if System_state.last_poisson_time == -float('inf'):
+                      System_state.last_poisson_time = System_state.time
+                    else:
+                      System_state.last_poisson_time = next_solve_time
+                      System_state.time = next_solve_time
+                       
+                  
                   # KMC step runs in serial (only on rank 0) 
                   # It is the only rank that have updated System_state --> kMC steps only in rank = 0
                   if rank == 0:    
@@ -224,45 +240,38 @@ def main():
                   
                   comm.Barrier()
                   
-                  if i%poisson_solve_frequency == 0:
+                  #if i%poisson_solve_frequency == 0:
+                  if should_solve_poisson_now:
+                        # Every time we change the applied voltage, we should calculate Poisson
+                        V_top = Elec_controller.apply_ramp_voltage_cycle(System_state.time)
+                        System_state.save_electric_bias(V_top)
                   
                         # Calculate clusters for include BC in the cluster --> Virtual electrode
                         if rank == 0:
                           clusters = System_state.clusters
                           for cluster in clusters.values():
-                            cluster.prepare_cluster_for_bcs(System_state.grid_crystal)
+                            cluster.prepare_cluster_for_bcs(System_state.grid_crystal,System_state.crystal_size)
                   
                         else:
                           clusters = None
                           
-                        if j == 25: 
-                          V_top = -1.0
-                          System_state.save_electric_bias(V_top)
-                        
-                        if j == 100: 
-                          V_top = 1.0
-                          System_state.save_electric_bias(V_top)
-                
                         clusters = comm.bcast(clusters, root=0)
-                        poisson_solver.set_boundary_conditions(V_top, 0.0,clusters)
+                        # We need the cluster to know what is the effective gap for calculating the Schottky emission
+                        V_eff, _ = Elec_controller.calculate_current(clusters) # Obtain effective voltage after voltage drop of series resistance
                         
-
+                        poisson_solver.set_boundary_conditions(V_eff, 0.0,clusters)
                         run_start_time = MPI.Wtime()
-
-                        uh = poisson_solver.solve(particle_locations,charges)
-                        
+                        uh = poisson_solver.solve(particle_locations,charges) 
                         run_time = MPI.Wtime() - run_start_time
-                        
                         
                         if rank == 0: print(f'Run time to solve Poisson: {run_time}')
 
                         if save_Poisson:
                           poisson_solver.save_potential(uh,System_state.time,j+1)
                           
-                        if rank == 0: print(f"Poisson solved at step {i}")
                         run_time = 0
                         
-                  E_field = poisson_solver.evaluate_electric_field_at_points(uh,E_field_points)   
+                  E_field = poisson_solver.evaluate_electric_field_at_points(uh,E_field_points)  
                   
                   if rank == 0:                       
                         System_state.update_transition_rates_with_electric_field(E_field)
@@ -271,16 +280,39 @@ def main():
                 # kMC steps after solving Poisson equation, calculating the electric field and the impact in the transition rates
                 if rank == 0:       
                   System_state,KMC_time_step, chosen_event = KMC(System_state,rng)  
-                  events_tracking[chosen_event[2]] += 1
-                      
+                  if chosen_event:
+                    events_tracking[chosen_event[2]] += 1
+                    
+                  activate_superbasin = System_state.should_activate_superbasin(KMC_time_step)
+                    
+                  if activate_superbasin:
+                    print(f'Activate superbasin, step with nothing happening {System_state.nothing_happen_count}')
+                    exit()
+
+                  
+                  """   
+                  for cluster in clusters.values():
+                    touches_bottom = cluster.attached_layer['bottom_layer']
+                    touches_top = cluster.attached_layer['top_layer']
+                    
+                    if touches_bottom and touches_top:
+                      for point in E_field_points:
+                        E_field_key = tuple(np.round(point, 6))
+                        print(f'The position {point} (Is it in CF? {tuple(point) in cluster.atoms_positions}) has an electric field of {E_field[E_field_key]}')
+                        
+                      exit()
+                  """    
+              
                    
                   
                 # Synchronize before continuing
                 if comm is not None:
+                  broadcast_time = comm.bcast(System_state.time if rank == 0 else None, root=0)
+                  System_state.time = broadcast_time
                   comm.Barrier()
                      
-                i+=1
-                if i%snapshoots_steps== 0:
+                
+                if snapshoots:
                 
                     j+=1
                     # Continue with serial processing on rank 0
@@ -288,17 +320,15 @@ def main():
                         System_state.add_time()
     
                         # System_state.measurements_crystal()
-                        print(str(j)+"/"+str(int(total_steps/snapshoots_steps)),'| Total time: ',System_state.list_time[-1])
-                        print(f'Voltage: {V_top}')
+                        print(str(j)+"/"+str(int(Elec_controller._ramp_total_time/Elec_controller.voltage_update_time)),'| Total time: ',System_state.list_time[-1],'| Voltage: ',V_top)
+                        print(f'Events at step {j}: {events_tracking}')
+                        print(f"Current: {Elec_controller.measurements['current'][-1]}")
+    
                         end_time = time.time()
-                        
-                        # if save_data:
-                            # Results.measurements_crystal(System_state.list_time[-1],System_state.mass_gained,System_state.fraction_sites_occupied,
-                            #                               System_state.thickness,np.mean(np.array(System_state.terraces)[np.array(System_state.terraces) > 0]),np.std(np.array(System_state.terraces)[np.array(System_state.terraces) > 0]),max(System_state.terraces),
-                            #                               System_state.surf_roughness_RMS,end_time-starting_time)
                             
                         System_state.plot_crystal(45,45,paths['data'],j)
-                        
+                      
+                    
                         
                               
     
@@ -308,6 +338,9 @@ def main():
           variables = {'System_state' : System_state}
           filename = 'variables'
           if save_data: save_variables(paths['program'],variables,filename)
+          
+        Elec_controller.save_IV_csv(paths['results'])
+        Elec_controller.plot_V_I(paths['results'])
     
         
 

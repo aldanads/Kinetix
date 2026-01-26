@@ -356,9 +356,12 @@ class Site():
             
     def available_oxidation(self,idx_origin):
         
-        if self.ion_charge == 0:  
+        is_surface_atom = (len(self.supp_by) < len(self.nearest_neighbors_idx)) # Fully coordinated atoms can't oxidize
+        at_electrode_interface = ('top_layer' in self.supp_by) or ('bottom_layer' in self.supp_by) # Atoms at the interface with the top or bottom electrode can oxidize
+        can_oxidize = self.ion_charge == 0 # Neutral atoms can oxidize
+        
+        if can_oxidize and (is_surface_atom or at_electrode_interface):  
             self.site_events.append([idx_origin, 'oxidation', self.Act_E_list['E_oxidation'] + self.CN_redox_energy])
-
         
     def deposition_event(self,TR,idx_origin,num_event,Act_E):
         self.site_events.append([TR,idx_origin, num_event, Act_E])
@@ -533,18 +536,18 @@ class Site():
                     #Act_E = max(event[-1] + 0.5 * round(np.dot(E_site_field,[0,0,1]) * 1e-10,3), 0.3)
                   if self.in_cluster_with_electrode['top_layer'] or 'top_layer' in self.supp_by: 
                     # Positive bias hinder reduction --> Field helps remove electrons
-                    Act_E = max(event[-1] - 0.5 * round(np.dot(E_site_field,[0,0,1]) * 1e-10,3), 0.3)
+                    Act_E = max(event[-1] - 0.5 * round(np.dot(E_site_field,[0,0,1]) * 1e-10,3), self.Act_E_list['E_reduction_min'])
                   if self.in_cluster_with_electrode['bottom_layer'] or 'bottom_layer' in self.supp_by:
                     #Positive bias facilitate reduction --> Field helps add electrons
-                    Act_E = max(event[-1] + 0.5 * round(np.dot(E_site_field,[0,0,1]) * 1e-10,3), 0.3)
+                    Act_E = max(event[-1] + 0.5 * round(np.dot(E_site_field,[0,0,1]) * 1e-10,3), self.Act_E_list['E_reduction_min'])
 
                 else:
                   if self.in_cluster_with_electrode['top_layer'] or 'top_layer' in self.supp_by: 
                     # Positive bias hinder reduction --> Field helps remove electrons
-                    Act_E = max(event[-1] - 0.5 * round(np.dot(E_site_field,[0,0,1]) * 1e-10,3), 0.3)
+                    Act_E = max(event[-1] - 0.5 * round(np.dot(E_site_field,[0,0,1]) * 1e-10,3), self.Act_E_list['E_reduction_min'])
                   if self.in_cluster_with_electrode['bottom_layer'] or 'bottom_layer' in self.supp_by:
                     # Positive bias facilitate reduction --> Field helps add electrons
-                    Act_E = max(event[-1] + 0.5 * round(np.dot(E_site_field,[0,0,1]) * 1e-10,3), 0.3)
+                    Act_E = max(event[-1] + 0.5 * round(np.dot(E_site_field,[0,0,1]) * 1e-10,3), self.Act_E_list['E_reduction_min'])
                     
                 
                   
@@ -604,9 +607,6 @@ class Site():
             elif len(event) == 4:
                 event[0] = tr_value
                 
-        #if any(event[-2] == 'reduction' for event in self.site_events):
-        #  print(f'Pos: {self.position}, NN: {len(self.supp_by)}')
-        #  print(f'Site events: {self.site_events}')
                 
 class Cluster:
     def __init__(self,cluster_atoms,atoms_positions,attached_layer,conductivity):
@@ -640,7 +640,7 @@ class Cluster:
         grid_crystal[site_id].in_cluster_with_electrode['bottom_layer'] = touches_bottom
         grid_crystal[site_id].in_cluster_with_electrode['top_layer'] = touches_top
         
-    def prepare_cluster_for_bcs(self,grid_crystal):
+    def prepare_cluster_for_bcs(self,grid_crystal,crystal_size):
       """
       1. Identifies and stores positions of fully coordinated atoms within the cluster.
        These internal atoms are suitable for applying Dirichlet BCs in the Poisson solver.
@@ -649,6 +649,19 @@ class Cluster:
       """
       
       # 1) For virtual electrodes
+      self._identify_internal_atoms(grid_crystal)
+      
+      # 2) Slice clusters
+      
+      
+      # 3) When filament is bridging the electrodes: calculate the voltage drops across the filament
+      if self.attached_layer['bottom_layer'] and self.attached_layer['top_layer']:
+        self._slice_cluster(grid_crystal)
+        self._cluster_resistance(grid_crystal)
+      elif self.attached_layer['bottom_layer'] or self.attached_layer['top_layer']:
+        self._get_distance_to_electrode(crystal_size)
+        
+    def _identify_internal_atoms(self,grid_crystal):
       internal_atom_positions = []
       internal_sites = set()
       for site in self.atoms_id:
@@ -663,10 +676,21 @@ class Cluster:
       self.internal_atom_positions = internal_atom_positions
       self.internal_sites = internal_sites
       
-      # 2) When filament is bridging the electrodes: calculate the voltage drops across the filament
-      if self.attached_layer['bottom_layer'] and self.attached_layer['top_layer']:
-        self._slice_cluster(grid_crystal)
-        self._cluster_resistance(grid_crystal)
+    def _get_distance_to_electrode(self,crystal_size):
+     """
+     Calculate minimum distance from cluster to electrode
+     """
+     min_distance = float("inf")
+     
+     for pos in self.atoms_positions:
+       if self.attached_layer['bottom_layer']:
+         distance = crystal_size[2] - pos[2]
+       elif self.attached_layer['top_layer']:
+         distance = pos[2]
+         
+       min_distance = min(min_distance,distance)
+       
+     self.distance_electrode = min_distance
       
       
     def _slice_cluster(self,grid_crystal):

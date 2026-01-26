@@ -70,6 +70,9 @@ class Crystal_Lattice():
         self.E_min = superbasin_parameters['E_min']
         self.energy_step = superbasin_parameters['energy_step']
         self.superbasin_dict = {}
+        self.superbasin_tracker = []
+        self.nothing_happen_count = 0
+        self.time_based_superbasin = superbasin_parameters['time_based_superbasin']
         
         # Poisson solver parameters
         self.poissonSolver_parameters = kwargs.get('poissonSolver_parameters', None)
@@ -81,7 +84,7 @@ class Crystal_Lattice():
         # is effectively blocked due to the redistribution of neighboring charges
         self.screening_factor = self.poissonSolver_parameters['screening_factor']
         self.ion_charge = self.poissonSolver_parameters['ion_charge']
-        self.conductivity = self.poissonSolver_parameters['conductivity']
+        self.conductivity = self.poissonSolver_parameters['conductivity_CF']
 
         self.time = 0
         self.list_time = []
@@ -374,97 +377,6 @@ class Crystal_Lattice():
         # This gives basis vectors where integer steps land on atomic sites
         self.basis_vectors = np.array(self.structure_basic.lattice.matrix) * min_non_zero_element
             
-    """
-    DEPRECATING lattice_model_2 2025/10/29
-    """      
-    def lattice_model_2(self, api_key, mode, affected_site=None, radius_neighbors=None):
-        """
-        Generate a lattice model based on the specified mode:
-        - 'regular': Uses the conventional crystal structure.
-        - 'interstitial': Adds interstitial atoms based on charge density.
-        - 'vacancy': Removes atoms to simulate vacancies (to be implemented).
-        
-        Parameters:
-            api_key (str): API key for the Materials Project.
-            mode (str): 'regular', 'interstitial', or 'vacancy'.
-            affected_site (str, optional): The site status at starting the simulation (usually empty).
-            radius_neighbors (float, optional): Neighbor radius for vacancy/interstitial detection.
-            
-            self.interstitial_specie: the interstitial specie in the system
-        """
-
-        with MPRester(api_key) as mpr:
-            structure = mpr.get_structure_by_material_id(self.id_material)
-            
-            # If we want to include interstitial sites
-
-            if mode == 'interstitial':
-                chgcar = mpr.get_charge_density_from_material_id(self.id_material) #Download charge density from MP
-                cig = ChargeInterstitialGenerator() # Defect generator based on charge density
-                defects = cig.generate(chgcar, insert_species=[self.interstitial_specie]) # Generate interstitial specie
-                structure = next(defects).defect_structure  # Select one defect-modified structure
-        
-        
-
-        # Apply symmetry operations
-        symm_op = SymmOp.from_rotation_and_translation(self.rot_matrix(self.latt_orientation), [0, 0, 0])
-        sga = SpacegroupAnalyzer(structure)
-        self.structure_basic = sga.get_conventional_standard_structure()
-
-        # Determine chemical species
-        if mode == 'vacancy':
-            self.chemical_specie = "V_"+affected_site
-        elif mode == 'interstitial':
-            self.chemical_specie = self.interstitial_specie 
-        else:
-            self.chemical_specie = self.structure_basic.composition.reduced_formula
-            
-        # Extract lattice constants in nm
-        self.lattice_constants = tuple(np.array(self.structure_basic.lattice.abc) / 10)
-
-        # Apply rotation
-        self.structure_basic.apply_operation(symm_op)
-        self.structure = self.structure_basic.copy()
-            
-        # Apply the CubicSupercellTransformation
-        min_dimension = max(self.crystal_size) 
-        transformation = CubicSupercellTransformation(min_length=min_dimension,force_90_degrees = True,step_size=0.3)
-
-        # Handle interstitial sites explicitly
-        if mode == 'regular':
-            self.structure = transformation.apply_transformation(self.structure)
-
-        elif mode == 'interstitial':
-            structure_with_interstitial = transformation.apply_transformation(self.structure)
-            self.structure = Structure(structure_with_interstitial.lattice, [], [])
-            
-            for site in structure_with_interstitial:
-                if site.specie.symbol == self.interstitial_specie:
-                    self.structure.append(site.specie, site.frac_coords)
-         
-        elif mode == 'vacancy':
-            structure_original = transformation.apply_transformation(self.structure)
-            self.structure = Structure(structure_original.lattice,[],[])
-            
-            for site in structure_original:
-                if site.specie.symbol == self.affected_site:
-                    self.structure.append(site.specie, site.frac_coords)
-
-
-            
-        self.crystal_size = self.structure.lattice.abc
-            
-        
-        # Compute basis vectors #
-        # Scaling factor for the basis_vectors
-        # Find the minimum non-zero element of fractional coordinates greater than zero to find the scaling factor
-        # Scaling factor so integer times the basis vectors correspond to the sites
-        min_non_zero_element = min([
-            np.min(site.frac_coords[site.frac_coords > 1e-10]) for site in self.structure_basic if np.any(site.frac_coords > 1e-10)
-            ])
-        
-        self.basis_vectors = np.array(self.structure_basic.lattice.matrix) * min_non_zero_element  # Basis vector in nm scaled to the closest element
-
         
     def _initialize_migration_pathways(self, radius_neighbors):
         """Initialize migration pathways and event labels for all possible atomic migrations"""
@@ -1021,19 +933,7 @@ class Crystal_Lattice():
                         
         # Oxidation reaction at the electrode-dielectric interface
         elif self.mode == 'interstitial':
-          
-          """
-          Deprecating: 2025/10/03
-          
-          if not update_supp_av:
-                # The sites in contact with the chemically active electrode and they are empty
-                self.adsorption_sites = [
-                    idx for idx, site in self.grid_crystal.items()
-                    if (self.sites_generation_layer in site.supp_by) and (site.chemical_specie == self.affected_site)
-                ]
-          """      
-                
-                        
+                            
           adsorption_sites_set = set(self.adsorption_sites)
 
           for idx in update_supp_av:
@@ -1051,8 +951,108 @@ class Crystal_Lattice():
                         update_gen_sites.add(idx)
                         
           return update_gen_sites  
+       
+    
+    # ====================================================================
+    #  Super basin helper methods
+    #
+    #  REMOVE THE SUPERBASIN CHECK FROM THE MAIN SCRIPT 
+    # ====================================================================
+    
+    def should_activate_superbasin(self,kmc_time_step):
+        """
+        Determine if superbasin approach should be activated based on system state
+            
+        Returns:
+        --------
+        bool : True if superbasin should be activated
+        """ 
+        if self.time_based_superbasin:
+          # Memristor switching: time-based superbasin activation
+          return self._check_time_based_superbasin(kmc_time_step)
+        else:
+          # Deposition: event-based superbasin activation
+          return self._check_event_based_superbasin()
+          
+        return False
         
-           
+    def _check_event_based_superbasin(self):
+        """
+        Check superbasin activation for deposition (based on system changes)
+        """
+        # Track occupied sites count
+        current_occupied = len(self.sites_occupied)
+        self.superbasin_tracker.append(current_occupied)
+        
+        # Keep only recent history
+        if len(self.superbasin_tracker) > self.n_search_superbasin:
+          self.superbasin_tracker.pop(0)
+          
+        # Check if system has been static
+        if len(self.superbasin_tracker) >= self.n_search_superbasin:
+          recent_mean = np.mean(self.superbasin_tracker[-self.n_search_superbasin:])
+          if abs(recent_mean - current_occupied) < 1e-10: # No change
+            self.nothing_happen_count += 1
+          else:
+            self.nothing_happen_count = 0
+            
+            # Adjust energy minimum
+            if self.E_min - self.energy_step > 0:
+              self.E_min -= self.energy_step
+            else:
+              self.E_min = 0
+              
+        
+        # Check if superbasin should be activated
+        if self.nothing_happen_count == self.n_search_superbasin:
+          return True
+          
+        elif (self.nothing_happen_count > 0 and self.nothing_happen_count % self.n_search_superbasin == 0):
+          # Gradually increase E_min back
+          if self.E_min_lim_superbasin >= self.E_min + self.energy_step:
+            self.E_min += self.energy_step
+          else:
+            self.E_min = self.E_min_lim_superbasin
+          return True
+          
+        return False
+        
+    def _check_time_based_superbasin(self,kmc_time_step):
+      """
+      Check superbasin activation for memristor switching (based on time)
+      """
+      self.superbasin_tracker.append(kmc_time_step)
+      if len(self.superbasin_tracker) > self.n_search_superbasin:
+        self.superbasin_tracker.pop(0)
+        
+      # Check if current step is slow
+      is_slow_step = self._is_slow_timestep(kmc_time_step)
+      
+      if is_slow_step:
+        self.nothing_happen_count += 1
+        
+        if self.nothing_happen_count >= self.n_search_superbasin:
+          self.nothing_happen_count = 0
+          return True
+      else:
+        # Reset counter when we get a larger timestep
+        self.nothing_happen_count = 0
+      
+      return False
+      
+      
+    def _is_slow_timestep(self,timestep):  
+      """
+      Determine if a timestep is considered "slow" (system barely advances)
+      
+      Small timesteps indicate the system is evolving slowly and may be 
+      stuck in metastable states, making it a good candidate for superbasin.
+      """
+      # Small timestep = slow evolution -> Candidate for superbasin
+      if timestep < self.time_step_limits:
+        return True
+      return False
+    
         
                     
     def transition_rate_adsorption(self,experimental_conditions):
@@ -1455,10 +1455,6 @@ class Crystal_Lattice():
 #         Redox reactions
 # =============================================================================         
         elif chosen_event[2] == 'reduction':
-            if np.isclose(self.grid_crystal[chosen_event[1]].position[2], self.crystal_size[2]) and self.V < 0:
-              # Remove particle --> Re-adsorbed at the interface
-              update_specie_events,update_supp_av = self.remove_specie_site(chosen_event[-1],update_specie_events,update_supp_av)
-            else:
               
               self.grid_crystal[chosen_event[1]].ion_charge -= 1
               update_specie_events.add(chosen_event[1])
@@ -1466,9 +1462,13 @@ class Crystal_Lattice():
               self._add_metal_atom_to_clusters(chosen_event[1])
             
         elif chosen_event[2] == 'oxidation':
-            
-            self.grid_crystal[chosen_event[1]].ion_charge += 1
-            update_specie_events.add(chosen_event[1])
+            if np.isclose(self.grid_crystal[chosen_event[1]].position[2], self.crystal_size[2]) and self.V < 0:
+              # Remove particle --> Re-adsorbed at the interface
+              update_specie_events,update_supp_av = self.remove_specie_site(chosen_event[1],update_specie_events,update_supp_av)
+            else:
+              self.grid_crystal[chosen_event[1]].ion_charge += 1
+              update_specie_events.add(chosen_event[1])
+              
             self.update_sites(update_specie_events,set())
             self._remove_metal_atom_from_clusters(chosen_event[1])
             
@@ -1624,6 +1624,21 @@ class Crystal_Lattice():
     def add_time(self):
         
         self.list_time.append(self.time)
+        
+    def get_timestep_limit(self):
+        """
+        Calculate maximum timestep based on next Poisson solve time
+        """
+        next_poisson_time = self.last_poisson_time + self.timestep_limits
+        timestep_limit = next_poisson_time - self.time
+        
+        tolerance = 1.e-12 * self.timestep_limits
+        
+        if timestep_limit < tolerance:
+          self.time = next_poisson_time
+          timestep_limit = 0.0
+        
+        return next_poisson_time - self.time
 
 # =============================================================================
 # --------------------------- PLOTTING FUNCTIONS ------------------------------

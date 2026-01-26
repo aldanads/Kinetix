@@ -157,7 +157,7 @@ class PoissonSolver():
         self.v_test = ufl.TestFunction(self.V)
         
         # Pre-create conductivity (sigma)
-        #self.sigma = fem.Function(self.W)
+        self.sigma = fem.Function(self.W)
         
         # Pre-create forms (bilinear form is constant)
         # Pymatgen works in angstrom
@@ -169,6 +169,7 @@ class PoissonSolver():
         # a = V * angstrom --> Transform to SI --> Scaling factor 1e-10
         angstrom_to_m = 1e-10
         self.a_form = fem.form(ufl.inner(ufl.grad(self.u_trial), ufl.grad(self.v_test)) * angstrom_to_m * ufl.dx)
+        
         
         
     # --- Linear Algebra & Solver ---
@@ -826,6 +827,8 @@ class PoissonSolver():
         
         
         # ---- Clusters boundary conditions ----
+        self.use_conductivity = False # Only true when there is a bridging cluster
+        
         for cluster in clusters.values():
           # Check if cluster touches electrodes
           touches_bottom = cluster.attached_layer['bottom_layer']
@@ -833,6 +836,8 @@ class PoissonSolver():
           
           if touches_bottom and touches_top:
             print('BC: Touches bottom and top')
+            self.use_conductivity = True
+            self.metal_atoms = cluster.atoms_positions
             # Bridging cluster: Apply per layer potential drop
             #V_across_cluster = cluster.voltage_across_cluster(top_value, bottom_value)
             #for cluster_slice, V_slice in zip(cluster.slice_internal_positions_per_slice, V_across_cluster):
@@ -1143,8 +1148,8 @@ class PoissonSolver():
       Include the conductivity of the metal and the dielectric for solving Poisson
       """
       
-      sigma_metal = 1e6#e6          # S/m
-      sigma_dielectric = 1e-1   # S/m
+      sigma_metal = self.poissonSolver_parameters['conductivity_CF']          # S/m
+      sigma_dielectric = self.poissonSolver_parameters['conductivity_dielectric']   # S/m
       # Initialize sigma to dielectric value everywhere
       self.sigma.x.array[:] = sigma_dielectric
       
@@ -1155,8 +1160,8 @@ class PoissonSolver():
       if points_array.ndim == 1:
         points_array = points_array.reshape(1, -1)
         
-      bb_tree = geometry.bb_tree(self.domain,self.domain.topology.dim)
-      cell_candidates = geometry.compute_collisions_points(bb_tree, points_array)
+      
+      cell_candidates = geometry.compute_collisions_points(self.bb_tree, points_array)
       colliding_cells = geometry.compute_colliding_cells(self.domain, cell_candidates, points_array)
           
       for i in range(len(points_array)):
@@ -1187,39 +1192,61 @@ class PoissonSolver():
         # Need to update conductivity before assembling the matrix
         #self.conductivity_in_system(metal_atoms)
         
+        if self.use_conductivity:
+          # Update conductivity field
+          self.conductivity_in_system(self.metal_atoms)
+          
+          # Create form with sigma values
+          angstrom_to_m = 1e-10
+          a_form = fem.form(ufl.inner(self.sigma * ufl.grad(self.u_trial), ufl.grad(self.v_test)) * angstrom_to_m * ufl.dx)
+          
+          with self.b.localForm() as loc_b:
+            loc_b.set(0)
+            
+          # Skip creating L_form entirely
+          assemble_L = False
+          # No charge term for conductivity formulation
+          #L_form = fem.form(0 * self.v_test * ufl.dx)
+        else:
+          # Use pre-computed Poisson form
+          a_form = self.a_form
+          # Create charge density (reuses self.rho internally)
+          rho = self.charge_density(charge_locations,charges, charge_err_tol)
+          """
+          Unit analysis:
+          rho = C/m^3
+          epsilon_0 = F/m = C/(m*V)
+          dx = m^3
+          
+          L = V * m
+          """
+          # Create linear form L (must be recreated as it depends on rho)
+          epsilon_r = self.poissonSolver_parameters['epsilon_r']
+          #angstrom_to_m = (1e-10) ** 3
+          L = (rho / (epsilon_0 * epsilon_r)) * self.v_test * ufl.dx
+          L_form = fem.form(L)
+          assemble_L = True
+        
         # Reassemble matrix only when BCs change
-        if self._bcs_changed:
+        if self._bcs_changed or self.use_conductivity:
           # Zero out matrix and reassemble with new BCs
           self.A.zeroEntries()
-          assemble_matrix(self.A, self.a_form, bcs = self.bcs)
+          assemble_matrix(self.A, a_form, bcs = self.bcs)
           self.A.assemble()
           self.ksp.setOperators(self.A)
           self._bcs_changed = False # Reset flag
         
-        # Create charge density (reuses self.rho internally)
-        rho = self.charge_density(charge_locations,charges, charge_err_tol)
+       
         
         
-        """
-        Unit analysis:
-        rho = C/m^3
-        epsilon_0 = F/m = C/(m*V)
-        dx = m^3
-        
-        L = V * m
-        """
-        # Create linear form L (must be recreated as it depends on rho)
-        epsilon_r = self.poissonSolver_parameters['epsilon_r']
-        #angstrom_to_m = (1e-10) ** 3
-        L = (rho / (epsilon_0 * epsilon_r)) * self.v_test * ufl.dx
-        L_form = fem.form(L)
         
         # Reuse pre-allocated vector self.b --> We zero and reuse
-        with self.b.localForm() as loc_b:
-          loc_b.set(0)
-        assemble_vector(self.b,L_form)
+        if assemble_L:
+          with self.b.localForm() as loc_b:
+            loc_b.set(0)
+          assemble_vector(self.b,L_form)
         
-        fem.apply_lifting(self.b, [self.a_form], [self.bcs])
+        fem.apply_lifting(self.b, [a_form], [self.bcs])
         self.b.ghostUpdate(addv=PETSc.InsertMode.ADD_VALUES,mode=PETSc.ScatterMode.REVERSE)
         fem.set_bc(self.b, self.bcs)
 
@@ -1468,8 +1495,8 @@ class PoissonSolver():
         return
       
       # Find cells containing points
-      bb_tree = geometry.bb_tree(self.domain,self.domain.topology.dim)
-      cell_candidates = geometry.compute_collisions_points(bb_tree,points_array)
+      #bb_tree = geometry.bb_tree(self.domain,self.domain.topology.dim)
+      cell_candidates = geometry.compute_collisions_points(self.bb_tree,points_array)
       colliding_cells = geometry.compute_colliding_cells(self.domain,cell_candidates,points_array)
       
       # Prepare cells array

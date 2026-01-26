@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 import platform
 import shutil
 from crystal_lattice import Crystal_Lattice
+from ElectricalController import ElectricalController
 from superbasin import Superbasin
 from pymatgen.ext.matproj import MPRester
 # from mp_api.client import MPRester
@@ -37,6 +38,9 @@ def initialization(n_sim):
     snapshoots_steps = int(4e1)
     total_steps = int(snapshoots_steps * 25)
     
+    experiments = ['deposition','annealing','ECM memristor']
+    experiment = experiments[2]
+    
     simulation_parameters = {
       'save_data':save_data, 'snapshoots_steps':snapshoots_steps,
       'total_steps':total_steps
@@ -47,7 +51,7 @@ def initialization(n_sim):
     
     if save_data:
         files_copy = ['initialization.py', 'crystal_lattice.py','Site.py','main.py','KMC.py',
-                      'balanced_tree.py','analysis.py','superbasin.py', 'PoissonSolver.py' , 'ElectricalController.py'
+                      'balanced_tree.py','analysis.py','superbasin.py', 'PoissonSolver.py' , 'ElectricalController.py',
                       'activation_energies_deposition.json', 'activation_energies_memristors.json']
         
         if platform.system() == 'Windows': # When running in laptop
@@ -55,14 +59,13 @@ def initialization(n_sim):
         elif platform.system() == 'Linux': # HPC works on Linux
             dst = Path(r'/home/Docs2/samuel.delgado/linuxhome/Documents/Simulators/test')
             
-        paths,Results = save_simulation(files_copy,dst,n_sim) # Create folders and python files
+        paths,Results = save_simulation(files_copy,dst,n_sim,experiment) # Create folders and python files
         
     else:
         paths = {'data': ''}
         Results = []
         
-    experiments = ['deposition','annealing','ECM memristor']
-    experiment = experiments[2]
+
     
 
 
@@ -376,8 +379,8 @@ def initialization(n_sim):
           {
           'type':'cylindrical',
           'center': [crystal_size[0] * 0.5, crystal_size[1] * 0.5],
-          'radius': 4.0,
-          'outer_radius': 20.0,
+          'radius': 8.0,
+          'outer_radius': 8.0,
           'Act_E_diff_GB': 2.7
           }
         ]
@@ -431,11 +434,18 @@ def initialization(n_sim):
         #             Superbasin parameters
         #     
         # =============================================================================
-        n_search_superbasin = 25 # If the time step is very small during n_search_superbasin steps, search for superbasin
+        n_search_superbasin = 100 # If the time step is very small during n_search_superbasin steps, search for superbasin
         time_step_limits = 1e-7 # Time needed for efficient evolution of the system
         E_min = 0.0
         energy_step = 0.05
-        superbasin_parameters = {'n_search_superbasin':n_search_superbasin, 'time_step_limits':time_step_limits, 'E_min':E_min, 'energy_step':energy_step}
+        time_based_superbasin = True
+        superbasin_parameters = {
+          'n_search_superbasin':n_search_superbasin, 
+          'time_step_limits':time_step_limits, 
+          'E_min':E_min, 
+          'energy_step':energy_step,
+          'time_based_superbasin':time_based_superbasin
+        }
         
         # =============================================================================
         #             Electric field parameters: Required for the Poisson Solver
@@ -451,7 +461,8 @@ def initialization(n_sim):
         
         screening_factor = 0.01
         ion_charge = 1
-        conductivity  = 6.3e7 * 0.1
+        conductivity_CF  = 6.3e7 * 0.1
+        conductivity_dielectric = 1e-1
         
 
         
@@ -485,10 +496,44 @@ def initialization(n_sim):
                                     'epsilon_r':epsilon_r,'chem_env_symmetry':chem_env_symmetry,'metal_valence':metal_valence,'d_metal_O':d_metal_O,'active_dipoles':active_dipoles,
                                     'poisson_solve_frequency':poisson_solve_frequency,'solve_Poisson':solve_Poisson,'save_Poisson':save_Poisson, 'screening_factor':screening_factor,
                                     'ion_charge':ion_charge,
-                                    'conductivity':conductivity
+                                    'conductivity_CF':conductivity_CF, 'conductivity_dielectric':conductivity_dielectric
         
         }
         
+        # =============================================================================
+        #             Electrical parameters
+        #     
+        # =============================================================================
+        initial_voltage=0.0 
+        initial_time = 0.0   
+        series_resistance = 2e2  
+        area_experimental_device = np.pi * (50*1e-6)**2
+        
+        max_voltage = 2.6
+        min_voltage = -1.5
+        ramp_rate = 1
+        num_cycles=1
+        voltage_update_time = 0.1
+        
+        Elec_controller = ElectricalController(initial_voltage,initial_time,series_resistance, current_model = 'schottky', crystal_size = crystal_size)
+        
+        Elec_controller.initialize_ramp_voltage_cycle(
+          max_voltage, 
+          min_voltage, 
+          ramp_rate, 
+          voltage_update_time,
+          num_cycles
+        )
+        
+        # Schottky emission parameters
+        phi_b = 0.53
+        
+        Elec_controller.initialize_current_parameters(
+          barrier_height=phi_b,      # eV
+          temperature=T,         # K  
+          area= area_experimental_device,             # m²
+          epsilon_r=epsilon_r            # HfO2
+        )
         
         # =============================================================================
         #             Activation energies
@@ -538,6 +583,8 @@ def initialization(n_sim):
         # =============================================================================
         System_state = initialize_grid_crystal(filename,crystal_features,experimental_conditions,Act_E_list, 
               lammps_file,superbasin_parameters,save_data, interstitial_specie,poissonSolver_parameters) 
+              
+        Elec_controller.crystal_size = System_state.crystal_size #  The crystal_size after the generation of the lattice may differ from the parameter provided in a NN points separation
                 
         # =============================================================================
         #             Initialization of defects
@@ -548,9 +595,9 @@ def initialization(n_sim):
         #System_state.deposition_specie(0,rng,test = 6)
         
         # This timestep_limits will depend on the V/s ratio
-        System_state.timestep_limits = float('inf')
+        System_state.timestep_limits = voltage_update_time
 
-    return System_state,rng,paths,Results, simulation_parameters
+    return System_state,rng,paths,Results, simulation_parameters,Elec_controller
 
     # =============================================================================
     #     Initialize the crystal grid structure - nodes with empty spaces
@@ -667,7 +714,7 @@ def search_superbasin(System_state):
     #print("Superbasins generated: ",len(System_state.superbasin_dict))
         
 
-def save_simulation(files_copy,dst,n_sim):
+def save_simulation(files_copy,dst,n_sim,experiment):
     
     # Create the simulation directory
     parent_dir = f'Sim_{n_sim}'
@@ -696,10 +743,15 @@ def save_simulation(files_copy,dst,n_sim):
         destination_file = paths['program'] / file  # Path for the destination file
         shutil.copyfile(source_file, destination_file)  # Copy the file
     
-    # Create and return results object
-    excel_filename = paths['results'] / 'Results.csv'  # Define the path to the results CSV file
-    Results = SimulationResults(excel_filename)
-        
+
+    if experiment in ['deposition','annealing']:
+      # Create and return results object
+      excel_filename = paths['results'] / 'Results.csv'  # Define the path to the results CSV file
+      Results = SimulationResults(excel_filename)
+      
+    else:
+      Results = None
+      
     return paths, Results
 
 
