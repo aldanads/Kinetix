@@ -14,4 +14,5 @@ Built entirely on free and open-source software, Kinetix integrates seamlessly w
 * [DOLFINx](https://github.com/FEniCS/dolfinx) (part of the [FEniCS Project](https://fenicsproject.org/)) – to solve the Poisson equation for electrostatics,
 * MPI + OpenMP – for hybrid parallelization (MPI via DOLFINx, OpenMP for lattice operations).
 
+## Aim
 Kinetix aims to bridge materials science and device physics by providing a transparent, modular, and accessible platform for multiscale simulation of emerging electronic devices, ideal for research in neuromorphic computing, memristors, and thin-film processing.
