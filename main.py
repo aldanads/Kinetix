@@ -280,14 +280,13 @@ def main():
                 # kMC steps after solving Poisson equation, calculating the electric field and the impact in the transition rates
                 if rank == 0:       
                   System_state,KMC_time_step, chosen_event = KMC(System_state,rng)  
+                  
                   if chosen_event:
                     events_tracking[chosen_event[2]] += 1
                     
-                  activate_superbasin = System_state.should_activate_superbasin(KMC_time_step)
-                    
-                  if activate_superbasin:
-                    print(f'Activate superbasin, step with nothing happening {System_state.nothing_happen_count}')
-                    exit()
+                  search_superbasin(System_state,KMC_time_step)
+                  
+                  
 
                   
                   """   

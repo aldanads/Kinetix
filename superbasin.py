@@ -22,30 +22,39 @@ class Superbasin():
     
     def __init__(self,idx, System_state,E_min,sites_occupied):
         
-        self.particle_idx = idx
-        self.E_min = E_min
-        # Make a deep copy of System_state to avoid modifying the original object
-        self.epsilon_min_decrement = 0.1  # Step to decrease E_min per retr       
-        self.retry_limit = max(round(E_min / self.epsilon_min_decrement),2)  # Maximum retry attempts
-
-        # Core workflow
-        self.trans_absorbing_states(idx,System_state,sites_occupied)
-        if not self.absorbing_states or not self.transient_states:
-            self.valid = False  # Mark the object as invalid
-            return
+        original_allow_specie_removal = System_state.allow_specie_removal 
+        System_state.allow_specie_removal = False  # disable during virtual moves
         
-        self.valid = True  # Mark the object as valid if absorbing states exist
-        
-        
-        self.transition_matrix()
-        self.markov_matrix()
-        
-        if not self.absorption_probability_matrix():
-            self.valid = False  # Mark as invalid if poor conditioning is detected
-            return
-        
-        self.calculate_transition_rates_absorbing_states(System_state.num_event)
-        self.calculate_superbasin_environment(System_state.grid_crystal)
+        try:
+          self.particle_idx = idx
+          self.E_min = E_min
+          self.epsilon_min_decrement = 0.1  # Step to decrease E_min per retr       
+          self.retry_limit = max(round(E_min / self.epsilon_min_decrement),2)  # Maximum retry attempts
+  
+          # Core workflow
+          self.trans_absorbing_states(idx,System_state,sites_occupied)
+  
+          if not self.absorbing_states or not self.transient_states:
+              self.valid = False  # Mark the object as invalid
+              return
+          
+          self.valid = True  # Mark the object as valid if absorbing states exist
+          print('Absorbing states exist')
+          
+          self.transition_matrix()
+          self.markov_matrix()
+          
+          if not self.absorption_probability_matrix():
+              self.valid = False  # Mark as invalid if poor conditioning is detected
+              return
+              
+          print('No poor conditioning detected')
+          
+          self.calculate_transition_rates_absorbing_states(System_state.num_event)
+          self.calculate_superbasin_environment(System_state.grid_crystal)
+  
+        finally:      
+          System_state.allow_specie_removal = original_allow_specie_removal
 
    
     def trans_absorbing_states(self,start_idx,System_state,sites_occupied):
@@ -66,39 +75,52 @@ class Superbasin():
             if idx not in visited:
                 site = grid_crystal[idx]
                 is_absorbing = True # Assume that it is an absorbing state
+                site_has_migrations = False
                 
                 for transition in site.site_events:
+                    
+                    if not isinstance(transition[2],int):
+                      continue # Skip redox, generation, etc. Keep only migrations
+                
+                    site_has_migrations = True
+                    last_transition = transition # update last known transition
                     transition_with_idx = transition + [idx]
-                    if transition[3] < self.E_min:
-
+                    
+                    if transition[3] <= self.E_min:
                         is_absorbing = False # If it is a easy way out, it is a transient state (< E_min)
                         if transition_with_idx not in self.transient_states_transitions:
                             self.transient_states_transitions.append(transition_with_idx)
                     else:
                         aux_transitions.append(transition_with_idx)
                     
-                    last_transition = transition # update last known transition
-                    
-                if is_absorbing:
+                if is_absorbing and site_has_migrations:
                     self.absorbing_states.append(idx)
 
-                else:
+                elif not is_absorbing:
+                    # Explore neighbors via migration
                     for transition in site.site_events:
+                        if not isinstance(transition[2], int):
+                          continue
+                        dest = transition[1]
                         # Visit all the transitions from a transient state, even those
                         # with larger Act. Energy than E_min
-                        if transition[1] not in visited and transition[1] not in stack:
-                            stack.append(transition[1])
+                        if dest not in visited and dest not in stack:
+                            stack.append(dest)
                 
                 # Control of the states visited
                 visited.add(idx)
                                 
-            # Virtual migrations to calculate activation energies
-            if stack:
-                System_state.processes((transition[0], stack[-1], transition[2], idx))
+            
+            # Prepare system state for evaluating the next site in the stack
+            if stack and last_transition is not None:
+                next_site = stack[-1]
+                # Perform a virtual move of the ion to `next_site` so that
+                # activation energies for its outgoing transitions are up to date.
+                System_state.processes((last_transition[0], next_site, last_transition[2], idx))
               
         # Return to the original state
-        if last_transition:            
-            System_state.processes((transition[0], start_idx, transition[2], idx)) 
+        if last_transition is not None and isinstance(last_transition[2],int):            
+            System_state.processes((last_transition[0], start_idx, last_transition[2], idx)) 
             
 
         # Construct the transitions to the absorbing states
@@ -114,7 +136,6 @@ class Superbasin():
                 
                 
         self.transient_states = list({transition[-1] for transition in self.transient_states_transitions})
-
         self.superbasin_idx = self.absorbing_states + self.transient_states 
         
         # Check that grid_crystal is in the original state
@@ -293,7 +314,8 @@ class Superbasin():
             
         self.superbasin_environment = set(list(self.superbasin_environment) + self.superbasin_idx)
         
-        self.superbasin_environment.discard('Substrate') 
+        self.superbasin_environment.discard('bottom_layer') 
+        self.superbasin_environment.discard('top_layer') 
 
     # Verify that we leave grid_crystal in the original state
     def verify_grid_crystal(self,System_state,sites_occupied):       

@@ -434,9 +434,9 @@ def initialization(n_sim):
         #             Superbasin parameters
         #     
         # =============================================================================
-        n_search_superbasin = 100 # If the time step is very small during n_search_superbasin steps, search for superbasin
-        time_step_limits = 1e-7 # Time needed for efficient evolution of the system
-        E_min = 0.0
+        n_search_superbasin = 50 # If the time step is very small during n_search_superbasin steps, search for superbasin
+        time_step_limits = 1e-4 # Time needed for efficient evolution of the system
+        E_min = 0.5
         energy_step = 0.05
         time_based_superbasin = True
         superbasin_parameters = {
@@ -684,11 +684,14 @@ def initialize_grid_crystal(filename,crystal_features,experimental_conditions,Ac
         return System_state
         
         
-def search_superbasin(System_state):
+def search_superbasin(System_state,kmc_time_step):
           
     # We need a deepcopy? System_state.sites_occupied will be modified on site
     # when calling Superbasin() and it will change the order of sites_occupied
     # sites_occupied = copy.deepcopy(System_state.sites_occupied)
+    
+    if not System_state.should_activate_superbasin(kmc_time_step):
+        return  # Early exit: no action needed
     
     # This approach should be more efficient and memory-friendly
     sites_occupied = System_state.sites_occupied[:] 
@@ -697,8 +700,10 @@ def search_superbasin(System_state):
     
     for idx in sites_occupied:
         for event in System_state.grid_crystal[idx].site_events:
-            if (idx not in System_state.superbasin_dict) and (event[3] <= System_state.E_min):
+            if (idx not in System_state.superbasin_dict) and (event[3] <= System_state.E_min) and isinstance(event[2],int):
+                print('Creating superbasin')
                 superbasin = Superbasin(idx, System_state, System_state.E_min,sites_occupied)
+                print(f'Is superbasin valid? {superbasin.valid}')
                 if superbasin.valid:    
                     System_state.superbasin_dict.update({idx: superbasin})
     
@@ -710,8 +715,8 @@ def search_superbasin(System_state):
     
     if elapsed_time > 300 and System_state.E_min_lim_superbasin > System_state.energy_step:
         System_state.E_min -= System_state.energy_step
-    # print(f"Elapsed time superbasin: {elapsed_time} seconds")    
-    #print("Superbasins generated: ",len(System_state.superbasin_dict))
+    print(f"Elapsed time superbasin: {elapsed_time} seconds")    
+    print("Superbasins generated: ",len(System_state.superbasin_dict))
         
 
 def save_simulation(files_copy,dst,n_sim,experiment):

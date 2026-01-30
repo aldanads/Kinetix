@@ -73,6 +73,7 @@ class Crystal_Lattice():
         self.superbasin_tracker = []
         self.nothing_happen_count = 0
         self.time_based_superbasin = superbasin_parameters['time_based_superbasin']
+        self.allow_specie_removal = True # We need this variable to desactivate specie removal during superbasin creation
         
         # Poisson solver parameters
         self.poissonSolver_parameters = kwargs.get('poissonSolver_parameters', None)
@@ -962,11 +963,21 @@ class Crystal_Lattice():
     def should_activate_superbasin(self,kmc_time_step):
         """
         Determine if superbasin approach should be activated based on system state
+        
+        Superbasins are only useful when:
+          1. A stable, percolating filament exists
+          2. The system is trapped in shallow wells
             
         Returns:
         --------
         bool : True if superbasin should be activated
         """ 
+        
+        # Condition 1: Must have a percolating filament
+        if not self.is_filament_percolating():
+          return False
+        
+        # Condition 2: Must be in a trapped regime
         if self.time_based_superbasin:
           # Memristor switching: time-based superbasin activation
           return self._check_time_based_superbasin(kmc_time_step)
@@ -975,6 +986,13 @@ class Crystal_Lattice():
           return self._check_event_based_superbasin()
           
         return False
+    
+    def is_filament_percolating(self):
+      return any(
+        cluster.attached_layer.get('bottom_layer') and
+        cluster.attached_layer.get('top_layer')
+        for cluster in self.clusters.values()
+      )
         
     def _check_event_based_superbasin(self):
         """
@@ -1026,7 +1044,7 @@ class Crystal_Lattice():
         self.superbasin_tracker.pop(0)
         
       # Check if current step is slow
-      is_slow_step = self._is_slow_timestep(kmc_time_step)
+      is_slow_step = self._slow_timesteps()
       
       if is_slow_step:
         self.nothing_happen_count += 1
@@ -1041,16 +1059,28 @@ class Crystal_Lattice():
       return False
       
       
-    def _is_slow_timestep(self,timestep):  
+    def _slow_timesteps(self):  
       """
       Determine if a timestep is considered "slow" (system barely advances)
       
       Small timesteps indicate the system is evolving slowly and may be 
       stuck in metastable states, making it a good candidate for superbasin.
       """
+      
+      # Need to ensure we have enough data points
+      if len(self.superbasin_tracker) < self.n_search_superbasin:
+        return False  # Not enough data yet
+        
+      recent_mean_timestep = np.mean(self.superbasin_tracker[-self.n_search_superbasin:])
+      
       # Small timestep = slow evolution -> Candidate for superbasin
-      if timestep < self.time_step_limits:
+      # Option 1: Absolute threshold
+      if recent_mean_timestep < self.time_step_limits:
         return True
+        
+      # Option 2: Relative threshold (alternative)
+      # if recent_mean < 0.1 * self.voltage_update_time:  # 10% of voltage update interval
+      #     return True
       return False
     
         
@@ -1407,7 +1437,7 @@ class Crystal_Lattice():
 # =============================================================================
         if isinstance(chosen_event[2], int): # If is int: migration or superbasin
             
-            if np.isclose(self.grid_crystal[chosen_event[1]].position[2], self.crystal_size[2]) and self.V < 0 and self.grid_crystal[chosen_event[-1]].ion_charge != 0:
+            if (np.isclose(self.grid_crystal[chosen_event[1]].position[2], self.crystal_size[2]) and self.V < 0 and self.grid_crystal[chosen_event[-1]].ion_charge != 0 and self.allow_specie_removal):
               # Remove particle
               update_specie_events,update_supp_av = self.remove_specie_site(chosen_event[-1],update_specie_events,update_supp_av)
               # We have to update every activation energy affected by the electric field            

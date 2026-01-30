@@ -9,6 +9,7 @@ import numpy as np
 from sklearn.decomposition import PCA
 import os
 import copy
+from typing import NamedTuple
 
 
 class Site():
@@ -633,8 +634,6 @@ class Cluster:
         
       self.attached_layer = {'bottom_layer': touches_bottom, 'top_layer': touches_top}
       
-      
-      
       # Propagate to every atom in the cluster
       for site_id in self.atoms_id:
         grid_crystal[site_id].in_cluster_with_electrode['bottom_layer'] = touches_bottom
@@ -651,14 +650,11 @@ class Cluster:
       # 1) For virtual electrodes
       self._identify_internal_atoms(grid_crystal)
       
-      # 2) Slice clusters
-      
-      
-      # 3) When filament is bridging the electrodes: calculate the voltage drops across the filament
+      # 2) When filament is bridging the electrodes: calculate the voltage drops across the filament
       if self.attached_layer['bottom_layer'] and self.attached_layer['top_layer']:
         self._slice_cluster(grid_crystal)
         self._cluster_resistance(grid_crystal)
-      elif self.attached_layer['bottom_layer'] or self.attached_layer['top_layer']:
+      else:
         self._get_distance_to_electrode(crystal_size)
         
     def _identify_internal_atoms(self,grid_crystal):
@@ -687,6 +683,8 @@ class Cluster:
          distance = crystal_size[2] - pos[2]
        elif self.attached_layer['top_layer']:
          distance = pos[2]
+       else:
+         distance = crystal_size[2]
          
        min_distance = min(min_distance,distance)
        
@@ -1027,57 +1025,7 @@ class GrainBoundary:
             # Else: continue to next GB (not in this GB's region)
             
       return 0 # Not in any GB
-      
-    """
-    DEPRECATING 2026/01/05
-    """
-    def get_activation_energy_GB_2(self, site_position: tuple) -> float:
-      """
-      Get additional activation energy outside GB
-      
-      Parameters:
-      -----------
-      site_position : tuple (x, y, z)
-        Site coordinates in Angstroms
-            
-      Returns:
-      --------
-      float : Activation energy at site
-      """
-      x, y, z = np.array(site_position)
-      
-      # Check vertical planar boundaries
-      for gb in self.vertical_gbs:
-        if gb['orientation'] == 'yz':
-          if abs(x - gb['position']) <= gb['width'] / 2: return gb['Act_E_diff_GB']
-          
-        elif gb['orientation'] == 'xz':
-          if abs(y - gb['position']) <= gb['width'] / 2: return gb['Act_E_diff_GB']
-          
-        elif gb['orientation'] == 'xy':
-          if abs(z - gb['position']) <= gb['width'] / 2: return gb['Act_E_diff_GB']
-          
-      # Check cylindrical boundaries
-      for gb in self.cylindrical_gbs:
-        cx, cy = gb['center']
-        radius = gb['radius']
-        outer_radius = gb['outer_radius']
-        
-        distance_from_axis = np.sqrt((x - cx)**2 + (y - cy)**2)
-        
-        if distance_from_axis <= radius:
-          # Inside the core GB 
-          return gb['Act_E_diff_GB']
-        elif radius <= distance_from_axis <= outer_radius:
-          # In the transition region - linear interpolation
-          slope = gb['linear_slope']
-          intercept = gb['linear_intercept']
-          return max(slope * distance_from_axis + intercept, 0)
-          # Outside outer_radius: return 0 (no effect)
-        
-      return 0 # Not in any GB
-          
-      
+       
     
     def modify_act_energy_GB(self,site,migration_pathways):
       """

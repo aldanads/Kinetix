@@ -190,12 +190,12 @@ class ElectricalController:
         if self.current_model == 'ohmic':
             self._calculate_ohmic_current(self.voltage,filament_resistance)
             V_eff = self._calculate_effective_device_voltage(self.current)
-            print(f'Applied voltage: {self.voltage}, Effective V: {V_eff}, Ohmic current: {self.current}')
+            #print(f'Applied voltage: {self.voltage}, Effective V: {V_eff}, Ohmic current: {self.current}')
             
         elif self.current_model == 'schottky':
             V_eff = self._solve_Schottky_with_series_resistance_Newton(self.voltage,effective_gap)
             self._calculate_schottky_current(V_eff,effective_gap)
-            print(f'Applied voltage: {self.voltage}, Effective V: {V_eff}, Schottky current: {self.current}')
+            #print(f'Applied voltage: {self.voltage}, Effective V: {V_eff}, Schottky current: {self.current}')
         else:
             raise ValueError(f'Unkown current model: {self.current_model}')
             
