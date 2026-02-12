@@ -176,10 +176,8 @@ def main():
                 comm = MPI.COMM_WORLD
                 rank = comm.Get_rank()
                 
-                mesh_file = System_state.poissonSolver_parameters['mesh_file']
-                
                 # Initialize Poisson solver on all MPI ranks
-                poisson_solver = PoissonSolver(mesh_file,System_state.poissonSolver_parameters, structure=System_state.structure,path_results = paths["results"])
+                poisson_solver = PoissonSolver(System_state.poissonSolver_parameters, grid_crystal=System_state.grid_crystal,path_results = paths["results"])
                 poisson_solver.set_boundary_conditions(top_value=V_top, bottom_value=0.0)  # Set appropriate BCs
                 poisson_solve_frequency = System_state.poissonSolver_parameters['poisson_solve_frequency']  # Solve Poisson every N KMC steps
                 
@@ -223,6 +221,10 @@ def main():
                   
                   # KMC step runs in serial (only on rank 0) 
                   # It is the only rank that have updated System_state --> kMC steps only in rank = 0
+                  
+                  """
+                  Many of these broadcasting probably can be included inside the crystal_lattice class
+                  """
                   if rank == 0:    
                     particle_locations, charges, E_field_points = System_state.get_evaluation_points()
                   else:
@@ -246,6 +248,9 @@ def main():
                         V_top = Elec_controller.apply_ramp_voltage_cycle(System_state.time)
                         System_state.save_electric_bias(V_top)
                   
+                        """
+                        Cluster broadcasting probably can be included inside the crystal_lattice class
+                        """
                         # Calculate clusters for include BC in the cluster --> Virtual electrode
                         if rank == 0:
                           clusters = System_state.clusters
@@ -285,22 +290,7 @@ def main():
                     events_tracking[chosen_event[2]] += 1
                     
                   search_superbasin(System_state,KMC_time_step)
-                  
-                  
-
-                  
-                  """   
-                  for cluster in clusters.values():
-                    touches_bottom = cluster.attached_layer['bottom_layer']
-                    touches_top = cluster.attached_layer['top_layer']
-                    
-                    if touches_bottom and touches_top:
-                      for point in E_field_points:
-                        E_field_key = tuple(np.round(point, 6))
-                        print(f'The position {point} (Is it in CF? {tuple(point) in cluster.atoms_positions}) has an electric field of {E_field[E_field_key]}')
-                        
-                      exit()
-                  """    
+                   
               
                    
                   

@@ -39,7 +39,6 @@ class Superbasin():
               return
           
           self.valid = True  # Mark the object as valid if absorbing states exist
-          print('Absorbing states exist')
           
           self.transition_matrix()
           self.markov_matrix()
@@ -47,8 +46,6 @@ class Superbasin():
           if not self.absorption_probability_matrix():
               self.valid = False  # Mark as invalid if poor conditioning is detected
               return
-              
-          print('No poor conditioning detected')
           
           self.calculate_transition_rates_absorbing_states(System_state.num_event)
           self.calculate_superbasin_environment(System_state.grid_crystal)

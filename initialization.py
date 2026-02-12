@@ -340,37 +340,84 @@ def initialization(n_sim):
         #         Experimental conditions
         #         
         # =============================================================================
-        sticking_coeff = None       
-        partial_pressure = None # (Pa = N m^-2 = kg m^-1 s^-2)
-        temp = 300
-        T = temp # (K)
-        
-        experimental_conditions = {'sticking_coeff':sticking_coeff,'partial_pressure':partial_pressure,'T':T,'experiment':experiment}
+    
+        T = 300 # (K)
+        experimental_conditions = {
+          'sticking_coeff':None,
+          'partial_pressure':None,
+          'T':T,
+          'experiment':experiment
+        }
         
         
         # =============================================================================
-        #         Crystal structure
+        #         Material and crystal structure
         #         
         # =============================================================================
-        material_selection = {"CeO2":"mp-20194", "ZrPbO3":"mp-1068577"}
-        nearest_neighbors_distance = {"CeO2":4, "ZrPbO3": 5}
-        technologies = ['ECM','PZT']
-        technology = technologies[0]
-        id_material_Material_Project = material_selection["CeO2"]
-        radius_neighbors = nearest_neighbors_distance["CeO2"]
+        # Material selection
+        material_db = {
+          "CeO2": {"mp_id":"mp-20194", "radius_neighbors": 4.0},
+          "ZrPbO3": {"mp_id": "mp-1068577", "radius_neighbors": 5.0}
+        }
+        
+        # Selected material
+        material_name = "CeO2"
+        material_info = material_db[material_name]
+    
         crystal_size = (50,50,50) # (angstrom (Å))
         miller_indices = (0,0,1)
         use_parallel = None
         facets_type = None
-        affected_sites = ['Empty','O']
-        affected_site = affected_sites[0]
-        interstitial_specie = 'Ag'
-        available_events = {'migration': True, 'reduction': True, 'oxidation': True}
-
-        mode = ['interstitial', 'vacancy']
-
-        sites_generation_layer = ['bottom_layer','top_layer']
+        affected_site_marker = 'Empty'
         
+        # Simulation level settings
+        # ['ECM','PZT']
+        technology = "ECM" # or "PZT"
+        sites_generation_layer = 'top_layer' # or "bottom_layer"
+        mode = 'interstitial' # or 'vacancy'
+
+        
+        # Defect configuration  
+        defects_config = {
+          
+          "Ag_interstitial":{
+            "symbol": "Ag",
+            "charge": +1,
+            "site_type": "interstitial",
+            "allowed_sublattices": ['interstitial'],
+            "initial_concentration": 0.0, # 0 if injected dynamically
+            "activation_energies_key": "Ag", # key in JSON file
+            "enabled_events": ["migration", "reduction", "oxidation"],
+            "sites_generation_layer": sites_generation_layer,
+            "description": "Mobile cation from active electrode"
+          }
+          
+        }
+        
+        """
+          "hydrogen_interstitial":{
+            "symbol": "H",
+            "charge": +1,
+            "site_type": "interstitial",
+            "initial_concentration": 1e-3,
+            "activation_energies_key": "H",
+            "enabled_events": ["migration"]
+            "description": "Hydrogen defect in interstitial"
+          
+          },
+          "oxygen_vacancy": {
+            "symbol": "V_O",
+            "charge": +2,
+            "site_type": "O",
+            "initial_concentration": 1e-3,
+            "activation_energies_key": "V_O",
+            "enabled_events": []
+            "description": "Intrinsic vacancy in oxide lattice"
+          }
+        """
+
+
+
         # -----------------
         # Grain boundaries
         # -----------------
@@ -411,22 +458,23 @@ def initialization(n_sim):
         # Retrieve material data
         with MPRester(api_key) as mpr:
             # Retrieve material summary information
-            material_summary = mpr.materials.summary.search(material_ids=[id_material_Material_Project])
+            material_summary = mpr.materials.summary.search(material_ids=[material_info["mp_id"]])
             formula = material_summary[0].formula_pretty
                             
         crystal_features = {
-          'id_material_Material_Project': id_material_Material_Project,
+          'id_material_Material_Project': material_info["mp_id"],
           'crystal_size': crystal_size,
           'miller_indices': miller_indices,
           'api_key': api_key,
           'use_parallel': use_parallel,
           'facets_type': facets_type,
-          'affected_site': affected_site,
-          'mode': mode[0],
-          'radius_neighbors': radius_neighbors,
-          'sites_generation_layer': sites_generation_layer[1],
-          'available_events': available_events,
-          'gb_configurations': gb_configurations
+          'affected_site': affected_site_marker,
+          'mode': mode,
+          'radius_neighbors': material_info["radius_neighbors"],
+          'sites_generation_layer': sites_generation_layer,
+          'defects_config': defects_config,
+          'gb_configurations': gb_configurations,
+          'technology': technology
         }
 
 
@@ -434,17 +482,12 @@ def initialization(n_sim):
         #             Superbasin parameters
         #     
         # =============================================================================
-        n_search_superbasin = 50 # If the time step is very small during n_search_superbasin steps, search for superbasin
-        time_step_limits = 1e-4 # Time needed for efficient evolution of the system
-        E_min = 0.5
-        energy_step = 0.05
-        time_based_superbasin = True
         superbasin_parameters = {
-          'n_search_superbasin':n_search_superbasin, 
-          'time_step_limits':time_step_limits, 
-          'E_min':E_min, 
-          'energy_step':energy_step,
-          'time_based_superbasin':time_based_superbasin
+          'n_search_superbasin':50, # If the time step is very small during n_search_superbasin steps, search for superbasin
+          'time_step_limits':1e-4, # Time needed for efficient evolution of the system
+          'E_min':0.5, 
+          'energy_step':0.05,
+          'time_based_superbasin':True
         }
         
         # =============================================================================
@@ -469,8 +512,8 @@ def initialization(n_sim):
         # Extract data from Materials Project
         with MPRester(api_key) as mpr:
             # Get the material with chemenv data specifically: chemical environment: valence, local symmetry
-            material_data = mpr.materials.chemenv.search(material_ids=[id_material_Material_Project])
-            dielectric_data = mpr.materials.dielectric.search(material_ids=[id_material_Material_Project])
+            material_data = mpr.materials.chemenv.search(material_ids=[material_info["mp_id"]])
+            dielectric_data = mpr.materials.dielectric.search(material_ids=[material_info["mp_id"]])
         
         chem_env_symmetry = material_data[0].chemenv_name[0]
         metal_valence = material_data[0].valences[0]
@@ -492,12 +535,13 @@ def initialization(n_sim):
             
             
 
-        poissonSolver_parameters = {'mesh_file':mesh_file,
-                                    'epsilon_r':epsilon_r,'chem_env_symmetry':chem_env_symmetry,'metal_valence':metal_valence,'d_metal_O':d_metal_O,'active_dipoles':active_dipoles,
-                                    'poisson_solve_frequency':poisson_solve_frequency,'solve_Poisson':solve_Poisson,'save_Poisson':save_Poisson, 'screening_factor':screening_factor,
-                                    'ion_charge':ion_charge,
-                                    'conductivity_CF':conductivity_CF, 'conductivity_dielectric':conductivity_dielectric
-        
+        poissonSolver_parameters = {
+          'mesh_file':mesh_file,
+          'epsilon_r':epsilon_r,'chem_env_symmetry':chem_env_symmetry,'metal_valence':metal_valence,'d_metal_O':d_metal_O,'active_dipoles':active_dipoles,
+          'poisson_solve_frequency':poisson_solve_frequency,'solve_Poisson':solve_Poisson,'save_Poisson':save_Poisson, 'screening_factor':screening_factor,
+          'ion_charge':ion_charge,
+          'conductivity_CF':conductivity_CF, 'conductivity_dielectric':conductivity_dielectric,
+          'defects_config':defects_config
         }
         
         # =============================================================================
@@ -542,32 +586,53 @@ def initialization(n_sim):
         # Retrieve the activation energies
         activation_energy_file = script_directory / 'activation_energies_memristors.json'
         with open(activation_energy_file, 'r') as file:
-            data = json.load(file)
+            ae_data = json.load(file)
             
-        Act_E_list = {}
-        for defect in data[technology]:
-            # Search the selected element we retrieved from Materials Project
-            if defect['specie'] == interstitial_specie:
-
-                #Search the activation energies
-                for key,activation_energies in defect.items():
-                    if 'activation_energies' in key:
-                        # Select the dataset
-                        for key_1,act_energy in activation_energies.items():
-                            if isinstance(act_energy, (int, float)):
-                                #E_dataset.append(act_energy)
-                                Act_E_list[key_1] = act_energy
-                
+        # Container: Act_E_dict[defect_name] = {energy_key: value or list}
+        Act_E_dict = {}
         
-        CN_clustering_energy = Act_E_list['CN_clustering_energy']
-        E_clustering = [0,0,CN_clustering_energy * 2,CN_clustering_energy * 3,CN_clustering_energy * 4,CN_clustering_energy * 5,CN_clustering_energy * 6,CN_clustering_energy * 7,CN_clustering_energy * 8,CN_clustering_energy * 9,CN_clustering_energy * 10,CN_clustering_energy * 11,CN_clustering_energy * 12,CN_clustering_energy * 13] 
-        Act_E_list['CN_clustering_energy'] = E_clustering
-        
-        if 'CN_redox_energy' in Act_E_list:
-          CN_redox_energy = Act_E_list['CN_redox_energy']
-          E_redox = [0,0,CN_redox_energy * 2,CN_redox_energy * 3,CN_redox_energy * 4,CN_redox_energy * 5,CN_redox_energy * 6,CN_redox_energy * 7,CN_redox_energy * 8,CN_redox_energy * 9,CN_redox_energy * 10,CN_redox_energy * 11,CN_redox_energy * 12,CN_redox_energy * 13] 
-          Act_E_list['CN_redox_energy'] = E_redox
-        
+        def expand_clustering_energy(base_energy, max_cn = 13):
+          """ 
+          Returns list where index = CN, values = base_energy * CN for CN >= 2
+          """
+          energies = [0.0, 0.0] # CN = 0,1 -> No clustering
+          for cn in range(2,max_cn+1):
+            energies.append(base_energy * cn)
+          return energies
+          
+        for defect_name, defect_cfg in defects_config.items():
+          key = defect_cfg["activation_energies_key"]  
+          
+          matching_entry = None
+          for entry in ae_data[technology]:
+            if entry.get("specie") == key:
+              matching_entry = entry
+              break
+          
+          if matching_entry is None:
+            warnings.warn(f'No activation energy data found for "{key}" in technology "{technology}". Skipping.')
+            continue
+            
+          # Extract all activation energies from this entry
+          energies = {}
+          for field_name, value in matching_entry.items():
+            if "activation_energies" in field_name and isinstance(value, dict):
+              # This block contains named energies (e.g., "migration", "clustering")
+              for energy_name, energy_val in value.items():
+                if isinstance(energy_val, (int,float)):
+                  energies[energy_name] = energy_val
+                  
+          # Expand clustering and redox energies into CN-dependent lists
+          if "CN_clustering_energy" in energies:
+            base = energies["CN_clustering_energy"]
+            energies["CN_clustering_energy"] = expand_clustering_energy(base)
+            
+          if "CN_redox_energy" in energies:
+            base = energies["CN_redox_energy"]
+            energies["CN_redox_energy"] = expand_clustering_energy(base)
+            
+          Act_E_dict[defect_name] = energies
+          
 
         # =============================================================================
         #             Filename
@@ -581,8 +646,8 @@ def initialization(n_sim):
         #             Crystal structure generation
         #     
         # =============================================================================
-        System_state = initialize_grid_crystal(filename,crystal_features,experimental_conditions,Act_E_list, 
-              lammps_file,superbasin_parameters,save_data, interstitial_specie,poissonSolver_parameters) 
+        System_state = initialize_grid_crystal(filename,crystal_features,experimental_conditions,Act_E_dict, 
+              lammps_file,superbasin_parameters,save_data,poissonSolver_parameters) 
               
         Elec_controller.crystal_size = System_state.crystal_size #  The crystal_size after the generation of the lattice may differ from the parameter provided in a NN points separation
                 
@@ -602,84 +667,74 @@ def initialization(n_sim):
     # =============================================================================
     #     Initialize the crystal grid structure - nodes with empty spaces
     # =============================================================================    
-def initialize_grid_crystal(filename,crystal_features,experimental_conditions,Act_E_list, 
-    lammps_file,superbasin_parameters,save_data, interstitial_specie = None, poissonSolver_parameters = None):
-      
+def initialize_grid_crystal(
+  filename,
+  crystal_features,
+  experimental_conditions,
+  Act_E_dict, 
+  lammps_file,
+  superbasin_parameters,
+  save_data, 
+  poissonSolver_parameters = None
+):
+        """
+        Initialize or load a crystal lattice state for kMC simulation.
+        
+        Parameters
+        ----------
+        filename : str
+            Base name for saved grid files (without extension).
+        crystal_features : dict
+            Contains material, defect config, size, etc.
+        ... (other params)
+        
+        Returns
+        -------
+        Crystal_Lattice
+        """
         # If grid_crystal exists: we loaded
         # Otherwise: we create it (very expensive for larger systems ~100 anstrongs)
         current_directory = Path(__file__).parent
-        # Check for .dat and .pkl extensions       
-        # Dynamically append extensions for checks
-        dat_file = current_directory / filename
-        dat_file_with_ext = dat_file.with_suffix('.dat')
-        pkl_file_with_ext = dat_file.with_suffix('.pkl')
+        dat_path = current_directory / f"{filename}.dat"
+        pkl_path = current_directory / f"{filename}.pkl"
+
+        # Determine if we can load an existing grid
+        grid_crystal = None
+        
+        if dat_path.exists():
+          print('Loading ' + filename + ".dat")
+          with shelve.open(str(current_directory / filename)) as shelf:
+            grid_crystal = shelf.get(filename)
+            
+        elif pkl_path.exists():
+          print('Loading ' + filename + '.pkl')
+          with open(pkl_path, 'rb') as f:
+            data = pickle.load(f)
+            grid_crystal = data.get(filename)
+        
         
         # Prepare keyword arguments
         crystal_kwargs = {}
-        
-        # Add interstitial_specie if provided
-        if interstitial_specie is not None:
-            crystal_kwargs['interstitial_specie'] = interstitial_specie
-            
         if poissonSolver_parameters is not None:
-            crystal_kwargs['poissonSolver_parameters'] = poissonSolver_parameters
-        
-        if dat_file_with_ext.exists():
-            print('Loading ' + filename + ".dat")
-            # Load from .dat
-            dat_file = current_directory / f"{filename}"
-            with shelve.open(dat_file) as my_shelf:
-                grid_crystal = my_shelf.get(filename)
-                
-            # Add grid_crystal to kwargs
-            crystal_kwargs['grid_crystal'] = grid_crystal
+          crystal_kwargs['poissonSolver_parameters'] = poissonSolver_parameters
             
-            System_state = Crystal_Lattice(
-                crystal_features,
-                experimental_conditions,
-                Act_E_list,
-                lammps_file,
-                superbasin_parameters,
-                **crystal_kwargs
-                )
-
-        elif pkl_file_with_ext.exists():
-            print('Loading ' + filename + '.pkl')
-            # Load from .pkl
-            with open(pkl_file_with_ext, 'rb') as file:
-                # Call load method to deserialze
-                data = pickle.load(file)
-            grid_crystal = data.get(filename)
+        if grid_crystal is not None:
+          crystal_kwargs['grid_crystal'] = grid_crystal
             
-            # Add grid_crystal to kwargs
-            crystal_kwargs['grid_crystal'] = grid_crystal
-
-            System_state = Crystal_Lattice(
-                crystal_features,
-                experimental_conditions,
-                Act_E_list,
-                lammps_file,
-                superbasin_parameters,
-                **crystal_kwargs
-                )
-
-            
-        else:
-            # Create new grid_crystal
-            print('Creating ' + filename)
-            System_state = Crystal_Lattice(
-                crystal_features,
-                experimental_conditions,
-                Act_E_list,
-                lammps_file,
-                superbasin_parameters,
-                **crystal_kwargs # This will only contain interstitial_specie if provided
-                )
+        # Instantiate system (loads or creates grid internally)
+        System_state = Crystal_Lattice(
+          crystal_features = crystal_features,
+          experimental_conditions = experimental_conditions,
+          Act_E_dict = Act_E_dict,
+          lammps_file = lammps_file,
+          superbasin_parameters = superbasin_parameters,
+          **crystal_kwargs 
+        )
             
             # Save the newly created data
-            if save_data:
-                print('Saving ' + filename)
-                save_variables(current_directory, {filename : System_state.grid_crystal}, filename)
+        if save_data and grid_crystal is None:
+          print(f'Saving {filename}')
+          save_variables(current_directory, {filename : System_state.grid_crystal}, filename)
 
         return System_state
         

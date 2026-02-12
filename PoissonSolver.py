@@ -27,7 +27,7 @@ from scipy.constants import epsilon_0,e
 
 class PoissonSolver():
     
-    def __init__(self,mesh_file,poissonSolver_parameters, structure = None, **kwargs):
+    def __init__(self,poissonSolver_parameters, grid_crystal = None, **kwargs):
         
         """
         Initialize the Poisson solver with a mesh file and the structure.
@@ -36,7 +36,7 @@ class PoissonSolver():
         -----------
          - mesh_file: str
              filename to create the mesh file or to load it
-         - structure: Pymatgen structure
+         - grid_crystal: Crystal structure
              Lattice basis vectors, dimensions of the domain and lattice points with species
          
          **kwargs : dict, optional
@@ -55,6 +55,7 @@ class PoissonSolver():
         self.gmsh_model_rank = kwargs.get("gmsh_model_rank", 0)
         self.gdim = kwargs.get("gdim",3)
         self.padding = kwargs.get("bounding_box_padding",5.0)
+        self.defects_config = poissonSolver_parameters["defects_config"]
         
         """
         Rules to estimate parameters:
@@ -81,11 +82,12 @@ class PoissonSolver():
         self.rank = self.comm.rank
         
         # Mesh handling
+        mesh_file = poissonSolver_parameters['mesh_file']
         self.mesh_folder = Path("mesh")
         self.mesh_file = self.mesh_folder / mesh_file
         
         # Ensure mesh exists (generates if missing, synchronized across ranks)
-        self._ensure_mesh(structure)
+        self._ensure_mesh(grid_crystal)
        
         # Load mesh and set up FEM spaces
         self._load_and_setup_fem()
@@ -99,14 +101,14 @@ class PoissonSolver():
         self._calculate_dipole_moment()
         
     # --- Mesh Management ---
-    def _ensure_mesh(self,structure):
+    def _ensure_mesh(self,grid_crystal):
     
       """Ensure mesh file exists; generate if missing (rank 0 only), then sync."""
       if self.rank == 0:
         self.mesh_folder.mkdir(parents=True, exist_ok=True)
         if not self.mesh_file.exists():
           print(f'Rank {self.rank}: Starting mesh generation')
-          self.generate_mesh(structure)
+          self.generate_mesh(grid_crystal)
           print(f'Rank {self.rank}: Mesh generation completed')
         else:
           print(f'Rank {self.rank}: Using existing mesh: {self.mesh_file}')
@@ -395,17 +397,38 @@ class PoissonSolver():
                 else:
                     print(f'  ~ Marginal resolution')
                     
-    
+    def _get_poisson_relevant_sites(self, grid_crystal):
+      """
+      Filter sites relevant for Poisson equation.
+      Select sites from allowed_sublattices
+      """
+      relevant_coords = []
+      
+      for site in grid_crystal.values():
+      # Check if this site type is relevant for any defect
+        is_relevant = False
+      
+        for defect_name, cfg in self.defects_config.items():
+          allowed_sublattices = cfg.get("allowed_sublattices", [])
+          if site.site_type in allowed_sublattices:
+            is_relevant = True
+            break
         
-    def generate_mesh(self, structure):
+        if is_relevant:
+          relevant_coords.append(site.position)
+        
+      return np.array(relevant_coords)
+
+        
+    def generate_mesh(self, grid_crystal):
           """
           Generate a mesh using GMSH
-           - structure: structure variable created by Pymatgen
+           - grid_crystal: crystal structure
            - padding: increase margins of the simulation domain (respect to structure)
            - mesh_size: control the coarsen of the mesh
           """
         
-          points = np.array([site.coords for site in structure])
+          points = self._get_poisson_relevant_sites(grid_crystal)
           # Calculate minimum atom separation for validation
           min_separation = self._calculate_min_atomic_separation(points)
     
@@ -835,7 +858,7 @@ class PoissonSolver():
           touches_top = cluster.attached_layer['top_layer']
           
           if touches_bottom and touches_top:
-            print('BC: Touches bottom and top')
+            #print('BC: Touches bottom and top')
             self.use_conductivity = True
             self.metal_atoms = cluster.atoms_positions
             # Bridging cluster: Apply per layer potential drop
@@ -844,12 +867,12 @@ class PoissonSolver():
             #  apply_cluster_bc(cluster_slice, V_slice)
               
           elif touches_bottom:
-            print('BC: Touches bottom')
+            #print('BC: Touches bottom')
             # Cluster connected only to bottom electrode
             apply_cluster_bc(cluster.internal_atom_positions, bottom_value)
             
           elif touches_top:
-            print('BC: Touches top')
+            #print('BC: Touches top')
             # Cluster connected only to top electrode
             apply_cluster_bc(cluster.internal_atom_positions, top_value)
             
