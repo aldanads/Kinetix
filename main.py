@@ -165,7 +165,7 @@ def main():
             save_Poisson = System_state.poissonSolver_parameters['save_Poisson']
             
             events_tracking = {}
-            V_top = Elec_controller.apply_ramp_voltage_cycle(System_state.time)
+            V_top = Elec_controller.apply_voltage(System_state.time)
             System_state.save_electric_bias(V_top)
        
             # Dolfinx only works in Linux
@@ -181,7 +181,6 @@ def main():
                 poisson_solver.set_boundary_conditions(top_value=V_top, bottom_value=0.0)  # Set appropriate BCs
                 poisson_solve_frequency = System_state.poissonSolver_parameters['poisson_solve_frequency']  # Solve Poisson every N KMC steps
                 
-                
             else:
                 rank = 0
                 comm = None
@@ -193,6 +192,7 @@ def main():
             
             
             simulation_active = True
+            #System_state.last_poisson_time = -float('inf')
             System_state.last_poisson_time = -float('inf')
             tol = 1e-15
             
@@ -200,7 +200,7 @@ def main():
             #while j*snapshoots_steps < total_steps:
             
                 # Time based control
-                if System_state.time >= Elec_controller._ramp_total_time:
+                if System_state.time >= Elec_controller.total_simulation_time:
                   simulation_active = False
                   break
                   
@@ -209,9 +209,12 @@ def main():
                 if solve_Poisson and platform.system() == 'Linux': 
                   # Solve Poisson when voltage has been updated (based on voltage_update_interval)
                   next_solve_time = System_state.last_poisson_time + Elec_controller.voltage_update_time
+                  if rank == 0:
+                    print(f'Next solve time: {next_solve_time}, Time: {System_state.time}')
                   if System_state.time >= next_solve_time - tol:
                     should_solve_poisson_now = True
                     snapshoots = True
+                    #snapshoots = True
                     if System_state.last_poisson_time == -float('inf'):
                       System_state.last_poisson_time = System_state.time
                     else:
@@ -245,7 +248,7 @@ def main():
                   #if i%poisson_solve_frequency == 0:
                   if should_solve_poisson_now:
                         # Every time we change the applied voltage, we should calculate Poisson
-                        V_top = Elec_controller.apply_ramp_voltage_cycle(System_state.time)
+                        V_top = Elec_controller.apply_voltage(System_state.time)
                         System_state.save_electric_bias(V_top)
                   
                         """
@@ -290,9 +293,6 @@ def main():
                     events_tracking[chosen_event[2]] += 1
                     
                   search_superbasin(System_state,KMC_time_step)
-                   
-              
-                   
                   
                 # Synchronize before continuing
                 if comm is not None:
@@ -300,6 +300,7 @@ def main():
                   System_state.time = broadcast_time
                   comm.Barrier()
                      
+                
                 
                 if snapshoots:
                 
@@ -312,6 +313,8 @@ def main():
                         print(str(j)+"/"+str(int(Elec_controller._ramp_total_time/Elec_controller.voltage_update_time)),'| Total time: ',System_state.list_time[-1],'| Voltage: ',V_top)
                         print(f'Events at step {j}: {events_tracking}')
                         print(f"Current: {Elec_controller.measurements['current'][-1]}")
+                        
+                        if j == 13: exit()
     
                         end_time = time.time()
                             

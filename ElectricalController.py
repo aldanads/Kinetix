@@ -10,6 +10,9 @@ import scipy.constants as const
 import pandas as pd
 from pathlib import Path
 
+from config import VoltageMode, CurrentModel, VoltageConfig, CurrentConfig, ElectricalConfig
+
+
 class ElectricalController:
     def __init__(self,initial_voltage=0.0, initial_time = 0.0, series_resistance = 0.0, **kwargs):
         self.voltage = initial_voltage
@@ -20,6 +23,9 @@ class ElectricalController:
         self.current_parameters = {}
         self.current_model = kwargs.get('current_model', 'ohmic')  # 'ohmic', 'schottky', 'poole_frenkel', etc. 
         self.crystal_size = kwargs.get('crystal_size')
+        
+        self.voltage_mode = None
+        self._voltage_cycle_initialized = False
 
         self.experimental_data = None
         self.measurements = {
@@ -29,6 +35,94 @@ class ElectricalController:
             'resistance': []
         }
         
+
+        
+    @classmethod
+    def from_config(cls, config):
+        """
+        Create ElectricalController from ElectricalConfig dataclass.
+        
+        Usage:
+            config = ElectricalConfig(...)
+            controller = ElectricalController.from_config(config)
+        """
+        controller = cls(
+          initial_voltage=config.initial_voltage,
+          initial_time=config.initial_time,
+          series_resitance=config.series_resistance,
+          current_model=config.current.model.name.lower(),
+          crystal_size=config.crystal_size
+        )
+    
+        # Initialize voltage protocol based on mode
+        if config.voltage.mode == VoltageMode.RAMP_CYCLE:
+          controller.initialize_ramp_voltage_cycle(
+            max_voltage=config.voltage.max_voltage,
+            min_voltage=config.voltage.min_voltage,
+            rate=config.voltage.ramp_rate,
+            voltage_update_time=config.voltage.voltage_update_time,
+            num_cycles=config.voltage.num_cycles
+          )
+        elif config.voltage.mode == VoltageMode.ZERO_HOLD:
+          controller.initialize_zero_voltage_hold(
+            total_time=config.voltage.total_time,
+            voltage_update_time=config.voltage.voltage_update_time  
+          )
+        elif config.voltage.mode == VoltageMode.CONSTANT:
+          controller.initialize_constant_voltage(
+            voltage=config.voltage.constant_voltage,
+            total_time=config.voltage.total_time,
+            voltage_update_time=config.voltage.voltage_update_time
+          )
+        
+        # Initialize current parameters
+        controller.initialize_current_parameters(
+          barrier_height=config.current.barrier_height,
+          temperature=config.current.temperature,
+          area=config.current.area,
+          epsilon_r=config.current.epsilon_r
+        )
+        
+        return controller
+    
+    def apply_voltage(self, time: float) -> float:
+        """
+        Get the applied external voltage at the given simulation time.
+        
+        This is the ONLY method the kMC simulator should call.
+        It dispatches to the appropriate profile handler based on voltage_mode.
+        
+        Parameters:
+        -----------
+        time : float
+            Current simulation time (seconds)
+            
+        Returns:
+        --------
+        float
+            Applied voltage (Volts)
+        """
+        if not self._voltage_cycle_initialized:
+            raise RuntimeError(
+              "Call initialize_ramp_voltage_cycle() first!"
+              "Available: initialize_ramp_voltage_cycle(), initialize_zero_voltage_hold()"  
+            )
+            
+        self.time = time
+        
+        # Select correct handler based on active mode
+        if self.voltage_mode == VoltageMode.RAMP_CYCLE:
+          return self._apply_ramp_voltage_cycle(time)
+        elif self.voltage_mode == VoltageMode.ZERO_HOLD:
+          return self._apply_zero_voltage_hold(time)
+        elif self.voltage_mode == VoltageMode.CONSTANT:
+          return self._apply_constant_voltage(time)
+        else:
+          return 0.0  # Fallback for NONE or unknown modes
+        
+    # =========================================================================
+    # INITIALIZATION METHODS: Configure a voltage profile
+    # =========================================================================
     def initialize_ramp_voltage_cycle(self,max_voltage, min_voltage,rate,voltage_update_time,num_cycles=1):
         """
         Initialize the voltage ramp cycle parameters (call once at simulation start)
@@ -64,24 +158,48 @@ class ElectricalController:
         
         self._ramp_cycle_time = self._ramp_t1 + self._ramp_t2 + self._ramp_t3 + self._ramp_t4
         self._ramp_total_time = self._ramp_cycle_time * num_cycles
+        self.total_simulation_time = self._ramp_total_time
         
         # Initialize tracking variables
         self._total_cycles_completed = 0
-        self._voltage_cycle_initialized = True
-        
         self.voltage_update_time = voltage_update_time
         
-    
-    def apply_ramp_voltage_cycle(self,time):
+        self.voltage_mode = VoltageMode.RAMP_CYCLE
+        self._voltage_cycle_initialized = True
+       
+        
+    def initialize_zero_voltage_hold(self, total_time: float, voltage_update_time: float):
+        """
+        Initialize a zero-voltage (relaxation) simulation mode.
+        
+        Parameters:
+        -----------
+        total_time : float
+            Duration to maintain 0V (seconds)
+        voltage_update_time : float
+            Measurement interval (for consistency with ramp mode)
+        """
+        self.voltage_update_time = voltage_update_time
+        self.total_simulation_time = self.time + total_time
+        self.voltage_mode = VoltageMode.ZERO_HOLD
+        self._voltage_cycle_initialized = True
+        
+    def initialize_constant_voltage(self, voltage: float, total_time:float, voltage_update_time: float):
+        self._constant_voltage_value = voltage
+        self.total_simulation_time = self.time + total_time
+        self.voltage_update_time = voltage_update_time
+        self.voltage_mode = VoltageMode.CONSTANT
+        self._voltage_cycle_initialized = True
+        
+    # =========================================================================
+    # INTERNAL HANDLERS: Do the actual voltage calculation for each mode
+    # =========================================================================    
+    def _apply_ramp_voltage_cycle(self,time):
         """
         Calculate voltage at given time (call every simulation step)
-        """
-        if not hasattr(self,'_voltage_cycle_initialized') or not self._voltage_cycle_initialized:
-            raise RuntimeError("Call initialize_ramp_voltage_cycle() first!")
-            
+        """ 
         if self._total_cycles_completed >= self._ramp_num_cycles:
             self.voltage = 0.0
-            self.time = time
             return 0.0
         
         # Calculate current position in current cycle
@@ -93,7 +211,6 @@ class ElectricalController:
             self._total_cycles_completed = current_cycle
             if current_cycle >= self._ramp_num_cycles:
                 self.voltage = 0.0
-                self.time = time
                 return 0.0
             
         # Calculate voltage based on current phase
@@ -110,8 +227,16 @@ class ElectricalController:
             # Phase 4: min_voltage to 0 (positive ramp)
             self.voltage = self._ramp_min_voltage + self._ramp_rate * (current_time_in_cycle - self._ramp_t1 - self._ramp_t2 - self._ramp_t3)
         
-        self.time = time
         return self.voltage
+        
+    def _apply_zero_voltage_hold(self, time: float) -> float:
+        """Internal handler: Return 0V while within simulation window"""
+        self.voltage = 0.0
+        return 0.0
+        
+    def _apply_constant_voltage(self,time: float) -> float:
+        return self._constant_voltage_value
+        
         
     def _calculate_effective_device_voltage(self,current):
         
@@ -432,62 +557,3 @@ class ElectricalController:
         })
     
         df.to_csv(save_path, index=False)
-
-"""
-initial_voltage=0.0 
-initial_time = 0.0   
-series_resistance = 3e3   
- 
-Controller = ElectricalController(initial_voltage,initial_time,series_resistance, current_model = 'schottky')
-
-max_voltage = 2.6
-min_voltage = -1
-rate = 0.1
-num_cycles=1
-
-Controller.initialize_ramp_voltage_cycle(
-    max_voltage=max_voltage, 
-    min_voltage=min_voltage, 
-    rate=rate, 
-    num_cycles=num_cycles
-)
-
-
-
-time_list = np.linspace(0,max_voltage/rate, int(max_voltage/rate))
-
-Controller.initialize_current_parameters(
-    barrier_height=0.53,      # eV
-    temperature=300,         # K  
-    area= np.pi * (50*1e-6)**2,             # m²
-    epsilon_r=25            # HfO2
-)
-
-effective_gap = 50*1e-10
-
-filament_rate = int((max_voltage - 1.5) / rate)
-array_gap = np.linspace(effective_gap,0,filament_rate)
-i = 0
-file_path = Path(r'\\FS1\Docs2\samuel.delgado\My Documents\Publications\Memristor ECM\CeO2\I-V curves\Crystalline IV.csv')
-Controller.load_experimental_data(file_path)
-
-for time in time_list:
-    
-    voltage = Controller.apply_ramp_voltage_cycle(time)
-    
-    if voltage >= 1.8:
-        #effective_gap = array_gap[i]
-        i+=1
-    Controller.calculate_current(voltage, effective_gap)
-    Controller.update_measurements()
-    
-Controller.plot_V_I()
-save_path = Path(r'\\FS1\Docs2\samuel.delgado\My Documents\Scripts\Simulators\Copper deposition 2025-02-04')
-Controller.save_IV_csv(save_path)
-
-comparison = Controller.compare_with_simulation(Controller.measurements['voltage'], Controller.measurements['current'])
-print(f"RMSE: {comparison['lrmse']:.2e}")
-print(f"MAE: {comparison['lmae']:.2e}")
-print(f"MAPE: {comparison['mape_log']:.2e}")
-
-"""

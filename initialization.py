@@ -10,6 +10,7 @@ import platform
 import shutil
 from crystal_lattice import Crystal_Lattice
 from ElectricalController import ElectricalController
+from config import ElectricalConfig, VoltageConfig, CurrentConfig, VoltageMode, CurrentModel
 from superbasin import Superbasin
 from pymatgen.ext.matproj import MPRester
 # from mp_api.client import MPRester
@@ -548,6 +549,32 @@ def initialization(n_sim):
         #             Electrical parameters
         #     
         # =============================================================================
+        
+        electrical_config = ElectricalConfig(
+          initial_voltage=0.0, 
+          initial_time=0.0,   
+          series_resistance=2e2,
+          crystal_size=crystal_size,
+          voltage=VoltageConfig(
+            mode=VoltageMode.RAMP_CYCLE,
+            max_voltage = 2.6,
+            min_voltage = -1.5,
+            ramp_rate=1.0,
+            num_cycles=1,
+            voltage_update_time = 0.1
+          ),
+          current=CurrentConfig(
+            model=CurrentModel.SCHOTTKY,
+            barrier_height=0.53,
+            temperature=T,
+            area=np.pi * (50*1e-6)**2,
+            epsilon_r=epsilon_r
+          )  
+        )
+        
+        Elec_controller = ElectricalController.from_config(electrical_config)
+        
+        """
         initial_voltage=0.0 
         initial_time = 0.0   
         series_resistance = 2e2  
@@ -578,6 +605,7 @@ def initialization(n_sim):
           area= area_experimental_device,             # m²
           epsilon_r=epsilon_r            # HfO2
         )
+        """
         
         # =============================================================================
         #             Activation energies
@@ -660,7 +688,7 @@ def initialization(n_sim):
         #System_state.deposition_specie(0,rng,test = 6)
         
         # This timestep_limits will depend on the V/s ratio
-        System_state.timestep_limits = voltage_update_time
+        System_state.timestep_limits = Elec_controller.voltage_update_time
 
     return System_state,rng,paths,Results, simulation_parameters,Elec_controller
 

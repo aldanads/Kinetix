@@ -54,6 +54,9 @@ class Site():
         # Electrostatic properties
         self.ion_charge = 0
         self.in_cluster_with_electrode = {'bottom_layer': False, 'top_layer': False}
+        self.is_at_bottom_interface = False
+        self.is_at_top_interface = False
+
         
         # Calculate applicable defects
         self.applicable_defects = self._get_applicable_defects()
@@ -164,8 +167,10 @@ class Site():
         tol = 1e-6
         if self.position[2] <= tol:
             self.supp_by.append('bottom_layer')
+            self.is_at_bottom_interface = True
         if abs(self.position[2] - domain_height) < tol:
             self.supp_by.append('top_layer')
+            self.is_at_top_interface = True
 
         if self.chemical_specie != "Empty":
           # Go over the nearest neighbors
@@ -210,7 +215,7 @@ class Site():
           self.detect_planes(grid_crystal,wulff_facets[:14])
         
                 
-    def calculate_site_energy(self,destination_support=None, origin_idx=None):
+    def calculate_site_energy(self,destination_CN=None, origin_idx=None, is_at_top_interface=False, is_at_bottom_interface=False):
         """
         Calculate the site energy based on coordination environment.
         
@@ -233,7 +238,7 @@ class Site():
         defect_energies = self.Act_E_dict[current_defect]
         cn_energies = defect_energies['CN_clustering_energy']
         
-        if destination_support is None:
+        if destination_CN is None:
             # Calculate energy for current site
             # Check memory cache
             cache_key = self.supp_by
@@ -242,14 +247,14 @@ class Site():
                 return self.energy_site
                 
             support_tuple = self.supp_by
-            cn_indx = len(support_tuple)
+            cn_index = len(support_tuple)
 
             if 'top_layer' in self.supp_by:
-                energy = cn_energies[cn_indx] + defect_energies.get('binding_energy_top_layer',0.0)
+                energy = cn_energies[cn_index] + defect_energies.get('binding_energy_top_layer',0.0)
             elif 'bottom_layer' in self.supp_by:
-                energy = cn_energies[cn_indx] + defect_energies.get('binding_energy_bottom_layer',0.0)
+                energy = cn_energies[cn_index] + defect_energies.get('binding_energy_bottom_layer',0.0)
             else:
-                energy = cn_energies[cn_indx]
+                energy = cn_energies[cn_index]
                 
             # Store the result in the cache
             self.cache_site_energy[cache_key] = energy
@@ -260,32 +265,13 @@ class Site():
         # the energy difference with the origin site
         else:
             
-            # Check memory cache
-            cache_key = destination_support
-            if cache_key in self.cache_site_energy:
-                return self.cache_site_energy[cache_key]
-                
-            support_tuple = destination_support
-            cn_index = len(support_tuple)
-            origin_in_support = origin_idx in support_tuple
-            
-            if 'top_layer' in support_tuple:
-              if origin_in_support:
-                energy = cn_energies[cn_index - 1] + defect_energies.get('binding_energy_top_layer', 0.0)
-              else:
-                energy = cn_energies[cn_index] + defect_energies.get('binding_energy_top_layer', 0.0)
-            elif 'bottom_layer' in support_tuple:    
-              if origin_in_support:
-                energy = cn_energies[cn_index - 1] + defect_energies.get('binding_energy_bottom_layer', 0.0)
-              else:
-                energy = cn_energies[cn_index] + defect_energies.get('binding_energy_bottom_layer', 0.0)
+            if is_at_top_interface:
+              energy = cn_energies[destination_CN] + defect_energies.get('binding_energy_top_layer', 0.0)
+            elif is_at_bottom_interface:
+              energy = cn_energies[destination_CN] + defect_energies.get('binding_energy_bottom_layer', 0.0)
             else:
-              if origin_in_support:
-                energy = cn_energies[cn_index]
-              else:
-                energy = cn_energies[cn_index + 1]
+              energy = cn_energies[destination_CN]
                 
-            self.cache_site_energy[cache_key] = energy
             return energy    
             
     def calculate_CN_contribution_redox_energy(self):
@@ -477,12 +463,14 @@ class Site():
             
             for migration_type in migration_types:
               for site_idx, num_event in self.migration_paths[migration_type]:
-                site = grid_crystal[site_idx]
-                if site_idx not in self.supp_by and site.site_type in allowed_sublattices:
+                dest_site = grid_crystal[site_idx]
+                if site_idx not in self.supp_by and dest_site.site_type in allowed_sublattices:
                   # Calculate energy difference between sites
                   energy_site_destiny = self.calculate_site_energy(
-                    site.supp_by,idx_origin
+                    dest_site.destination_CN[current_defect],idx_origin,
+                    dest_site.is_at_top_interface, dest_site.is_at_bottom_interface
                   )
+                    
                   energy_change = max(energy_site_destiny - self.energy_site, 0)
                   self.site_events.append([site_idx, num_event, Act_E_mig[num_event] + energy_change])
 

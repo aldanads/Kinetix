@@ -13,6 +13,7 @@ from matplotlib import cm
 import time
 import copy
 
+
 # Pymatgen for creating crystal structure and connect with Crystallography Open Database or Material Project
 # from pymatgen.ext.cod import COD
 from pymatgen.core.operations import SymmOp
@@ -484,7 +485,7 @@ class Crystal_Lattice():
             self.Act_E_dict['E_mig'] = Act_E_mig
             
     
-    def _initialize_migration_pathways(self, radius_neighbors):
+    def _initialize_migration_pathways_3(self, radius_neighbors):
       """Initialize migration pathways from the COMPLETE grid_crystal."""
       self.event_labels = {}
       self.migration_pathways = {}
@@ -533,7 +534,82 @@ class Crystal_Lattice():
                 Act_E_mig[key] = self.Act_E_dict[name].get('E_mig_downward')
             self.Act_E_dict[name]['E_mig'] = Act_E_mig  
             
+       
+       
             
+    def _initialize_migration_pathways(self, radius_neighbors):
+      """Initialize migration pathways from the COMPLETE grid_crystal."""
+      self.event_labels = {}
+      self.migration_pathways = {}
+      i = 0
+      
+      
+      # Brute-force neighbor search (O(N2)), but only done during initialization
+      for site_idx in self.grid_crystal.keys():
+        site_pos = self.grid_crystal[site_idx].position
+        
+        # Get neighbors using k-d tree
+        neighbor_site_indices = self._get_neighbors_for_site(site_idx, radius_neighbors)
+        
+        # Process each neighbor
+        for neighbor_idx in neighbor_site_indices:
+          if neighbor_idx == site_idx:
+            continue
+            
+          neighbor_pos = self.grid_crystal[neighbor_idx].position
+          dist = np.linalg.norm(np.array(site_pos) - np.array(neighbor_pos))
+          
+          # Create migration key
+          key = tuple(
+            np.array(self.get_idx_coords(neighbor_pos,self.basis_vectors)) -
+            np.array(self.get_idx_coords(site_pos,self.basis_vectors))
+          )
+          
+          if key not in self.event_labels:
+            self.event_labels[key] = i
+            vector = np.array(neighbor_pos) - np.array(site_pos)
+            self.migration_pathways[i] = {
+              'direction': vector / np.linalg.norm(vector),
+              'distance': dist
+            }
+            i += 1
+              
+            
+      self.num_event = len(self.event_labels) + 2
+      
+      # Electric field-dependent barriers
+      if (self.poissonSolver_parameters and
+          self.poissonSolver_parameters.get('solve_Poisson', False)):
+          
+          for name in self.defects_config.keys():
+            Act_E_mig = {}
+            for key, migration_vector in self.migration_pathways.items():
+              z_component = migration_vector['direction'][2]
+              if np.isclose(z_component, 0.0, atol=1e-9):
+                Act_E_mig[key] = self.Act_E_dict[name].get('E_mig_plane')
+              elif z_component > 0:
+                Act_E_mig[key] = self.Act_E_dict[name].get('E_mig_upward')
+              else:
+                Act_E_mig[key] = self.Act_E_dict[name].get('E_mig_downward')
+            self.Act_E_dict[name]['E_mig'] = Act_E_mig  
+            
+    
+    def _build_kdtree(self):
+      """Build and store k-d tree for reuse."""
+      from scipy.spatial import cKDTree
+      positions = np.array([site.position for site in self.grid_crystal.values()])
+      self._kdtree_positions = positions
+      self._kdtree_indices = list(self.grid_crystal.keys())
+      self._kdtree = cKDTree(positions)
+      
+    def _get_neighbors_for_site(self,site_idx,radius):
+      """Get neighbors for a specific site using stored k-d tree."""
+      site_pos = self.grid_crystal[site_idx].position
+      neighbor_array_indices = self._kdtree.query_ball_point(site_pos,radius)
+      
+      #Convert to site indices
+      neighbor_site_indices = [self._kdtree_indices[i] for i in neighbor_array_indices]
+      return neighbor_site_indices      
       
             
     def crystal_grid(self,grid_crystal,radius_neighbors,mode,affected_site,api_key,use_parallel=None):
@@ -562,9 +638,10 @@ class Crystal_Lattice():
                 
                 # We obtain integer idx
                 print(f'Initializing grid_crystal with {len(self.structure)} host sites')
-                start_time = time.perf_counter()
+                total_start_time = time.perf_counter()
                 
                 # --- STEP 1: Build host lattice with REAL chemical species ---
+                start_time = time.perf_counter()
                 self.grid_crystal = {}
                 for site in self.structure:
                   idx = self.get_idx_coords(site.coords, self.basis_vectors)
@@ -575,12 +652,18 @@ class Crystal_Lattice():
                     Act_E_dict=copy.deepcopy(self.Act_E_dict), # Its own copy
                     defects_config = self.defects_config
                   )
+                step1_time = time.perf_counter() - start_time
+                print(f"Step 1 (Build host lattice): {step1_time:.4f} seconds")
                   
                 # --- STEP 2: Handle boundary sites (if needed) ---
+                start_time = time.perf_counter()
                 self._handle_missing_neighbors(radius_neighbors, affected_site)
-                  
+                step2_time = time.perf_counter() - start_time
+                print(f"Step 2 (Boundary sites): {step2_time:.4f} seconds")     
                 
                 # --- STEP 3: Add interstitial/hollow sites ---
+                start_time = time.perf_counter()
+                interstitial_count = 0
                 if mode == "interstitial":
                   interstitial_sites = self._generate_interstitial_sites(api_key)
                   for pos in interstitial_sites:
@@ -594,24 +677,45 @@ class Crystal_Lattice():
                         Act_E_dict=copy.deepcopy(self.Act_E_dict),
                         defects_config = self.defects_config
                       )
+                      interstitial_count += 1
+                step3_time = time.perf_counter() - start_time
+                print(f"Step 3 (Interstitial sites): {step3_time:.4f} seconds")
+                
+                print(f"Total sites created: {len(self.grid_crystal)} "
+                  f"({len(self.structure)} host + {interstitial_count} interstitial)")
                 
                 
-                   
                 # --- STEP 4: Initialize migration pathways from grid ---
+                start_time = time.perf_counter()
+                self._build_kdtree()
                 self._initialize_migration_pathways(radius_neighbors)
-                
+                step4_time = time.perf_counter() - start_time
+                print(f"Step 4 (Migration pathways): {step4_time:.4f} seconds")
 
               
                 # --- STEP 5: Neighbor analysis (uses FULL grid) ---
+                start_time = time.perf_counter()
+                use_parallel = False
                 if use_parallel and num_cores > 1:
                     print(f'Starting parallel neighbor analysis with {num_cores} cores')
                     self._parallel_neighbors_analysis(num_cores)
                 else:
                     print('Starting sequencial neighbor')
                     self._sequencial_neighbors_analysis()
-                    
+                step5_time = time.perf_counter() - start_time
+                print(f"Step 5 (Neighbor analysis): {step5_time:.4f} seconds") 
                 end_time = time.perf_counter()
-                print(f"Initialization time for grid and neighbor analysis: {end_time - start_time:.4f} seconds")
+                
+                total_time = time.perf_counter() - total_start_time
+                print(f"\n{'='*60}")
+                print(f"TOTAL INITIALIZATION TIME: {total_time:.4f} seconds")
+                print(f"{'='*60}")
+                print(f"Breakdown:")
+                print(f"  Step 1: {step1_time:.4f}s ({step1_time/total_time*100:.1f}%)")
+                print(f"  Step 2: {step2_time:.4f}s ({step2_time/total_time*100:.1f}%)")
+                print(f"  Step 3: {step3_time:.4f}s ({step3_time/total_time*100:.1f}%)")
+                print(f"  Step 4: {step4_time:.4f}s ({step4_time/total_time*100:.1f}%)")
+                print(f"  Step 5: {step5_time:.4f}s ({step5_time/total_time*100:.1f}%)")
                       
         
                 if use_mpi:
@@ -648,6 +752,7 @@ class Crystal_Lattice():
                 site.Act_E_dict = copy.deepcopy(self.Act_E_dict)
             
             # Initialize pathways for loaded grids too 
+            self._build_kdtree()
             self._initialize_migration_pathways(radius_neighbors)       
 
         # If we include grain boundaries, we should modify the activation energies
@@ -815,13 +920,14 @@ class Crystal_Lattice():
                       defects_config = self.defects_config
                     )
                         
-            self.domain_height = domain_height
+        self.domain_height = domain_height
     
                 
     def _parallel_neighbors_analysis(self, num_cores=4):
       """Parallel neighbor analysis using grid_crystal."""
       import concurrent.futures
       import math
+      
       try:
         from itertools import batched
       except ImportError: # Python <3.12
@@ -840,52 +946,46 @@ class Crystal_Lattice():
       
       # Shared data (immutable)
       shared_data = {
-        'basis_vectors': self.basis_vectors,
         'crystal_size': self.crystal_size,
         'event_labels': self.event_labels,
         'radius_neighbors': self.radius_neighbors
       }
       
-      with concurrent.futures.ProcessPoolExecutor(max_workers=num_cores) as executor:
+      with concurrent.futures.ThreadPoolExecutor(max_workers=num_cores) as executor:
         futures = [
           executor.submit(
-            self.process_batch_sites_worker,
+            self._process_batch_sites_worker,
             batch,
-            {k: self.grid_crystal[k] for k in batch},
             self.grid_crystal,
             shared_data
           )
           for batch in batches
         ]
-        results = [future.result() for future in futures]
-        
-      for batch_result in results:
-        for idx,modified_site in batch_result.items():
-          self.grid_crystal[idx] = modified_site  
-
+        concurrent.futures.wait(futures)
+ 
                 
     def _sequencial_neighbors_analysis(self):
       """Sequential neighbor analysis using FULL grid_crystal."""
-      for idx, site in self.grid_crystal.items():
-        site_pos = np.array(site.position)
-        neighbors_idx = []
-        neighbors_positions = []
+      
+      for site_idx in self.grid_crystal.keys():
+        site = self.grid_crystal[site_idx]
         
-        for neigh_idx, neigh_site in self.grid_crystal.items():
-          if neigh_idx == idx:
-            continue
-          dist = np.linalg.norm(np.array(neigh_site.position) - site_pos)
-          if dist <= self.radius_neighbors:
-            neighbors_idx.append(neigh_idx)
-            neighbors_positions.append(neigh_site.position)
-            
+        # Get neighbors using k-d tree
+        neighbor_site_indices = self._get_neighbors_for_site(site_idx, self.radius_neighbors)
+        
+        if site_idx in neighbor_site_indices:
+          neighbor_site_indices.remove(site_idx)
+        
+        # Convert to positions
+        neighbor_positions = [self.grid_crystal[idx].position for idx in neighbor_site_indices]  
+      
         site.neighbors_analysis(
           self.grid_crystal,
-          neighbors_idx,
-          neighbors_positions,
+          neighbor_site_indices,
+          neighbor_positions,
           self.crystal_size,
           self.event_labels,
-          idx
+          site_idx
         )  
             
 
@@ -928,7 +1028,7 @@ class Crystal_Lattice():
             cores = os.cpu_count() or 1
         return min(cores, local_max_cores)
         
-    def process_batch_sites_worker(self, batch_keys, batch_sites, full_grid, shared_data):
+    def _process_batch_sites_worker(self, batch_keys, grid_crystal, shared_data):
       """
       Worker using FULL grid for neighbor search.
       
@@ -936,42 +1036,41 @@ class Crystal_Lattice():
             batch_keys: List of site indices to process
             batch_sites: Dict of sites to modify (copies)
             full_grid: Complete grid for neighbor lookups (read-only)
-            shared_data: Dict with structure, basis_vectors, etc.
+            shared_data: Dict with structure, etc.
 
         Returns:
             Dict of {idx: modified_site} for sites in this batch
       """
-      basis_vectors = shared_data['basis_vectors']
       crystal_size = shared_data['crystal_size']
       event_labels = shared_data['event_labels']
       radius_neighbors = shared_data['radius_neighbors']
 
-      modified_sites = {}
       for idx in batch_keys:
-        site = batch_sites[idx]
+        site = grid_crystal[idx]
+        
+        # Find neighbors within radius
         site_pos = np.array(site.position)
         neighbors_idx = []
         neighbors_positions = []
         
-        for neigh_idx, neigh_site in full_grid.items():
+        for neigh_idx, neigh_site in grid_crystal.items():
           if neigh_idx == idx:
             continue
           dist = np.linalg.norm(np.array(neigh_site.position) - site_pos)
           if dist <= radius_neighbors:
             neighbors_idx.append(neigh_idx)
             neighbors_positions.append(neigh_site.position)
-            
+        
+        # Modify original object in-place
         site.neighbors_analysis(
-          full_grid,
+          grid_crystal,
           neighbors_idx,
           neighbors_positions,
           crystal_size,
           event_labels,
           idx  
         )
-        modified_sites[idx] = site
-        
-      return modified_sites
+
         
 # =============================================================================
 # Get coordinates of particles for solving Poisson and points to evaluate electric field
@@ -1954,14 +2053,6 @@ class Crystal_Lattice():
             if affected_site.chemical_specie != self.affected_site:
                 event_update_sites.add(affected_site_idx)
                 
-        # Filter to only mobile sites
-        mobile_event_sites = set(self._get_mobile_sites(event_update_sites))
-        mobile_support_sites = set(self._get_mobile_sites(support_update_sites))
-        
-        event_update_sites.clear()
-        event_update_sites.update(mobile_event_sites)
-        support_update_sites.clear()
-        support_update_sites.update(mobile_support_sites)
     
 # =============================================================================
 #             Remove particle 
@@ -1992,16 +2083,6 @@ class Crystal_Lattice():
             # Add the affected site itself if occupied
             if affected_site.chemical_specie != self.affected_site:
                 event_update_sites.add(affected_site_idx)
-        
-        # Filter to only mobile sites 
-        mobile_event_sites = set(self._get_mobile_sites(event_update_sites))
-        mobile_support_sites = set(self._get_mobile_sites(support_update_sites))
-        
-        event_update_sites.clear()
-        event_update_sites.update(mobile_event_sites)
-        support_update_sites.clear()
-        support_update_sites.update(mobile_support_sites)
-        
         
 
     def track_time(self,t):
