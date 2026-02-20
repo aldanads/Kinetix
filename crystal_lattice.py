@@ -62,6 +62,7 @@ class Crystal_Lattice():
         self.sites_generation_layer = crystal_features['sites_generation_layer']
         self.gb_configurations = crystal_features['gb_configurations']
         self.defects_config = crystal_features.get('defects_config',{})
+        self.reactions_config = crystal_features.get('reactions_config',{})
              
         # --- Experimental conditions ---
         self.sticking_coefficient = experimental_conditions['sticking_coeff']
@@ -136,12 +137,6 @@ class Crystal_Lattice():
 
         self.lammps_file = lammps_file
         
-    # Methods to check if optional parameters were provided
-    def has_grid(self):
-        return self.grid_crystal is not None
-    
-    def has_interstitial(self):
-        return self.interstitial_specie is not None
         
     def lattice_model(self, api_key, mode, affected_site=None, miller_indices=(0, 0, 1)):
         """
@@ -177,60 +172,6 @@ class Crystal_Lattice():
         self.structure = self._create_supercell(structure_oriented)
         self.crystal_size = self.structure.lattice.abc
         
-        self._compute_basis_vectors()
-        
-    def lattice_model_2(self, api_key, mode, affected_site=None, miller_indices=(0, 0, 1)):
-        """
-        Generate a lattice model based on the specified mode.
-        
-        Parameters:
-            api_key (str): API key for the Materials Project.
-            mode (str): 'regular', 'interstitial', or 'vacancy'.
-            affected_site (str, optional): Species symbol for vacancy mode.
-            radius_neighbors (float, optional): Neighbor radius for future vacancy/interstitial detection.
-            
-        Attributes set:
-            self.structure: Final supercell structure
-            self.structure_basic: Basic unit cell (oriented)
-            self.chemical_specie: Chemical formula or defect notation
-            self.lattice_constants: Lattice parameters in nm (a, b, c)
-            self.basis_vectors: Scaled basis vectors for KMC grid
-        """
-        # Download structure from Materials Project
-        with MPRester(api_key) as mpr:
-            structure = mpr.get_structure_by_material_id(self.id_material)# Download structure from Materials Project
-    
-            # Handle interstitial mode: get defect structure
-            if mode == 'interstitial':
-                chgcar = mpr.get_charge_density_from_material_id(self.id_material)
-                cig = ChargeInterstitialGenerator()
-                defects = cig.generate(chgcar, insert_species=[self.interstitial_specie])
-                structure = next(defects).defect_structure
-
-        # Get conventional structure and apply orientation
-        sga = SpacegroupAnalyzer(structure)
-        structure_conv = sga.get_conventional_standard_structure()
-    
-        # Apply crystallographic orientation using Miller indices
-        self.miller_indices = miller_indices
-        structure_oriented = self._apply_miller_orientation(structure_conv, miller_indices)
-        
-        self.structure_basic = structure_oriented
-        self.lattice_constants = tuple(np.array(structure_oriented.lattice.abc) / 10)  # nm
-
-        # Set chemical species notation
-        if mode == 'vacancy':
-            self.chemical_specie = f"V_{affected_site}"
-        elif mode == 'interstitial':
-            self.chemical_specie = self.interstitial_specie
-        else:
-            self.chemical_specie = structure_oriented.composition.reduced_formula
-
-        # Create supercell with precise dimension control
-        self.structure = self._create_supercell(structure_oriented, mode, affected_site)
-        self.crystal_size = self.structure.lattice.abc
-
-        # Compute basis vectors for KMC grid
         self._compute_basis_vectors()
         
 
@@ -349,59 +290,7 @@ class Crystal_Lattice():
         
         scaling_matrix = np.diag(repetitions)
         return unit_cell * scaling_matrix
-
-    def _create_supercell_2(self, unit_cell, mode, affected_site=None):
-        """
-        Create supercell with dimensional control
-    
-        Parameters:
-            unit_cell: Oriented unit cell structure
-            mode (str): 'regular', 'interstitial', or 'vacancy'
-            affected_site (str): Vacancy or interstitial
-    
-        Returns:
-            Structure: Supercell with requested dimensions and defects
-        """
-        # Calculate required repetitions for each direction
-        lattice_params = np.array(unit_cell.lattice.abc)  # Convert to nm
-        # Target dimensions from self.crystal_size (should be in nm)
-        target_dims = np.array(self.crystal_size)
-        # Calculate number of repetitions (round up to ensure size >= target)
-        repetitions = np.ceil(target_dims / lattice_params).astype(int)
-        repetitions = np.maximum(repetitions, 1)  # At least 1 repetition
-
-        # Create supercell using scaling matrix (efficient method)
-        scaling_matrix = np.diag(repetitions)
-        supercell = unit_cell * scaling_matrix
-
-        # Filter sites based on mode
-        if mode == 'interstitial':
-            # Keep only interstitial species
-            sites_to_keep = [
-                site for site in supercell 
-                if site.specie.symbol == self.interstitial_specie
-            ]
-        elif mode == 'vacancy':
-            # Remove affected sites (create vacancies)
-            if affected_site is None:
-                raise ValueError("affected_site must be specified for vacancy mode")
-            sites_to_keep = [
-                site for site in supercell 
-                if site.specie.symbol == affected_site
-            ]
-        else: # Regular mode
-            sites_to_keep = list(supercell)
-
-        # Create filtered structure
-        if mode != 'regular':
-            filtered_structure = Structure(
-                supercell.lattice,
-                [site.specie for site in sites_to_keep],
-                [site.frac_coords for site in sites_to_keep]
-            )
-            return filtered_structure
-            
-        return supercell
+        
         
     def _compute_basis_vectors(self):
         """
@@ -437,105 +326,7 @@ class Crystal_Lattice():
         # Scale lattice vectors by minimum spacing
         # This gives basis vectors where integer steps land on atomic sites
         self.basis_vectors = np.array(self.structure_basic.lattice.matrix) * min_non_zero_element
-            
-        
-    def _initialize_migration_pathways_2(self, radius_neighbors):
-        """Initialize migration pathways and event labels for all possible atomic migrations"""
-        self.coord_cache = {}
-        self.event_labels = {}
-        self.migration_pathways = {}
-        i = 0
-        
-
-        for site in self.structure:
-            neighbors = self.structure.get_neighbors(site, radius_neighbors)
-            for neighbor in neighbors:
-                key = tuple(self.get_idx_coords(neighbor.coords, self.basis_vectors) 
-                           - np.array(self.get_idx_coords(site.coords, self.basis_vectors)))
-                if key not in self.event_labels:
-                    self.event_labels[key] = i
-                    vector = neighbor.coords - site.coords
-                    self.migration_pathways[i] = vector / np.linalg.norm(vector) 
-                    i += 1
-                    
-        # Events corresponding to migrations + superbasin migration (+1) + generation (+1)
-        self.num_event = len(self.event_labels) + 2
-        
-        
-        solve_Poisson = self.poissonSolver_parameters['solve_Poisson']
-        
-        # The electric field break the symmetry in migration of atoms
-        # Each migration pathway needs their own activation energy
-        if solve_Poisson: #and platform.system() == 'Linux':
-            
-            Act_E_mig = {}
-            
-            for key,migration_vector in self.migration_pathways.items():
-                z_component = migration_vector[2]
-                # Migration in plane
-                if np.isclose(z_component, 0.0, atol=1e-9):
-                    Act_E_mig[key] = self.Act_E_dict['E_mig_plane'] 
-                # Migration upward
-                elif z_component > 0:
-                    Act_E_mig[key] = self.Act_E_dict['E_mig_upward']
-                # Migration downward
-                elif z_component < 0:
-                    Act_E_mig[key] = self.Act_E_dict['E_mig_downward']
-                    
-            self.Act_E_dict['E_mig'] = Act_E_mig
-            
-    
-    def _initialize_migration_pathways_3(self, radius_neighbors):
-      """Initialize migration pathways from the COMPLETE grid_crystal."""
-      self.event_labels = {}
-      self.migration_pathways = {}
-      i = 0
-      
-      # Use grid_crystal
-      positions = [site.position for site in self.grid_crystal.values()]
-      indices = list(self.grid_crystal.keys())
-      
-      # Brute-force neighbor search (O(N2)), but only done during initialization
-      for idx_i, pos_i in zip(indices, positions):
-        for idx_j, pos_j in zip(indices, positions):
-          if idx_i == idx_j:
-            continue
-          dist = np.linalg.norm(np.array(pos_i) - np.array(pos_j))
-          if dist <= radius_neighbors:
-            key = tuple(
-              np.array(self.get_idx_coords(pos_j,self.basis_vectors)) -
-              np.array(self.get_idx_coords(pos_i,self.basis_vectors))
-            )
-            if key not in self.event_labels:
-              self.event_labels[key] = i
-              vector = np.array(pos_j) - np.array(pos_i)
-              self.migration_pathways[i] = {
-                'direction': vector / np.linalg.norm(vector),
-                'distance': dist
-              }
-              i += 1
-              
-            
-      self.num_event = len(self.event_labels) + 2
-      
-      # Electric field-dependent barriers
-      if (self.poissonSolver_parameters and
-          self.poissonSolver_parameters.get('solve_Poisson', False)):
-          
-          for name in self.defects_config.keys():
-            Act_E_mig = {}
-            for key, migration_vector in self.migration_pathways.items():
-              z_component = migration_vector['direction'][2]
-              if np.isclose(z_component, 0.0, atol=1e-9):
-                Act_E_mig[key] = self.Act_E_dict[name].get('E_mig_plane')
-              elif z_component > 0:
-                Act_E_mig[key] = self.Act_E_dict[name].get('E_mig_upward')
-              else:
-                Act_E_mig[key] = self.Act_E_dict[name].get('E_mig_downward')
-            self.Act_E_dict[name]['E_mig'] = Act_E_mig  
-            
-       
-       
+                 
             
     def _initialize_migration_pathways(self, radius_neighbors):
       """Initialize migration pathways from the COMPLETE grid_crystal."""
@@ -553,12 +344,12 @@ class Crystal_Lattice():
         
         # Process each neighbor
         for neighbor_idx in neighbor_site_indices:
+          
           if neighbor_idx == site_idx:
             continue
             
           neighbor_pos = self.grid_crystal[neighbor_idx].position
           dist = np.linalg.norm(np.array(site_pos) - np.array(neighbor_pos))
-          
           # Create migration key
           key = tuple(
             np.array(self.get_idx_coords(neighbor_pos,self.basis_vectors)) -
@@ -573,7 +364,6 @@ class Crystal_Lattice():
               'distance': dist
             }
             i += 1
-              
             
       self.num_event = len(self.event_labels) + 2
       
@@ -650,7 +440,8 @@ class Crystal_Lattice():
                     position=tuple(site.coords),
                     site_type=site.specie.symbol,
                     Act_E_dict=copy.deepcopy(self.Act_E_dict), # Its own copy
-                    defects_config = self.defects_config
+                    defects_config = self.defects_config,
+                    reactions_config = self.reactions_config
                   )
                 step1_time = time.perf_counter() - start_time
                 print(f"Step 1 (Build host lattice): {step1_time:.4f} seconds")
@@ -675,7 +466,8 @@ class Crystal_Lattice():
                         position=tuple(pos),
                         site_type="interstitial",
                         Act_E_dict=copy.deepcopy(self.Act_E_dict),
-                        defects_config = self.defects_config
+                        defects_config = self.defects_config,
+                        reactions_config = self.reactions_config
                       )
                       interstitial_count += 1
                 step3_time = time.perf_counter() - start_time
@@ -747,19 +539,20 @@ class Crystal_Lattice():
             self.grid_crystal = grid_crystal
             self.domain_height = self.crystal_size[2]
             
+            # Initialize pathways for loaded grids too 
+            self._build_kdtree()
+            self._initialize_migration_pathways(radius_neighbors)  
+            
             for site in self.grid_crystal.values():
                 site.site_events = []
                 site.Act_E_dict = copy.deepcopy(self.Act_E_dict)
             
-            # Initialize pathways for loaded grids too 
-            self._build_kdtree()
-            self._initialize_migration_pathways(radius_neighbors)       
-
         # If we include grain boundaries, we should modify the activation energies
         if hasattr(self, 'gb_configurations'):
           self.gb_model = GrainBoundary(self.crystal_size,self.gb_configurations)
           for site in self.grid_crystal.values():
-            self.gb_model.modify_act_energy_GB(site,self.migration_pathways,self.defects_config)
+            self.gb_model.modify_act_energy_GB(site,self.migration_pathways,self.defects_config,self.reactions_config)
+            
      
     def _get_applicable_defects_for_site(self,site_type):
       """
@@ -917,7 +710,8 @@ class Crystal_Lattice():
                       position = tuple(pos),
                       site_type = neigh.specie.symbol,
                       Act_E_dict = copy.deepcopy(self.Act_E_dict),
-                      defects_config = self.defects_config
+                      defects_config = self.defects_config,
+                      reactions_config = self.reactions_config
                     )
                         
         self.domain_height = domain_height
@@ -1484,26 +1278,33 @@ class Crystal_Lattice():
         self.timestep_limits = -np.log(1-P_limits)/self.TR_gen
         
         
-    def defect_gen(self,rng, P):
+    def defect_gen(self,rng):
         
-        support_update_sites = set()
-        update_specie_events = set()
+        sites_needing_support_update = set()
+        sites_needing_event_update = set()
         
-        i = 0
-        for idx,site in self.grid_crystal.items():
-            
-            if rng.random() < P:
-                update_specie_events,support_update_sites = self.introduce_specie_site(idx,update_specie_events,support_update_sites,self.ion_charge)
-                i += 1
-                
-        # Update sites availables, the support to each site and available migrations
-        self.update_sites(update_specie_events,support_update_sites)
+        for defect in self.defects_config.values():
+          for idx,site in self.grid_crystal.items():
+              
+              if site.site_type in defect['allowed_sublattices'] and site.chemical_specie in defect["valid_target_species"]:
+                if self.gb_model.is_site_in_grain_boundary(site.position):
+                  probability = defect['initial_concentration_GB']
+                else:
+                  probability = defect['initial_concentration_bulk']
+                  
+                if rng.random() < probability:
+                  chemical_specie = defect['symbol']
+                  ion_charge = defect['charge']   
+                  self._introduce_specie_site(idx,sites_needing_support_update, sites_needing_event_update,chemical_specie,ion_charge)
+                  
+          # Update sites availables, the support to each site and available migrations
+          self.update_sites(sites_needing_support_update, sites_needing_event_update)
         
 
     def deposition_specie(self,t,rng,test = 0):  
 
         support_update_sites = set()
-        update_specie_events = set()
+        event_update_sites = set()
         
         if test == 0:
             
@@ -1512,7 +1313,7 @@ class Crystal_Lattice():
             for idx in self.adsorption_sites:
                 if rng.random() < P:   
                     # Introduce specie in the site
-                    update_specie_events,support_update_sites = self.introduce_specie_site(idx,update_specie_events,support_update_sites,self.grid_crystal[idx].ion_charge)
+                    update_specie_events,support_update_sites = self.introduce_specie_site(idx,support_update_sites, event_update_sites,self.grid_crystal[idx].ion_charge)
             
             # Update sites availables, the support to each site and available migrations
             self.update_sites(update_specie_events,support_update_sites)
@@ -1539,7 +1340,10 @@ class Crystal_Lattice():
                     
                      
             # Introduce specie in the site
-            update_specie_events,support_update_sites = self.introduce_specie_site(central_idx,update_specie_events,support_update_sites,1)
+            defect = 'hydrogen_interstitial'
+            migrating_charge = self.defects_config[defect]['charge']
+            chemical_specie = self.defects_config[defect]['symbol']
+            self._introduce_specie_site(central_idx, support_update_sites, event_update_sites, chemical_specie, migrating_charge)
             # Update sites availables, the support to each site and available migrations
             self.update_sites(update_specie_events,support_update_sites)
                 
@@ -1552,24 +1356,28 @@ class Crystal_Lattice():
                 
         # Two adjacent particles
         elif test == 2:
+            defect = 'hydrogen_interstitial'
+            migrating_charge = self.defects_config[defect]['charge']
+            chemical_specie = self.defects_config[defect]['symbol']  
+            site_type = self.defects_config[defect]['site_type']
             
             for idx,site in self.grid_crystal.items():
               if ((self.crystal_size[0] * 0.45 < site.position[0] < self.crystal_size[0] * 0.55) 
                 and (self.crystal_size[1] * 0.45 < site.position[1] < self.crystal_size[1] * 0.55)
-                and (self.crystal_size[2] * 0.45 < site.position[2] < self.crystal_size[2] * 0.55)): 
+                and (self.crystal_size[2] * 0.45 < site.position[2] < self.crystal_size[2] * 0.55)) and site.site_type == site_type: 
                 break
             
             # Introduce specie in the site
-            update_specie_events,support_update_sites = self.introduce_specie_site(idx,update_specie_events,support_update_sites)
+            self._introduce_specie_site(idx, support_update_sites, event_update_sites, chemical_specie, migrating_charge)
+
             # Update sites availables, the support to each site and available migrations
-            self.update_sites(update_specie_events,support_update_sites)
+            self.update_sites(support_update_sites, event_update_sites)
             
             neighbor = self.grid_crystal[idx].migration_paths['Plane'][0]
             # Introduce specie in the neighbor site
-            update_specie_events,support_update_sites = self.introduce_specie_site(neighbor[0],update_specie_events,support_update_sites)
+            self._introduce_specie_site(neighbor[0], support_update_sites, event_update_sites, chemical_specie, migrating_charge)
             # Update sites availables, the support to each site and available migrations
-            self.update_sites(update_specie_events,support_update_sites)
-                 
+            self.update_sites(support_update_sites, event_update_sites)
 
         # Full coordinated atom --> Cluster
         elif test == 3:
@@ -1811,79 +1619,16 @@ class Crystal_Lattice():
             chosen_event,
             sites_needing_support_update,
             sites_needing_event_update
-          )     
+          )    
+        elif any(chosen_event[2] == reaction['name'] for reaction in self.reactions_config.values()): 
+          print(f'Reaction happening: {chosen_event[2]}')
+          self._handle_reaction_event(
+            chosen_event, 
+            sites_needing_support_update, 
+            sites_needing_event_update
+          )
         
         self.update_sites(sites_needing_support_update, sites_needing_event_update)
-            
-    def processes_2(self,chosen_event):
-        update_supp_av = set()
-        update_specie_events = {chosen_event[-1]}
-            
-        if isinstance(chosen_event[2], int):      
-            if (np.isclose(self.grid_crystal[chosen_event[1]].position[2], self.crystal_size[2]) and self.V < 0 and self.grid_crystal[chosen_event[-1]].ion_charge != 0 and self.allow_specie_removal):
-              # Remove particle
-              update_specie_events,update_supp_av = self.remove_specie_site(chosen_event[-1],update_specie_events,update_supp_av)
-              # We have to update every activation energy affected by the electric field            
-              if self.poissonSolver_parameters['solve_Poisson']: update_specie_events = self.sites_occupied
-              # Update sites availables, the support to each site and available migrations
-              self.update_sites(update_specie_events,update_supp_av)
-              return
-              
-            # Introduce specie in the site
-            update_specie_events,update_supp_av = self.introduce_specie_site(
-                chosen_event[1],update_specie_events,update_supp_av,
-                self.grid_crystal[chosen_event[-1]].ion_charge # The charge also change its position
-            )
-
-            # Remove particle
-            update_specie_events,update_supp_av = self.remove_specie_site(chosen_event[-1],update_specie_events,update_supp_av)
-
-
-            # We have to update every activation energy affected by the electric field            
-            if self.poissonSolver_parameters['solve_Poisson']: update_specie_events = self.sites_occupied
-            # Update sites availables, the support to each site and available migrations
-            self.update_sites(update_specie_events,update_supp_av)
-            
-            # In case the metal atom migrate, it can modify the clusters
-            if self.grid_crystal[chosen_event[1]].ion_charge == 0:
-              self._add_metal_atom_to_clusters(chosen_event[1])
-              self._remove_metal_atom_from_clusters(chosen_event[-1])
-            
-
-# =============================================================================
-#         Specie generation
-# =============================================================================            
-        elif chosen_event[2] == 'generation':
-            
-            update_specie_events,update_supp_av = self.introduce_specie_site(
-                chosen_event[1],update_specie_events,update_supp_av,
-                self.ion_charge
-            )
-            
-            # Update sites availables, the support to each site and available migrations
-            self.update_sites(update_specie_events,update_supp_av)
-            
-            
-# =============================================================================
-#         Redox reactions
-# =============================================================================         
-        elif chosen_event[2] == 'reduction':
-              
-              self.grid_crystal[chosen_event[1]].ion_charge -= 1
-              update_specie_events.add(chosen_event[1])
-              self.update_sites(update_specie_events,set())
-              self._add_metal_atom_to_clusters(chosen_event[1])
-            
-        elif chosen_event[2] == 'oxidation':
-            if np.isclose(self.grid_crystal[chosen_event[1]].position[2], self.crystal_size[2]) and self.V < 0:
-              # Remove particle --> Re-adsorbed at the interface
-              update_specie_events,update_supp_av = self.remove_specie_site(chosen_event[1],update_specie_events,update_supp_av)
-            else:
-              self.grid_crystal[chosen_event[1]].ion_charge += 1
-              update_specie_events.add(chosen_event[1])
-              
-            self.update_sites(update_specie_events,set())
-            self._remove_metal_atom_from_clusters(chosen_event[1])
      
             
     def _get_mobile_sites(self, site_indices):
@@ -1914,7 +1659,8 @@ class Crystal_Lattice():
           
       # Perform migration
       migrating_charge = self.grid_crystal[source_idx].ion_charge
-      self._introduce_specie_site(dest_idx, support_update_sites, event_update_sites,migrating_charge)
+      chemical_specie = self.grid_crystal[source_idx].chemical_specie
+      self._introduce_specie_site(dest_idx, support_update_sites, event_update_sites, chemical_specie, migrating_charge)
       self._remove_species_at_site(source_idx, support_update_sites, event_update_sites)
       
       # Update Poisson-relevant sites
@@ -1929,7 +1675,7 @@ class Crystal_Lattice():
     def _handle_generation_event(self, chosen_event, support_update_sites, event_update_sites):
       """ Handle defect generation events """
       dest_idx = chosen_event[1]
-      self._introduce_specie_site(dest_idx, support_update_sites, event_update_sites)
+      self._introduce_specie_site(dest_idx, support_update_sites, event_update_sites, chemical_specie, migrating_charge)
       
     def _handle_redox_event(self, chosen_event, support_update_sites, event_update_sites):
       """Handle redox events with multi-species support."""
@@ -1948,6 +1694,51 @@ class Crystal_Lattice():
           site.ion_charge += 1
           event_update_sites.add(site_idx)
         self._remove_metal_atom_from_clusters(site_idx)   
+        
+    def _handle_reaction_event(self,chosen_event, support_update_sites, event_update_sites):
+      """ 
+      Handler for reaction events 
+      Reads products definitions from reactions_config to update site states
+      """
+      reaction_name_chosen = chosen_event[2]
+      source_idx = chosen_event[-1]
+      dest_idx = chosen_event[1]
+      sites_involved = [source_idx,dest_idx]
+      
+      # Reaction definitions
+      for reaction_name, reaction in self.reactions_config.items():
+        if reaction['name'] == reaction_name_chosen:
+          products = reaction['products']
+          
+      # Track sites that need kMC update
+      for i, product in enumerate(products):
+        # Determine which site this product applies to
+        site_index = product.get('site_index',i)
+        target_idx = sites_involved[site_index]
+        
+        site = self.grid_crystal[target_idx]
+        
+        if product['symbol'] != 'Empty':
+          site.chemical_specie = product['symbol']
+          event_update_sites.add(target_idx)
+          support_update_sites.update(site.nearest_neighbors_idx)
+          support_update_sites.add(target_idx) 
+        
+          for affected_site_idx in support_update_sites:
+            affected_site = self.grid_crystal[affected_site_idx]
+            
+            # Add sites that support the affected site
+            for supporting_site_idx in affected_site.supp_by:
+              if(isinstance(supporting_site_idx, tuple) and
+                 self.grid_crystal[supporting_site_idx].chemical_specie != self.affected_site):
+                 event_update_sites.add(supporting_site_idx)
+                 
+            # Add the affected site itself if occupied
+            if affected_site.chemical_specie != self.affected_site:
+                event_update_sites.add(affected_site_idx)
+        else:
+          self._remove_species_at_site(target_idx, support_update_sites, event_update_sites)
+      
             
 # =============================================================================
 # At every kMC step we have to check if we destroy any superbasin                      
@@ -1983,8 +1774,10 @@ class Crystal_Lattice():
                   self.domain_height,idx
                 )
         
-        # Update generation sites          
-        generation_sites = self.available_generation_sites(support_update_sites)
+        # Update generation sites
+        for defect_name, defect in self.defects_config.items():
+          if 'generation' in defect['enabled_events']:          
+            generation_sites = self.available_generation_sites(support_update_sites)
 
         # Update event pathways for mobile sites
         if event_update_sites: 
@@ -2026,11 +1819,11 @@ class Crystal_Lattice():
 # =============================================================================
 #             Introduce particle
 # =============================================================================
-    def _introduce_specie_site(self,idx,support_update_sites, event_update_sites, ion_charge = None):
+    def _introduce_specie_site(self,idx,support_update_sites, event_update_sites, chemical_specie, ion_charge = None):
         """Introduce species at site and track affected sites."""
         # Chemical specie deposited
         site = self.grid_crystal[idx]
-        site.introduce_specie(self.chemical_specie, ion_charge)
+        site.introduce_specie(chemical_specie, ion_charge)
         
         # Track sites occupied
         if idx not in self.sites_occupied:

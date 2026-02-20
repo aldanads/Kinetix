@@ -54,7 +54,6 @@ def KMC(System_state,rng):
     
     # Calculate maximum allowed timestep
     timestep_limit = System_state.get_timestep_limit()
-    print(f'Time step limits: {timestep_limit}, time step: {time_step}, Time: {System_state.time}')
     
     if time_step <= timestep_limit:
         # We search in our binary tree the event that happen

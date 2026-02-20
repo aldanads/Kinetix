@@ -209,8 +209,6 @@ def main():
                 if solve_Poisson and platform.system() == 'Linux': 
                   # Solve Poisson when voltage has been updated (based on voltage_update_interval)
                   next_solve_time = System_state.last_poisson_time + Elec_controller.voltage_update_time
-                  if rank == 0:
-                    print(f'Next solve time: {next_solve_time}, Time: {System_state.time}')
                   if System_state.time >= next_solve_time - tol:
                     should_solve_poisson_now = True
                     snapshoots = True
@@ -310,7 +308,7 @@ def main():
                         System_state.add_time()
     
                         # System_state.measurements_crystal()
-                        print(str(j)+"/"+str(int(Elec_controller._ramp_total_time/Elec_controller.voltage_update_time)),'| Total time: ',System_state.list_time[-1],'| Voltage: ',V_top)
+                        print(str(j)+"/"+str(int(Elec_controller.total_simulation_time/Elec_controller.voltage_update_time)),'| Total time: ',System_state.list_time[-1],'| Voltage: ',V_top)
                         print(f'Events at step {j}: {events_tracking}')
                         print(f"Current: {Elec_controller.measurements['current'][-1]}")
                         

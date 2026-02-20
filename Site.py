@@ -13,7 +13,7 @@ from typing import NamedTuple
 
 class Site():
     
-    def __init__(self,chemical_specie,position,site_type=None,Act_E_dict=None, defects_config = None):
+    def __init__(self,chemical_specie,position,site_type=None,Act_E_dict=None, defects_config = None, reactions_config = None):
         """
         Initialize a site in the kMC grid.
         
@@ -35,6 +35,7 @@ class Site():
         # Activation energies
         self.Act_E_dict = Act_E_dict  
         self.defects_config = defects_config
+        self.reactions_config = reactions_config
         
         # Event tracking
         self.site_events = [] # Possible events corresponding to this node
@@ -80,7 +81,7 @@ class Site():
       return applicable
       
     def _get_current_defect_name(self):
-      """Determine which defect configuration applies to current state."""      
+      """Determine which defect configuration applies to current state."""  
       for defect_name in self.applicable_defects or []:
         if defect_name in self.Act_E_dict:
           defect_site_type = self.defects_config[defect_name]["site_type"]
@@ -238,6 +239,7 @@ class Site():
         defect_energies = self.Act_E_dict[current_defect]
         cn_energies = defect_energies['CN_clustering_energy']
         
+        
         if destination_CN is None:
             # Calculate energy for current site
             # Check memory cache
@@ -342,6 +344,9 @@ class Site():
       self.site_events = []
       current_defect = self._get_current_defect_name()
       
+      if current_defect == None:
+        return
+      
       enabled_events = self.defects_config[current_defect]["enabled_events"]
       
       if 'migration' in enabled_events:      
@@ -350,6 +355,8 @@ class Site():
           self.available_reduction(idx_origin)
       if 'oxidation' in enabled_events:
           self.available_oxidation(idx_origin)
+      if 'reaction' in enabled_events:
+          self.available_reactions(grid_crystal,idx_origin)
     
 
     # Calculate posible migration sites
@@ -455,6 +462,7 @@ class Site():
             
             Act_E_mig = self.Act_E_dict[current_defect]['E_mig']
             allowed_sublattices = self.defects_config[current_defect]['allowed_sublattices']
+            valid_target_species = self.defects_config[current_defect]['valid_target_species']
             
             # Migration types
             migration_types = ['Plane', 'Up', 'Down']
@@ -464,15 +472,28 @@ class Site():
             for migration_type in migration_types:
               for site_idx, num_event in self.migration_paths[migration_type]:
                 dest_site = grid_crystal[site_idx]
-                if site_idx not in self.supp_by and dest_site.site_type in allowed_sublattices:
-                  # Calculate energy difference between sites
-                  energy_site_destiny = self.calculate_site_energy(
-                    dest_site.destination_CN[current_defect],idx_origin,
-                    dest_site.is_at_top_interface, dest_site.is_at_bottom_interface
-                  )
-                    
-                  energy_change = max(energy_site_destiny - self.energy_site, 0)
-                  self.site_events.append([site_idx, num_event, Act_E_mig[num_event] + energy_change])
+                
+                # 1. Geometric Check: Is this lattice position valid?
+                if dest_site.site_type not in allowed_sublattices:
+                  continue
+                  
+                # 2. Chemical Check: Is the site available (Empty or Vacancy)?
+                if dest_site.chemical_specie not in valid_target_species:
+                  continue
+                  
+                # 3. Support/Topology Check
+                if site_idx in self.supp_by: 
+                  continue
+                
+                # 4. Energy Calculation: Calculate energy difference between sites
+                energy_site_destiny = self.calculate_site_energy(
+                  dest_site.destination_CN[current_defect],idx_origin,
+                  dest_site.is_at_top_interface, dest_site.is_at_bottom_interface
+                )
+                
+                # 5. Barrier Model   
+                energy_change = max(energy_site_destiny - self.energy_site, 0)
+                self.site_events.append([site_idx, num_event, Act_E_mig[num_event] + energy_change])
 
             
     def available_reduction(self,idx_origin):
@@ -492,6 +513,90 @@ class Site():
           E_oxidation = self.Act_E_dict[current_defect]['E_oxidation']
           CN_redox = self.CN_redox_energy  
           self.site_events.append([idx_origin, 'oxidation', E_oxidation + CN_redox])
+    
+          
+    def available_reactions(self,grid_crystal,idx_origin):
+        """
+        Check all possible reactions involving this site.
+        """
+        site = grid_crystal[idx_origin]
+        current_specie = site.chemical_specie
+        
+        for reaction_name, reaction in self.reactions_config.items():
+          if not reaction.get("enabled", False):
+            continue
+                     
+          # 1. Check if this site can act as a reactant for this reaction
+          if not self._site_can_participate(site,reaction):
+            continue
+          
+          # 2. Handle reactions
+          if reaction['type'] ==  "bimolecular_neighbor":
+            # For example: H + H -> H2
+            self._handle_bimolecular_neighbor_reaction(grid_crystal,site,reaction)
+            
+    def _site_can_participate(self,site,reaction):
+        """
+        Filter to check if site specie and state match reaction requeriments
+        """
+        for reactant in reaction["reactants"]:
+          # Check if chemical_specie matches this reactant role
+          if site.chemical_specie == reactant["symbol"]:
+          
+            # Check sublattice constraint
+            if "sublattice" in reactant: 
+              if site.site_type != reactant["sublattice"]:
+                continue
+            
+            return True
+        
+        return False 
+        
+    def _site_matches_reactant(self,site,reactant):
+        """
+        Check if site matches a specific reactant role (symbol + sublattice).
+        """
+        # Check chemical specie
+        if site.chemical_specie != reactant['symbol']:
+          return False
+          
+        if 'sublattice' in reactant:
+          if site.site_type != reactant['sublattice']:
+            return False
+        return True
+        
+    def _handle_bimolecular_neighbor_reaction(self,grid_crystal,site,reaction):
+        """
+        Handle reactions requiring an adjacent partner (e.g., H + H -> H2).
+        """
+        reactants = reaction["reactants"]
+        current_defect = self._get_current_defect_name()
+        Act_E = self.Act_E_dict[current_defect][reaction['name']]
+        
+        my_role_idx = -1
+        # Find which reactant role the origin site fulfills (0 or 1)
+        for i,reactant in enumerate(reactants):
+          if self._site_matches_reactant(site,reactant):
+            my_role_idx = i
+            break
+            
+        if my_role_idx == -1:
+          return # Origin doesn't match any reactant
+          
+        # Neighbor must fulfill the other role
+        partner_role_idx = 1 - my_role_idx
+        partner_requirements = reactants[partner_role_idx]
+        
+        # Check neighbors
+        for neighbor_idx in site.nearest_neighbors_idx:
+          neighbor = grid_crystal[neighbor_idx]
+          if self._site_matches_reactant(neighbor,partner_requirements):
+            self.site_events.append([
+              neighbor_idx, 
+              reaction['name'], 
+              Act_E
+            ])
+          
         
     def deposition_event(self,TR,idx_origin,num_event,Act_E):
         self.site_events.append([TR,idx_origin, num_event, Act_E])
@@ -653,75 +758,45 @@ class Site():
               
               if event[-2] == 'generation':
                 Act_E = max(event[-1] - 0.5 * round(np.dot(E_site_field,[0,0,-1]) * 1e-10,3), self.Act_E_dict[current_defect]['E_min_gen'])
+                  
                             
-              elif event[-2] == 'reduction':
+              elif event[-2] in ('reduction', 'oxidation'):
+                base_energy = event[-1]
+                process = event[-2]
+                field_factor_top = -0.5 # Field opposes reduction at top
+                field_factor_bottom = +0.5 # Field assists reduction at bottom
                 
-                Act_E = event[-1]
+                # Determine field scaling and energy floor based in process type
+                if process == "reduction":
+                  min_energy = self.Act_E_dict[current_defect]['E_reduction_min']
+                else: # oxidation
+                  min_energy = self.Act_E_dict[current_defect]['E_min_gen']
+                  
+                # Compute field projection
+                # For oxidation, effective field is reversed
+                field_proj = np.dot(E_site_field, [0,0,1]) * 1e-10
+                if process == 'oxidation':
+                  field_proj *= -1
+                  
+                field_contribution = round(field_proj,3)
                 
-                # Cluster bridging both electrodes
-                if self.in_cluster_with_electrode['top_layer'] and self.in_cluster_with_electrode['bottom_layer']:
-                  #field_along_pathway = [round(np.dot(E_site_field,migration_pathways[event[2]]) * 1e-10,3) for event in self.site_events if not isinstance(event[2],str)]
-                  
-                  #field_along_pathway = field_along_pathway * 0
-                  #if field_along_pathway:
-                  #  Act_E_pathway = [event[-1] + 0.5 * field for field in field_along_pathway]
-                  #  Act_E = max(min(Act_E_pathway), 0.3)
-                  
-                    #if self.in_cluster_with_electrode['bottom_layer'] or 'bottom_layer' in self.supp_by:
-                    # Positive bias facilitate reduction --> Field helps add electrons
-                    #Act_E = max(event[-1] + 0.5 * round(np.dot(E_site_field,[0,0,1]) * 1e-10,3), 0.3)
-                  if self.in_cluster_with_electrode['top_layer'] or 'top_layer' in self.supp_by: 
-                    # Positive bias hinder reduction --> Field helps remove electrons
-                    Act_E = max(event[-1] - 0.5 * round(np.dot(E_site_field,[0,0,1]) * 1e-10,3), self.Act_E_dict[current_defect]['E_reduction_min'])
-                  if self.in_cluster_with_electrode['bottom_layer'] or 'bottom_layer' in self.supp_by:
-                    #Positive bias facilitate reduction --> Field helps add electrons
-                    Act_E = max(event[-1] + 0.5 * round(np.dot(E_site_field,[0,0,1]) * 1e-10,3), self.Act_E_dict[current_defect]['E_reduction_min'])
-
-                else:
-                  if self.in_cluster_with_electrode['top_layer'] or 'top_layer' in self.supp_by: 
-                    # Positive bias hinder reduction --> Field helps remove electrons
-                    Act_E = max(event[-1] - 0.5 * round(np.dot(E_site_field,[0,0,1]) * 1e-10,3), self.Act_E_dict[current_defect]['E_reduction_min'])
-                  if self.in_cluster_with_electrode['bottom_layer'] or 'bottom_layer' in self.supp_by:
-                    # Positive bias facilitate reduction --> Field helps add electrons
-                    Act_E = max(event[-1] + 0.5 * round(np.dot(E_site_field,[0,0,1]) * 1e-10,3), self.Act_E_dict[current_defect]['E_reduction_min'])
-                    
+                Act_E = base_energy
                 
-                  
-                  
-              elif event[-2] == 'oxidation':
+                # Apply top electrode correction
+                if self.in_cluster_with_electrode['top_layer'] or 'top_layer' in self.supp_by:
+                  Act_E = max(base_energy + field_factor_top * field_contribution, min_energy)
                 
-                Act_E = event[-1]
-                
-                # Cluster bridging both electrodes
-                if self.in_cluster_with_electrode['top_layer'] and self.in_cluster_with_electrode['bottom_layer']:
-                  #field_along_pathway = [round(np.dot(E_site_field,migration_pathways[event[2]]) * 1e-10,3) for event in self.site_events if not isinstance(event[2],str)]
-                  
-                  #field_along_pathway = field_along_pathway * 0
-                  
-                  #if field_along_pathway:
-                  #  Act_E_pathway = [event[-1] - 0.5 * field for field in field_along_pathway]
-                  #  Act_E = max(min(Act_E_pathway), self.Act_E_list['E_min_gen'])
-                  
-                    #if self.in_cluster_with_electrode['bottom_layer'] or 'bottom_layer' in self.supp_by:
-                    #  Act_E = max(event[-1] + 0.5 * round(np.dot(E_site_field,[0,0,-1]) * 1e-10,3), self.Act_E_list['E_min_gen'])
-                  if self.in_cluster_with_electrode['top_layer'] or 'top_layer' in self.supp_by: 
-                    Act_E = max(event[-1] - 0.5 * round(np.dot(E_site_field,[0,0,-1]) * 1e-10,3), self.Act_E_dict[current_defect]['E_min_gen'])
-                  
-                  if self.in_cluster_with_electrode['bottom_layer'] or 'bottom_layer' in self.supp_by:
-                    Act_E = max(event[-1] + 0.5 * round(np.dot(E_site_field,[0,0,-1]) * 1e-10,3), self.Act_E_dict[current_defect]['E_min_gen']) 
-                    
-                else:
-                  if self.in_cluster_with_electrode['top_layer'] or 'top_layer' in self.supp_by: 
-                    Act_E = max(event[-1] - 0.5 * round(np.dot(E_site_field,[0,0,-1]) * 1e-10,3), self.Act_E_dict[current_defect]['E_min_gen'])
-                  if self.in_cluster_with_electrode['bottom_layer'] or 'bottom_layer' in self.supp_by:
-                    Act_E = max(event[-1] + 0.5 * round(np.dot(E_site_field,[0,0,-1]) * 1e-10,3), self.Act_E_dict[current_defect]['E_min_gen'])
+                # Apply bottom electrode correction
+                if self.in_cluster_with_electrode['bottom_layer'] or 'bottom_layer' in self.supp_by:
+                  Act_E = max(base_energy + field_factor_bottom * field_contribution, min_energy)
                   
                   
-                
-              
-              else:
+              elif isinstance(event[-2], int):
                 mig_vec = migration_pathways[event[-2]]['direction']
                 Act_E = max(event[-1] - self.ion_charge * round(np.dot(E_site_field,mig_vec) * 1e-10,3),self.Act_E_dict[current_defect]['E_min_mig'])
+                
+              elif any(event[-2] == reaction['name'] for reaction in self.reactions_config.values()): # Reactions
+                Act_E = event[-1]
                 
             else:
               Act_E = event[-1]
@@ -1095,7 +1170,7 @@ class GrainBoundary:
       cx, cy = gb_config['center']
       return np.sqrt((x - cx)**2 + (y - cy)**2)
             
-    def _is_site_in_grain_boundary(self, site_position: tuple) -> bool:
+    def is_site_in_grain_boundary(self, site_position: tuple) -> bool:
       """
       Check if site is in any grain boundary
       """
@@ -1162,7 +1237,7 @@ class GrainBoundary:
       return 0 # Not in any GB
        
     
-    def modify_act_energy_GB(self,site,migration_pathways,defects_config):
+    def modify_act_energy_GB(self,site,migration_pathways,defects_config,reactions_config):
       """
       Modify activation energies for defects that can migrate through this site type.
       Uses 'allowed_sublattices' from defects_config.
@@ -1174,48 +1249,77 @@ class GrainBoundary:
       if not applicable_defects: 
         return # No defects can occupy this site type
         
-      # For now, handle the first applicable defect 
-      # Later extend this to handle multiple
-      current_defect = applicable_defects[0]
-      
-      base_energies = site.Act_E_dict[current_defect]
+      # GB configuration
+      gb_config = self.gb_configurations[0]
+      affected_events = gb_config.get('affected_events',[])
+      affected_defects = gb_config.get('affected_defects',[])
+      affected_reactions = gb_config.get('affected_reactions',[])
       
       site_pos = site.position
+      # Check if site is in GB
+      is_in_gb = self.is_site_in_grain_boundary(site.position)
       
-      if self._is_site_in_grain_boundary(site_pos):
-        if "E_gen_defect" in base_energies:
-          base_energies["E_gen_defect"] -= self.get_activation_energy_GB(site_pos)
-
-      Act_E_mig = {}
+      # Iterate through all applicable defects
+      for defect_name in applicable_defects:
+      
+        # Skip if this defect is not affected by GB
+        if affected_defects and defect_name not in affected_defects:
+          continue
+      
+        base_energies = site.Act_E_dict[defect_name]
+      
+      # 1. Handle generation
+      if "generation" in affected_events:
+        if is_in_gb and "E_gen_defect" in base_energies:
+          gb_reduction = self.get_activation_energy_GB(site_pos)
+          base_energies["E_gen_defect"] -= gb_reduction
+          
+      # 2. Handle migration    
+      if "migration" in affected_events:
+        Act_E_mig = {}
+              
+        for key,migration_vector in migration_pathways.items():
+          # Calculate destination position
+          dest_pos = np.array(site_pos) + migration_vector['direction'] * migration_vector['distance']
+          z_component = migration_vector['direction'][2]
+          
+          # Migration in plane
+          if np.isclose(z_component, 0.0, atol=1e-9):
+            base_energy = base_energies['E_mig_plane'] 
+          # Migration upward
+          elif z_component > 0:
+            base_energy = base_energies['E_mig_upward']
+          # Migration downward
+          elif z_component < 0:
+            base_energy = base_energies['E_mig_downward']
             
-      for key,migration_vector in migration_pathways.items():
-        # Calculate destination position
-        dest_pos = np.array(site_pos) + migration_vector['direction'] * migration_vector['distance']
-        z_component = migration_vector['direction'][2]
-        
-        # Migration in plane
-        if np.isclose(z_component, 0.0, atol=1e-9):
-          base_energy = base_energies['E_mig_plane'] 
-        # Migration upward
-        elif z_component > 0:
-          base_energy = base_energies['E_mig_upward']
-        # Migration downward
-        elif z_component < 0:
-          base_energy = base_energies['E_mig_downward']
+          # Modify only if destination is in GB
+          if self.is_site_in_grain_boundary(dest_pos):
+            # Lower barrier to enter GB (particles prefer GB)
+            gb_reduction = self.get_activation_energy_GB(dest_pos)
+            modified_energy = base_energy - gb_reduction
+  
+          else:
+            # No modification for bulk destinations (base case)
+            modified_energy = base_energy
           
-        # Modify only if destination is in GB
-        if self._is_site_in_grain_boundary(dest_pos):
-          # Lower barrier to enter GB (particles prefer GB)
-          gb_reduction = self.get_activation_energy_GB(dest_pos)
-          modified_energy = base_energy - gb_reduction
+          Act_E_mig[key] = modified_energy
+            
+        site.Act_E_dict[current_defect]['E_mig'] = Act_E_mig
+        
+      # 3. Handle reactions
+      if "reaction" in affected_events:
+      
 
-        else:
-          # No modification for bulk destinations (base case)
-          modified_energy = base_energy
-        
-        Act_E_mig[key] = modified_energy
+        for reaction_name, reaction in reactions_config.items():
+          if affected_reactions and reaction_name not in affected_reactions:
+            continue
           
-      site.Act_E_dict[current_defect]['E_mig'] = Act_E_mig   
+          if reaction['name'] in base_energies:
+            if is_in_gb:
+              gb_reduction = self.get_activation_energy_GB(site_pos)
+              base_energies[reaction['name']] -= gb_reduction
+         
       
         
 class Island:

@@ -358,11 +358,11 @@ def initialization(n_sim):
         # Material selection
         material_db = {
           "CeO2": {"mp_id":"mp-20194", "radius_neighbors": 4.0},
-          "ZrPbO3": {"mp_id": "mp-1068577", "radius_neighbors": 5.0}
+          "ZrPbO3": {"mp_id": "mp-1068577", "radius_neighbors": 4.3}
         }
         
         # Selected material
-        material_name = "CeO2"
+        material_name = "ZrPbO3"
         material_info = material_db[material_name]
     
         crystal_size = (50,50,50) # (angstrom (Å))
@@ -373,14 +373,33 @@ def initialization(n_sim):
         
         # Simulation level settings
         # ['ECM','PZT']
-        technology = "ECM" # or "PZT"
+        technology = "PZT" # or "PZT"
         sites_generation_layer = 'top_layer' # or "bottom_layer"
         mode = 'interstitial' # or 'vacancy'
 
         
         # Defect configuration  
         defects_config = {
-          
+          "hydrogen_interstitial":{
+            "symbol": "H",
+            "charge": +1,
+            "site_type": "interstitial", # Default type
+            "allowed_sublattices": ['interstitial', 'O'], # Geometric allowance
+            "initial_concentration_bulk": 1,
+            "initial_concentration_GB": 1,
+            "valid_target_species": ['Empty','V_O'], # Chemical allowance
+            "activation_energies_key": "H",
+            "enabled_events": ["migration", "reaction"],
+            "sites_generation_layer": None,
+            "description": "Hydrogen defect in interstitial"
+       
+            }
+        }
+        
+        
+        
+        
+        """
           "Ag_interstitial":{
             "symbol": "Ag",
             "charge": +1,
@@ -393,36 +412,39 @@ def initialization(n_sim):
             "description": "Mobile cation from active electrode"
           }
           
-        }
-        
-        """
-          "hydrogen_interstitial":{
-            "symbol": "H",
-            "charge": +1,
-            "site_type": "interstitial",
-            "initial_concentration": 1e-3,
-            "activation_energies_key": "H",
-            "enabled_events": ["migration"]
-            "description": "Hydrogen defect in interstitial"
-          
-          },
           "oxygen_vacancy": {
             "symbol": "V_O",
             "charge": +2,
             "site_type": "O",
+            "allowed_sublattices": ['O'],
             "initial_concentration": 1e-3,
             "activation_energies_key": "V_O",
             "enabled_events": []
             "description": "Intrinsic vacancy in oxide lattice"
           }
         """
-
+        
+        reactions_config = {
+          "H2_formation":{
+            "name": "H + H -> H2",
+            "type": "bimolecular_neighbor",
+            "reactants": [
+              {"symbol": "H", "sublattice": "interstitial"},
+              {"symbol": "H", "sublattice": "interstitial"}
+            ],
+            "products":[
+              {"symbol":"H2", "sublattice": "interstitial", "site_index": 0},
+              {"symbol": "Empty", "sublattice": "interstitial", "site_index": 1}
+            ],
+            "enabled": True
+          }
+        }
 
 
         # -----------------
         # Grain boundaries
         # -----------------
-        
+        """
         gb_configurations = [
           {
           'type':'cylindrical',
@@ -441,10 +463,13 @@ def initialization(n_sim):
           'position':crystal_size[1] * 0.5 + 2.0, # Position in y
           'width':4.0,
           'outer_width':5.0,
-          'Act_E_diff_GB': 2.7
+          'Act_E_diff_GB': 3.95,
+          'affected_defects': ['hydrogen_interstitial'],
+          'affected_reactions': ["H2_formation"],
+          'affected_events': ['reaction']
           }
         ]
-        """
+        
 
         script_directory = Path(__file__).parent        # Get the config path from the environment variable or fallback to the current directory
         config_path = script_directory / 'config.json'
@@ -474,6 +499,7 @@ def initialization(n_sim):
           'radius_neighbors': material_info["radius_neighbors"],
           'sites_generation_layer': sites_generation_layer,
           'defects_config': defects_config,
+          'reactions_config': reactions_config,
           'gb_configurations': gb_configurations,
           'technology': technology
         }
@@ -549,7 +575,7 @@ def initialization(n_sim):
         #             Electrical parameters
         #     
         # =============================================================================
-        
+        """
         electrical_config = ElectricalConfig(
           initial_voltage=0.0, 
           initial_time=0.0,   
@@ -571,41 +597,18 @@ def initialization(n_sim):
             epsilon_r=epsilon_r
           )  
         )
+        """
+        electrical_config = ElectricalConfig(
+          voltage=VoltageConfig(
+            mode=VoltageMode.ZERO_HOLD,
+            constant_voltage=0.0,
+            total_time=1e-5,
+            voltage_update_time=1e-7
+          )
+        )
         
         Elec_controller = ElectricalController.from_config(electrical_config)
         
-        """
-        initial_voltage=0.0 
-        initial_time = 0.0   
-        series_resistance = 2e2  
-        area_experimental_device = np.pi * (50*1e-6)**2
-        
-        max_voltage = 2.6
-        min_voltage = -1.5
-        ramp_rate = 1
-        num_cycles=1
-        voltage_update_time = 0.1
-        
-        Elec_controller = ElectricalController(initial_voltage,initial_time,series_resistance, current_model = 'schottky', crystal_size = crystal_size)
-        
-        Elec_controller.initialize_ramp_voltage_cycle(
-          max_voltage, 
-          min_voltage, 
-          ramp_rate, 
-          voltage_update_time,
-          num_cycles
-        )
-        
-        # Schottky emission parameters
-        phi_b = 0.53
-        
-        Elec_controller.initialize_current_parameters(
-          barrier_height=phi_b,      # eV
-          temperature=T,         # K  
-          area= area_experimental_device,             # m²
-          epsilon_r=epsilon_r            # HfO2
-        )
-        """
         
         # =============================================================================
         #             Activation energies
@@ -619,7 +622,7 @@ def initialization(n_sim):
         # Container: Act_E_dict[defect_name] = {energy_key: value or list}
         Act_E_dict = {}
         
-        def expand_clustering_energy(base_energy, max_cn = 13):
+        def expand_clustering_energy(base_energy, max_cn = 15):
           """ 
           Returns list where index = CN, values = base_energy * CN for CN >= 2
           """
@@ -683,9 +686,9 @@ def initialization(n_sim):
         #             Initialization of defects
         #     
         # =============================================================================
-        #P = 0.01
-        #System_state.defect_gen(rng,P)
-        #System_state.deposition_specie(0,rng,test = 6)
+        #System_state.defect_gen(rng)
+            
+        System_state.deposition_specie(0,rng,test = 2)
         
         # This timestep_limits will depend on the V/s ratio
         System_state.timestep_limits = Elec_controller.voltage_update_time
