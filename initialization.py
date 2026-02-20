@@ -384,16 +384,31 @@ def initialization(n_sim):
             "symbol": "H",
             "charge": +1,
             "site_type": "interstitial", # Default type
-            "allowed_sublattices": ['interstitial', 'O'], # Geometric allowance
-            "initial_concentration_bulk": 1,
-            "initial_concentration_GB": 1,
-            "valid_target_species": ['Empty','V_O'], # Chemical allowance
+            "allowed_sublattices": ['interstitial', 'O'], # Geometric allowance (neighbors)
+            "initial_concentration_bulk": 1e-3,
+            "initial_concentration_GB": 1e-2,
+            "valid_target_species": ['Empty'], # Chemical allowance for migration
             "activation_energies_key": "H",
             "enabled_events": ["migration", "reaction"],
             "sites_generation_layer": None,
             "description": "Hydrogen defect in interstitial"
        
-            }
+            },
+          "oxygen_vacancy": {
+            "symbol": "V_O",
+            "charge": +2,
+            "site_type": "O",
+            "allowed_sublattices": ['O'],
+            "initial_concentration_bulk": 1e-3,
+            "initial_concentration_GB": 1e-2,
+            "valid_target_species": ['O'],
+            "activation_energies_key": "V_O",
+            "enabled_events": [],
+            "passivation_level": 0,
+            "max_passivation_level": 3,
+            "sites_generation_layer": None,
+            "description": "Intrinsic vacancy in oxide lattice"
+          }
         }
         
         
@@ -412,16 +427,6 @@ def initialization(n_sim):
             "description": "Mobile cation from active electrode"
           }
           
-          "oxygen_vacancy": {
-            "symbol": "V_O",
-            "charge": +2,
-            "site_type": "O",
-            "allowed_sublattices": ['O'],
-            "initial_concentration": 1e-3,
-            "activation_energies_key": "V_O",
-            "enabled_events": []
-            "description": "Intrinsic vacancy in oxide lattice"
-          }
         """
         
         reactions_config = {
@@ -435,6 +440,15 @@ def initialization(n_sim):
             "products":[
               {"symbol":"H2", "sublattice": "interstitial", "site_index": 0},
               {"symbol": "Empty", "sublattice": "interstitial", "site_index": 1}
+            ],
+            "enabled": True
+          },
+          "V_O_passivation":{
+            "name": "H + V_O -> V_OH",
+            "type": "bimolecular_capture",
+            "reactants":[
+              {"symbol": "H", "sublattice": "interstitial", "site_index":0},
+              {"symbol": "V_O", "sublattice": "O", "site_index": 1, "passivation_increment": 1}
             ],
             "enabled": True
           }

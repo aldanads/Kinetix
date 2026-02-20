@@ -34,7 +34,7 @@ class Site():
         
         # Activation energies
         self.Act_E_dict = Act_E_dict  
-        self.defects_config = defects_config
+        self.defects_config = defects_config 
         self.reactions_config = reactions_config
         
         # Event tracking
@@ -64,6 +64,10 @@ class Site():
         current_defect = self._get_current_defect_name()
         if current_defect is not None:
           self.sites_generation_layer = defects_config[current_defect]["sites_generation_layer"]
+        
+        if current_defect is not None and "passivation_level" in defects_config[current_defect]:
+          self.passivation_level = defects_config[current_defect]["passivation_level"]   
+          
 
 # =============================================================================
 #     Helper methods           
@@ -459,14 +463,12 @@ class Site():
         else:
             # Get current defect name for energy lookup
             current_defect = self._get_current_defect_name()
-            
             Act_E_mig = self.Act_E_dict[current_defect]['E_mig']
             allowed_sublattices = self.defects_config[current_defect]['allowed_sublattices']
             valid_target_species = self.defects_config[current_defect]['valid_target_species']
             
             # Migration types
             migration_types = ['Plane', 'Up', 'Down']
-            
             
             
             for migration_type in migration_types:
@@ -535,6 +537,12 @@ class Site():
             # For example: H + H -> H2
             self._handle_bimolecular_neighbor_reaction(grid_crystal,site,reaction)
             
+          elif reaction['type'] == "bimolecular_capture":
+            # Example: H + V_O -> V_OH (H hops into a neighbor V_O)
+            # Triggered from the H site, targeting the V_O neighbor
+            self._handle_bimolecular_capture_reaction(grid_crystal,site,reaction)
+            
+            
     def _site_can_participate(self,site,reaction):
         """
         Filter to check if site specie and state match reaction requeriments
@@ -596,7 +604,38 @@ class Site():
               reaction['name'], 
               Act_E
             ])
+            
+    def _handle_bimolecular_capture_reaction(self,grid_crystal,site,reaction):
+      """
+      Handle capture reactions (e.g., H interstitial hops into V_O site).
+      """
+      reactants = reaction["reactants"]
+      current_defect = self._get_current_defect_name()
+      Act_E = self.Act_E_dict[current_defect][reaction['name']]
+    
+      my_role_idx = -1
+      # Find which reactant role the origin site fulfills (0 or 1)
+      for i,reactant in enumerate(reactants):
+        if self._site_matches_reactant(site,reactant):
+          my_role_idx = i
+          break
           
+      # Neighbor must fulfill the other role
+      partner_role_idx = 1 - my_role_idx
+      partner_requirements = reactants[partner_role_idx]
+      
+      for neighbor_idx in site.nearest_neighbors_idx:
+        neighbor = grid_crystal[neighbor_idx]
+        
+        if self._site_matches_reactant(neighbor,partner_requirements):
+          # Check passivation level of the trap
+          neighbor_defect = neighbor._get_current_defect_name()
+          if neighbor.passivation_level < self.defects_config[neighbor_defect]["max_passivation_level"]:
+            self.site_events.append([
+              neighbor_idx,
+              reaction['name'],
+              Act_E
+            ])      
         
     def deposition_event(self,TR,idx_origin,num_event,Act_E):
         self.site_events.append([TR,idx_origin, num_event, Act_E])

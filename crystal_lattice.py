@@ -383,6 +383,10 @@ class Crystal_Lattice():
                 Act_E_mig[key] = self.Act_E_dict[name].get('E_mig_downward')
             self.Act_E_dict[name]['E_mig'] = Act_E_mig  
             
+          for site in self.grid_crystal.values():
+                site.site_events = []
+                site.Act_E_dict = copy.deepcopy(self.Act_E_dict)
+            
     
     def _build_kdtree(self):
       """Build and store k-d tree for reuse."""
@@ -419,13 +423,7 @@ class Crystal_Lattice():
         if grid_crystal == None:
             
             if rank == 0:
-
-                # Set default parallelization based on system size and cores
-                if use_parallel is None:
-                    use_parallel = len(self.structure) > 1600
-                    num_cores = self.get_num_cores()
-                
-                
+            
                 # We obtain integer idx
                 print(f'Initializing grid_crystal with {len(self.structure)} host sites')
                 total_start_time = time.perf_counter()
@@ -487,13 +485,8 @@ class Crystal_Lattice():
               
                 # --- STEP 5: Neighbor analysis (uses FULL grid) ---
                 start_time = time.perf_counter()
-                use_parallel = False
-                if use_parallel and num_cores > 1:
-                    print(f'Starting parallel neighbor analysis with {num_cores} cores')
-                    self._parallel_neighbors_analysis(num_cores)
-                else:
-                    print('Starting sequencial neighbor')
-                    self._sequencial_neighbors_analysis()
+                print('Starting sequencial neighbor')
+                self._sequencial_neighbors_analysis()
                 step5_time = time.perf_counter() - start_time
                 print(f"Step 5 (Neighbor analysis): {step5_time:.4f} seconds") 
                 end_time = time.perf_counter()
@@ -542,10 +535,6 @@ class Crystal_Lattice():
             # Initialize pathways for loaded grids too 
             self._build_kdtree()
             self._initialize_migration_pathways(radius_neighbors)  
-            
-            for site in self.grid_crystal.values():
-                site.site_events = []
-                site.Act_E_dict = copy.deepcopy(self.Act_E_dict)
             
         # If we include grain boundaries, we should modify the activation energies
         if hasattr(self, 'gb_configurations'):
@@ -1296,10 +1285,9 @@ class Crystal_Lattice():
                   chemical_specie = defect['symbol']
                   ion_charge = defect['charge']   
                   self._introduce_specie_site(idx,sites_needing_support_update, sites_needing_event_update,chemical_specie,ion_charge)
-                  
+
           # Update sites availables, the support to each site and available migrations
           self.update_sites(sites_needing_support_update, sites_needing_event_update)
-        
 
     def deposition_specie(self,t,rng,test = 0):  
 
@@ -1373,11 +1361,22 @@ class Crystal_Lattice():
             # Update sites availables, the support to each site and available migrations
             self.update_sites(support_update_sites, event_update_sites)
             
-            neighbor = self.grid_crystal[idx].migration_paths['Plane'][0]
+            for neighbor_idx in self.grid_crystal[idx].nearest_neighbors_idx:
+              neighbor = self.grid_crystal[neighbor_idx]
+              
+              if neighbor.chemical_specie == 'O':
+                target_idx = neighbor_idx
+            
+            defect = 'oxygen_vacancy'
+            migrating_charge = self.defects_config[defect]['charge']
+            chemical_specie = self.defects_config[defect]['symbol']  
             # Introduce specie in the neighbor site
-            self._introduce_specie_site(neighbor[0], support_update_sites, event_update_sites, chemical_specie, migrating_charge)
+            self._introduce_specie_site(target_idx, support_update_sites, event_update_sites, chemical_specie, migrating_charge)
             # Update sites availables, the support to each site and available migrations
             self.update_sites(support_update_sites, event_update_sites)
+            
+            print(f'First site: {self.grid_crystal[idx].chemical_specie}, 2nd site: {neighbor.chemical_specie}')
+            exit()
 
         # Full coordinated atom --> Cluster
         elif test == 3:
