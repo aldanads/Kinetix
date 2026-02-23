@@ -292,10 +292,12 @@ def main():
                     
                   search_superbasin(System_state,KMC_time_step)
                   
-                  print(f'Chosen event: {chosen_event}, origin chemical specie: {System_state.grid_crystal[chosen_event[1]].chemical_specie}, dest chemical specie: {System_state.grid_crystal[chosen_event[3]].chemical_specie}')
-                  print(f'origin ion charge: {System_state.grid_crystal[chosen_event[1]].ion_charge}, dest charge: {System_state.grid_crystal[chosen_event[3]].ion_charge}')
-                  print(f'origin passivation level: {System_state.grid_crystal[chosen_event[1]].passivation_level}')
-                  exit()
+                  print(f'Chosen event: {chosen_event}')
+                  print(f'Dest chemical specie: {System_state.grid_crystal[chosen_event[1]].chemical_specie}, origin chemical specie: {System_state.grid_crystal[chosen_event[3]].chemical_specie}')
+                  print(f'Dest charge: {System_state.grid_crystal[chosen_event[1]].ion_charge}, origin charge: {System_state.grid_crystal[chosen_event[3]].ion_charge}')
+                  print(f'Dest passivation: {System_state.grid_crystal[chosen_event[1]].passivation_level}')
+                  if j == 2:
+                    exit()
                   
                 # Synchronize before continuing
                 if comm is not None:

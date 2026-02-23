@@ -403,7 +403,7 @@ def initialization(n_sim):
             "initial_concentration_GB": 1e-2,
             "valid_target_species": ['O'],
             "activation_energies_key": "V_O",
-            "enabled_events": [],
+            "enabled_events": ["reaction"],
             "passivation_level": 0,
             "max_passivation_level": 3,
             'charge_per_passivation': -1,
@@ -470,6 +470,16 @@ def initialization(n_sim):
               {"symbol": "V_O", "sublattice": "O", "site_index": 1, "passivation_increment": 1}
             ],
             "enabled": True
+          },
+          "V_O_depassivation":{
+            "name": "V_OH -> V_O + H",
+            "type": "unimolecular_escape",
+            "reactants": [{"symbol": "V_O", "sublattice": "O", "min_passivation": 1}],
+            "products":[
+              {"symbol": "V_O", "site_index": 0, "passivation_increment": -1},
+              {"symbol": "H", "sublattice": "interstitial", "site_index": "neighbor"}
+            ],
+            "enabled": True
           }
         }
 
@@ -534,7 +544,8 @@ def initialization(n_sim):
           'defects_config': defects_config,
           'reactions_config': reactions_config,
           'gb_configurations': gb_configurations,
-          'technology': technology
+          'technology': technology,
+          'rng': rng
         }
 
 
@@ -683,7 +694,7 @@ def initialization(n_sim):
             if "activation_energies" in field_name and isinstance(value, dict):
               # This block contains named energies (e.g., "migration", "clustering")
               for energy_name, energy_val in value.items():
-                if isinstance(energy_val, (int,float)):
+                if isinstance(energy_val, (int,float,dict)):
                   energies[energy_name] = energy_val
                   
           # Expand clustering and redox energies into CN-dependent lists
@@ -719,9 +730,9 @@ def initialization(n_sim):
         #             Initialization of defects
         #     
         # =============================================================================
-        #System_state.defect_gen(rng)
+        #System_state.defect_gen()
             
-        System_state.deposition_specie(0,rng,test = 2)
+        System_state.deposition_specie(0,test = 2)
         
         # This timestep_limits will depend on the V/s ratio
         System_state.timestep_limits = Elec_controller.voltage_update_time

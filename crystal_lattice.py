@@ -63,6 +63,7 @@ class Crystal_Lattice():
         self.gb_configurations = crystal_features['gb_configurations']
         self.defects_config = crystal_features.get('defects_config',{})
         self.reactions_config = crystal_features.get('reactions_config',{})
+        self.rng = crystal_features.get('rng')
              
         # --- Experimental conditions ---
         self.sticking_coefficient = experimental_conditions['sticking_coeff']
@@ -1267,7 +1268,7 @@ class Crystal_Lattice():
         self.timestep_limits = -np.log(1-P_limits)/self.TR_gen
         
         
-    def defect_gen(self,rng):
+    def defect_gen(self):
         
         sites_needing_support_update = set()
         sites_needing_event_update = set()
@@ -1281,7 +1282,7 @@ class Crystal_Lattice():
                 else:
                   probability = defect['initial_concentration_bulk']
                   
-                if rng.random() < probability:
+                if self.rng.random() < probability:
                   chemical_specie = defect['symbol']
                   ion_charge = defect['charge']   
                   self._introduce_specie_site(idx,sites_needing_support_update, sites_needing_event_update,chemical_specie,ion_charge)
@@ -1289,7 +1290,7 @@ class Crystal_Lattice():
           # Update sites availables, the support to each site and available migrations
           self.update_sites(sites_needing_support_update, sites_needing_event_update)
 
-    def deposition_specie(self,t,rng,test = 0):  
+    def deposition_specie(self,t,test = 0):  
 
         support_update_sites = set()
         event_update_sites = set()
@@ -1299,7 +1300,7 @@ class Crystal_Lattice():
             P = 1-np.exp(-self.TR_gen*t) # Adsorption probability in time t
             # Indexes of sites availables: supported by substrates or other species
             for idx in self.adsorption_sites:
-                if rng.random() < P:   
+                if self.rng.random() < P:   
                     # Introduce specie in the site
                     update_specie_events,support_update_sites = self.introduce_specie_site(idx,support_update_sites, event_update_sites,self.grid_crystal[idx].ion_charge)
             
@@ -1713,19 +1714,31 @@ class Crystal_Lattice():
         site_index = product.get('site_index',i)
         
         # Handle unimolecular reactions (only 1 site involved)
-        if site_index >= len(sites_involved):
-          continue
+        if site_index == 'neighbor':
+          # Spawn product in a random empty neighbor
+          # Useful for depassivation where H escapes to void
+          origin_site = self.grid_crystal[source_idx]
+          target_idx = self._find_empty_neighbor(origin_site,product)
+          if target_idx is None:
+            continue
+        else:
+          target_idx = sites_involved[site_index]
         
-        target_idx = sites_involved[site_index]
         site = self.grid_crystal[target_idx]
         
         if product['symbol'] != 'Empty':
           defect = self._defect_by_name(product['symbol'])
           
-          if 'charge' in defect:
-            ion_charge = defect['charge']
-            
-          # Introduce species
+          species_changed = (site.chemical_specie != product['symbol'])
+          
+          if species_changed:
+            if 'charge' in defect:
+              ion_charge = defect['charge']
+    
+          else:
+            ion_charge = site.ion_charge
+                    
+            # Introduce species
           self._introduce_specie_site(
             target_idx,
             support_update_sites,
@@ -1740,7 +1753,7 @@ class Crystal_Lattice():
             
           # Handle charge variation
           if 'charge_per_passivation' in defect:
-            site.ion_charge += defect['charge_per_passivation']
+            site.ion_charge += defect['charge_per_passivation'] * product['passivation_increment']
           
           
         else:
@@ -1755,7 +1768,36 @@ class Crystal_Lattice():
       for defect in self.defects_config.values():
         if defect['symbol'] == symbol:
           return defect
-            
+          
+    def _find_empty_neighbor(self,site,product):
+      """ 
+      Find a random empty neighbor for escape. E.g.: H escaping a V_O 
+      
+      Args:
+        site: The V_O site where depassivation occurs.
+        rng: Random number generator (for reproducibility).
+    
+      Returns:
+        int: Index of selected empty neighbor, or None if no space available.
+      """
+      empty_neighbors = []
+      defect = self._defect_by_name(product['symbol'])
+      
+      # 1. Collect all valid empty interstitial neighbors
+      for neighbor_idx in site.nearest_neighbors_idx:
+        neighbor = self.grid_crystal[neighbor_idx]
+        if neighbor.site_type == product['sublattice'] and neighbor.chemical_specie in defect["valid_target_species"]:
+          empty_neighbors.append(neighbor_idx)
+          
+      # 2. Return None if no space available (reaction blocked)
+      if not empty_neighbors:
+        return None
+        
+      # 3. Randomly select one neighbor (equal probability)
+      return tuple(self.rng.choice(empty_neighbors))
+      
+          
+                  
 # =============================================================================
 # At every kMC step we have to check if we destroy any superbasin                      
 # =============================================================================

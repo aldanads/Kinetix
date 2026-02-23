@@ -542,11 +542,16 @@ class Site():
             # Triggered from the H site, targeting the V_O neighbor
             self._handle_bimolecular_capture_reaction(grid_crystal,site,reaction)
             
+          elif reaction['type'] == "unimolecular_escape":
+            # Example: V_OH -> V_O + H (Depassivation)
+            self._handle_unimolecular_reaction(site,idx_origin,reaction)
+            
             
     def _site_can_participate(self,site,reaction):
         """
         Filter to check if site specie and state match reaction requeriments
         """
+        
         for reactant in reaction["reactants"]:
           # Check if chemical_specie matches this reactant role
           if site.chemical_specie == reactant["symbol"]:
@@ -612,7 +617,12 @@ class Site():
       """
       reactants = reaction["reactants"]
       current_defect = self._get_current_defect_name()
-      Act_E = self.Act_E_dict[current_defect][reaction['name']]
+      
+      # Only one of the reactant drive the reaction, so if the reactant doesn't have the activation energy return
+      if reaction['name'] in self.Act_E_dict[current_defect]:
+        Act_E = self.Act_E_dict[current_defect][reaction['name']]
+      else:
+        return
     
       my_role_idx = -1
       # Find which reactant role the origin site fulfills (0 or 1)
@@ -636,7 +646,25 @@ class Site():
               neighbor_idx,
               reaction['name'],
               Act_E
-            ])      
+            ])     
+            
+    def _handle_unimolecular_reaction(self,site,idx_origin,reaction):
+      """
+      Handle reactions that happen on a single site (e.g., V_OH -> V_O + H).
+      """
+      reactants = reaction["reactants"]
+      
+      if site.passivation_level >= reactants[0]['min_passivation']:
+        current_defect = self._get_current_defect_name()
+        Act_E = self.Act_E_dict[current_defect][reaction['name']]
+        site_passivation_level = str(site.passivation_level)
+        
+        self.site_events.append([
+          idx_origin,
+          reaction['name'],
+          Act_E[site_passivation_level]
+        ])
+        
         
     def deposition_event(self,TR,idx_origin,num_event,Act_E):
         self.site_events.append([TR,idx_origin, num_event, Act_E])
