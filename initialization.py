@@ -406,9 +406,24 @@ def initialization(n_sim):
             "enabled_events": [],
             "passivation_level": 0,
             "max_passivation_level": 3,
+            'charge_per_passivation': -1,
             "sites_generation_layer": None,
             "description": "Intrinsic vacancy in oxide lattice"
+          },
+          "hydrogen_gas":{
+            "symbol": "H2",
+            "charge": 0,
+            "site_type": "interstitial",
+            "allowed_sublattices": ['interstitial', 'O'],
+            "initial_concentration_bulk": 0,
+            "initial_concentration_GB": 0,
+            "valid_target_species": ['Empty'], # Chemical allowance for migration
+            "activation_energies_key": "H2",
+            "enabled_events": [],
+            "sites_generation_layer": None,
+            "description": "Hydrogen gas in interstitial"
           }
+          
         }
         
         
@@ -438,7 +453,7 @@ def initialization(n_sim):
               {"symbol": "H", "sublattice": "interstitial"}
             ],
             "products":[
-              {"symbol":"H2", "sublattice": "interstitial", "site_index": 0},
+              {"symbol":"H2", "sublattice": "interstitial", "site_index": 0, "key": "hydrogen_gas"},
               {"symbol": "Empty", "sublattice": "interstitial", "site_index": 1}
             ],
             "enabled": True
@@ -447,7 +462,11 @@ def initialization(n_sim):
             "name": "H + V_O -> V_OH",
             "type": "bimolecular_capture",
             "reactants":[
-              {"symbol": "H", "sublattice": "interstitial", "site_index":0},
+              {"symbol": "H", "sublattice": "interstitial"},
+              {"symbol": "V_O", "sublattice": "O"}
+            ],
+            "products":[
+              {"symbol": "Empty", "sublattice":"interstitial", "site_index": 0},
               {"symbol": "V_O", "sublattice": "O", "site_index": 1, "passivation_increment": 1}
             ],
             "enabled": True

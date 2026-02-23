@@ -1364,7 +1364,7 @@ class Crystal_Lattice():
             for neighbor_idx in self.grid_crystal[idx].nearest_neighbors_idx:
               neighbor = self.grid_crystal[neighbor_idx]
               
-              if neighbor.chemical_specie == 'O':
+              if neighbor.site_type == 'O':
                 target_idx = neighbor_idx
             
             defect = 'oxygen_vacancy'
@@ -1375,8 +1375,6 @@ class Crystal_Lattice():
             # Update sites availables, the support to each site and available migrations
             self.update_sites(support_update_sites, event_update_sites)
             
-            print(f'First site: {self.grid_crystal[idx].chemical_specie}, 2nd site: {neighbor.chemical_specie}')
-            exit()
 
         # Full coordinated atom --> Cluster
         elif test == 3:
@@ -1620,7 +1618,7 @@ class Crystal_Lattice():
             sites_needing_event_update
           )    
         elif any(chosen_event[2] == reaction['name'] for reaction in self.reactions_config.values()): 
-          print(f'Reaction happening: {chosen_event[2]}')
+
           self._handle_reaction_event(
             chosen_event, 
             sites_needing_support_update, 
@@ -1713,31 +1711,50 @@ class Crystal_Lattice():
       for i, product in enumerate(products):
         # Determine which site this product applies to
         site_index = product.get('site_index',i)
-        target_idx = sites_involved[site_index]
         
+        # Handle unimolecular reactions (only 1 site involved)
+        if site_index >= len(sites_involved):
+          continue
+        
+        target_idx = sites_involved[site_index]
         site = self.grid_crystal[target_idx]
         
         if product['symbol'] != 'Empty':
-          site.chemical_specie = product['symbol']
-          event_update_sites.add(target_idx)
-          support_update_sites.update(site.nearest_neighbors_idx)
-          support_update_sites.add(target_idx) 
-        
-          for affected_site_idx in support_update_sites:
-            affected_site = self.grid_crystal[affected_site_idx]
+          defect = self._defect_by_name(product['symbol'])
+          
+          if 'charge' in defect:
+            ion_charge = defect['charge']
             
-            # Add sites that support the affected site
-            for supporting_site_idx in affected_site.supp_by:
-              if(isinstance(supporting_site_idx, tuple) and
-                 self.grid_crystal[supporting_site_idx].chemical_specie != self.affected_site):
-                 event_update_sites.add(supporting_site_idx)
-                 
-            # Add the affected site itself if occupied
-            if affected_site.chemical_specie != self.affected_site:
-                event_update_sites.add(affected_site_idx)
+          # Introduce species
+          self._introduce_specie_site(
+            target_idx,
+            support_update_sites,
+            event_update_sites,
+            product['symbol'],
+            ion_charge
+          )
+          
+          # Handle passivation increment
+          if 'passivation_increment' in product:
+            site.passivation_level += product['passivation_increment']
+            
+          # Handle charge variation
+          if 'charge_per_passivation' in defect:
+            site.ion_charge += defect['charge_per_passivation']
+          
+          
         else:
-          self._remove_species_at_site(target_idx, support_update_sites, event_update_sites)
-      
+          self._remove_species_at_site(
+            target_idx, 
+            support_update_sites, 
+            event_update_sites
+          )
+          
+    def _defect_by_name(self,symbol):
+    
+      for defect in self.defects_config.values():
+        if defect['symbol'] == symbol:
+          return defect
             
 # =============================================================================
 # At every kMC step we have to check if we destroy any superbasin                      

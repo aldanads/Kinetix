@@ -580,7 +580,7 @@ class Site():
         reactants = reaction["reactants"]
         current_defect = self._get_current_defect_name()
         Act_E = self.Act_E_dict[current_defect][reaction['name']]
-        
+             
         my_role_idx = -1
         # Find which reactant role the origin site fulfills (0 or 1)
         for i,reactant in enumerate(reactants):
@@ -593,7 +593,7 @@ class Site():
           
         # Neighbor must fulfill the other role
         partner_role_idx = 1 - my_role_idx
-        partner_requirements = reactants[partner_role_idx]
+        partner_requirements = reactants[partner_role_idx]  
         
         # Check neighbors
         for neighbor_idx in site.nearest_neighbors_idx:
@@ -604,6 +604,7 @@ class Site():
               reaction['name'], 
               Act_E
             ])
+            
             
     def _handle_bimolecular_capture_reaction(self,grid_crystal,site,reaction):
       """
