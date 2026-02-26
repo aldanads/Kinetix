@@ -27,6 +27,7 @@ from pymatgen.core import Structure, PeriodicSite
 
 
 import json
+from typing import Dict, List
 import os
 from pathlib import Path
 import platform
@@ -95,7 +96,6 @@ class Crystal_Lattice():
         # is effectively blocked due to the redistribution of neighboring charges
         if self.poissonSolver_parameters:
           self.screening_factor = self.poissonSolver_parameters['screening_factor']
-          self.ion_charge = self.poissonSolver_parameters['ion_charge']
           self.conductivity = self.poissonSolver_parameters['conductivity_CF']
 
         self.time = 0
@@ -400,12 +400,74 @@ class Crystal_Lattice():
     def _get_neighbors_for_site(self,site_idx,radius):
       """Get neighbors for a specific site using stored k-d tree."""
       site_pos = self.grid_crystal[site_idx].position
-      neighbor_array_indices = self._kdtree.query_ball_point(site_pos,radius)
+      all_neighbor_indices = set() # Use set to automatically deduplicate
       
-      #Convert to site indices
-      neighbor_site_indices = [self._kdtree_indices[i] for i in neighbor_array_indices]
-      return neighbor_site_indices      
+      # 1. Generate all periodic image positions to query
+      query_positions = self._generate_periodic_images(site_pos, radius)
       
+      # 2. Query k-d tree for each image position
+      for query_pos in query_positions:
+        neighbor_array_indices = self._kdtree.query_ball_point(query_pos,radius)
+        if any(site_pos[dim] < radius or site_pos[dim] > self.crystal_size[dim] - radius for dim in range(2)):
+          for neighbor_indice in neighbor_array_indices:
+            neighbor_idx = self._kdtree_indices[neighbor_indice]
+ 
+        #Convert to site indices
+        for i in neighbor_array_indices:
+          neighbor_idx = self._kdtree_indices[i]
+          if neighbor_idx != site_idx:
+            all_neighbor_indices.add(neighbor_idx)
+        
+      return list(all_neighbor_indices)  
+          
+      
+    def _generate_periodic_images(self,site_pos,radius):
+      """
+      Generate query positions including periodic images for LATERAL boundaries only (x, y).
+      Top and bottom (z) are electrodes with open boundaries.
+      
+      Returns:
+          List of positions to query (original + lateral periodic images).
+      """
+      site_pos = np.array(site_pos)
+      query_positions = [site_pos]
+      
+      # Apply PBC to x (dim=0) and y (dim=1), not z (dim=2)
+      for dim in range(2):
+        if site_pos[dim] < radius:
+          # Near lower lateral boundary: add image from upper lateral boundary
+          image_pos = site_pos.copy()
+          image_pos[dim] += self.crystal_size[dim]
+          query_positions.append(image_pos)
+          
+        if site_pos[dim] > self.crystal_size[dim] - radius:
+          # Near upper lateral boundary: add image from lower lateral boundary
+          image_pos = site_pos.copy()
+          image_pos[dim] -= self.crystal_size[dim]
+          query_positions.append(image_pos)  
+          
+      # Handle corners: generate combination images for x+y boundaries
+      if len(query_positions) > 1:
+        base_positions = query_positions.copy()
+        for base_pos in base_positions:
+          for dim in range(2):
+            if base_pos[dim] != site_pos[dim]: # Skip if it has already been shifted in dimension dim
+              continue
+            if site_pos[dim] < radius:
+              image_pos = base_pos.copy()
+              image_pos[dim] += self.crystal_size[dim]
+              if not any(np.allclose(image_pos,qp) for qp in query_positions):
+                query_positions.append(image_pos)
+            if site_pos[dim] > self.crystal_size[dim] - radius:
+              image_pos = base_pos.copy()
+              image_pos[dim] -= self.crystal_size[dim]
+              if not any(np.allclose(image_pos,qp) for qp in query_positions):
+                query_positions.append(image_pos)
+                
+      return query_positions      
+            
+              
+          
             
     def crystal_grid(self,grid_crystal,radius_neighbors,mode,affected_site,api_key,use_parallel=None):
         
@@ -1315,7 +1377,6 @@ class Crystal_Lattice():
             # Compute geometric center of the domain
             center = np.array(self.crystal_size) * [0.5,0.5,0.5]  # assumes crystal_size = [Lx, Ly, Lz]
             min_dist = float('inf')
-            central_site = None
             central_idx = None
             
             for idx, site in self.grid_crystal.items():
@@ -1324,7 +1385,6 @@ class Crystal_Lattice():
                 #print(f'Dist {dist} and min. dist. {min_dist}')
                 if dist < min_dist:
                     min_dist = dist
-                    central_site = site
                     central_idx = idx   
                     
                      
@@ -1377,38 +1437,76 @@ class Crystal_Lattice():
             self.update_sites(support_update_sites, event_update_sites)
             
 
-        # Full coordinated atom --> Cluster
+        # Central atom with N neighbors
         elif test == 3:
             
-            # Compute geometric center of the domain
+            N_HYDROGENS = 3
+            
+            # 1. Compute geometric center of the domain
             center = np.array(self.crystal_size) * [0.5,0.5,0.5]  # assumes crystal_size = [Lx, Ly, Lz]
             min_dist = float('inf')
-            central_site = None
             central_idx = None
             
             for idx, site in self.grid_crystal.items():
+                if site.site_type != 'O':
+                  continue
                 pos = np.array(site.position)
                 dist = np.linalg.norm(pos - center)
                 #print(f'Dist {dist} and min. dist. {min_dist}')
                 if dist < min_dist:
                     min_dist = dist
-                    central_site = site
                     central_idx = idx   
-                    
+                            
+            if central_idx is None:
+              raise ValueError("No oxygen site found at center for V_O creation")
                      
-            # Introduce specie in the site
-            update_specie_events,support_update_sites = self.introduce_specie_site(central_idx,update_specie_events,support_update_sites,0)
-            self.update_sites(update_specie_events,support_update_sites)
-            self._add_metal_atom_to_clusters(central_idx)
+            # 2. Introduce specie in the site
+            central_config = self.defects_config['oxygen_vacancy']
+            self._introduce_specie_site(
+              central_idx,
+              support_update_sites,
+              event_update_sites,
+              central_config['symbol'],
+              central_config['charge']
+            )
             
-            for migration_path in self.grid_crystal[central_idx].migration_paths.values():
+            # 3. Find neighboring sites
+            site = self.grid_crystal[central_idx]
+            neighbors = []
+            
+            for neighbor_idx in site.nearest_neighbors_idx:
+              neighbor = self.grid_crystal[neighbor_idx]
+              if neighbor.site_type == 'interstitial' and neighbor.chemical_specie == 'Empty':
+                neighbors.append(neighbor_idx)
+            
+            # 4. Place atoms in sites
+            neighbor_config = self.defects_config['hydrogen_interstitial']
+            n_placed = 0
+            
+            for neigh_idx in neighbors:
+              if n_placed >= N_HYDROGENS:
+                break
               
-              for neighbor in migration_path:
-                  update_specie_events,support_update_sites = self.introduce_specie_site(neighbor[0],update_specie_events,support_update_sites,0)
-                  self.update_sites(update_specie_events,support_update_sites)
-                  print(f'Neighbor: {neighbor}')
-                  self._add_metal_atom_to_clusters(neighbor[0])
-                  
+              self._introduce_specie_site(
+                neigh_idx,
+                support_update_sites,
+                event_update_sites,
+                neighbor_config['symbol'],
+                neighbor_config['charge']
+              )
+              n_placed += 1
+             
+            # 5. Update
+            self.update_sites(support_update_sites, event_update_sites)
+             
+            # 6. Verification output
+            print(f"=== Test Case 3: V_O Passivation ===")
+            print(f"V_O site index: {central_idx}")
+            print(f"V_O passivation_level: {site.passivation_level}")
+            print(f"V_O charge: {site.ion_charge}")
+            print(f"H atoms placed: {n_placed}")
+            print(f"Expected charge after {n_placed} H: {central_config['charge'] + n_placed * central_config['charge_per_passivation']}")
+            print(f"=====================================")  
 
         # Cluster - particles in plane, one on bottom
         elif test == 4:
@@ -1893,7 +1991,6 @@ class Crystal_Lattice():
         
         for affected_site_idx in support_update_sites:
             affected_site = self.grid_crystal[affected_site_idx]
-            
             # Add sites that support the affected site
             for supporting_site_idx in affected_site.supp_by:
               if(isinstance(supporting_site_idx, tuple) and
@@ -2033,58 +2130,127 @@ class Crystal_Lattice():
             plt.show()
             
         else:
-            
-            #species_mapping = {self.chemical_specie: 1}  # Example species mapping
-            charge_mapping = {0: 1, 1: 2}  # charge 0 -> type 1, charge 1 -> type 2
-            
-            # Get charge values for occupied sites
-            charges = [self.grid_crystal[site].ion_charge for site in self.sites_occupied]  # Assuming charge attribute exists
-            species_ids = [charge_mapping.get(charge) for charge in charges]
-            
-            sites_occupied_cart = [(self.idx_to_cart(site)) for site in self.sites_occupied]
-            #species_ids = [species_mapping.get(self.grid_crystal[site].chemical_specie) for site in self.sites_occupied]
-            # Define particle IDs
-            particle_ids = list(range(1, len(sites_occupied_cart) + 1))  # Unique IDs for each particle
-            
-    
             base_path = Path(path)
-            dump_file_path = base_path / f"{i}.dump"
-            # Write the LAMMPS dump file
-            with open(dump_file_path, 'w') as dump_file:
-                dump_file.write(f"ITEM: TIMESTEP\n{self.time:.10f}\n")
-                dump_file.write("ITEM: NUMBER OF ATOMS\n")
-                dump_file.write(f"{len(sites_occupied_cart)}\n")
-                dump_file.write("ITEM: BOX BOUNDS (Angstrom)\n")
-                dump_file.write(f"0.0 {self.crystal_size[0]}\n")
-                dump_file.write(f"0.0 {self.crystal_size[1]}\n")
-                dump_file.write(f"0.0 {self.crystal_size[2]}\n")
-                dump_file.write("ITEM: ATOMS id type x y z\n")
-                for pid, sid, pos in zip(particle_ids, species_ids, sites_occupied_cart):
-                    dump_file.write(f"{pid} {sid} {pos[0]} {pos[1]} {pos[2]}\n")
+            self._write_dump(base_path,i)
             
-            
-            
-            # Write the metadata file
-            if i == 1:
-                metadata_path = base_path / "metadata.json"
-                metadata_species = {charge_mapping[charge]: charge for charge in charge_mapping}
-                metadata_experimental_conditions = {'Experiment':self.experiment,
-                                                    'Temperature':self.temperature,
-                                                    'Partial pressure':self.partial_pressure,
-                                                    'Sticking coefficient':self.sticking_coefficient}
-                metadata_simulation_setup = {'Simulation domain (Angstroms)':self.crystal_size,
-                                             'Growth direction':self.miller_indices,
-                                             'Material id (Materials Project)':self.id_material,
-                                             'Search superbasin after n steps with small time steps': self.n_search_superbasin,
-                                             'Time limitation to search superbasin': self.time_step_limits,
-                                             'Minimum activation energy for building superbasins':self.E_min,
-                                             'Activation energy set':self.Act_E_dict}
-                with open(metadata_path, 'w') as metadata_file:
-                    json.dump({
-                        "experimental_conditions": metadata_experimental_conditions,
-                        "species": metadata_species,
-                        "simulation_setup": metadata_simulation_setup
-                    }, metadata_file, indent=4)
+                    
+                    
+    def write_metadata(self,output_path: str = './output') -> None:
+      from datetime import datetime
+      """ Write simulation metadata to JSON file """
+      metadata_path = output_path / "metadata.json"
+      self._species_id_gen()
+      
+      metadata = {
+        "timestamp": datetime.now().isoformat(),
+        "experimental_conditions": {
+          'Experiment': self.experiment,
+          'Temperature': self.temperature,
+          'Partial_pressure': self.partial_pressure,
+          'Sticking_coefficient': self.sticking_coefficient
+        },
+        "species": list(self.SPECIES_TYPE_MAP.keys()),
+        "species_mapping": self.SPECIES_TYPE_MAP,
+        "simulation_setup": {
+          'Simulation_domain_Angstrom': self.crystal_size,
+          'Growth_direction': self.miller_indices,
+          'Material_id_MP': self.id_material,
+          'Superbasin_search_interval': self.n_search_superbasin,
+          'Superbasin_time_limit': self.time_step_limits,
+          'E_min_superbasin': self.E_min,
+          'Activation_energy_set': {str(k):v for k,v in self.Act_E_dict.items()}
+        }
+      }
+      
+      with open(metadata_path, 'w') as f:
+        json.dump(metadata, f, indent=2, default=str)
+        
+    def _species_id_gen(self):
+    
+      # Ensure deterministic ordering (e.g., sorted by name)
+      sorted_defects = sorted(self.defects_config.items(), key=lambda x:x[0])
+      
+      self.SPECIES_TYPE_MAP = {
+        defect['symbol']: i + 1 
+        for i,(name,defect) in enumerate(sorted_defects)
+      }
+
+                    
+    def _write_dump(self, base_path: str = '.', step: int = 0, include_charge: bool = True) -> None:
+      """
+      Write OVITO-compatible dump file
+        
+      Parameters
+      ----------
+      path : str
+        Output directory
+      step : int
+        Simulation step (used in filename)
+      include_charge : bool
+        Whether to write charge state as custom property
+      """
+      base_path.mkdir(parents=True, exist_ok=True)
+      filename = base_path / f"{step}.dump"
+        
+      atoms = self._collect_atom_data(include_charge)
+      
+      # Write file
+      with open(filename, 'w') as f:
+        self._write_dump_header(f,step,len(atoms), include_charge)
+        self._write_dump_atoms(f, atoms, include_charge)
+        
+        
+    
+    def _collect_atom_data(self,include_charge: bool) -> List[Dict]:
+      """Optimized data collection (separated from I/O for performance)."""
+      atoms = []
+        
+      for idx in self.sites_occupied:
+        site = self.grid_crystal[idx]
+        specie = site.chemical_specie
+        
+        # Build atom record
+        atom = {
+          'id': len(atoms) + 1,
+          'type': self.SPECIES_TYPE_MAP.get(specie,99),
+          'pos': site.position,
+        }
+        
+        if include_charge:
+          atom['charge'] = site.ion_charge
+          
+        atoms.append(atom)
+        
+      return atoms
+      
+    def _write_dump_header(self,f,step:int, n_atoms:int, include_charge: bool) -> None:
+      """Write LAMMPS header with correct newline formatting."""
+      # Standard LAMMPS dump header
+    
+      f.write("ITEM: TIMESTEP\n")
+      f.write(f'{self.time:.6e}\n')
+      f.write('ITEM: NUMBER OF ATOMS\n')
+      f.write(f'{n_atoms}\n')
+      f.write(f'ITEM: BOX BOUNDS (Angstrom)\n')
+      f.write(f'0.0 {float(self.crystal_size[0])}\n')
+      f.write(f'0.0 {float(self.crystal_size[1])}\n')
+      f.write(f'0.0 {float(self.crystal_size[2])}\n')
+        
+      # Column definition: add custom properties at the end
+      columns = 'id type x y z'
+      if include_charge:
+        columns += ' charge'
+      f.write(f'ITEM: ATOMS {columns}\n')
+      
+    def _write_dump_atoms(self,f,atoms: List[Dict], include_charge: bool) -> None:
+    # Write atom lines
+      for atom in atoms:
+        x, y, z = atom['pos']
+        line = f"{atom['id']} {atom['type']} {x:.5f} {y:.5f} {z:.5f}"
+        if include_charge:
+          line += f" {atom['charge']:.1f}"
+        f.write(line + "\n")
+        
                     
                     
     def plot_islands(self,path = '',i = 0):

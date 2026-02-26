@@ -106,57 +106,20 @@ class Site():
         tol = 1e-6
 
         for idx,pos in zip(neigh_idx,neigh_cart):
-            
-            if tuple(idx) in grid_crystal:
                     
-                if self._is_mobile_site(grid_crystal[idx]):
-                  self.nearest_neighbors_idx.append(tuple(idx))             
-                  self.nearest_neighbors_cart.append(tuple(pos))
+          if self._is_mobile_site(grid_crystal[idx]):
+            self.nearest_neighbors_idx.append(tuple(idx))             
+            self.nearest_neighbors_cart.append(tuple(pos))
                 
-                  # Migration in the plane
-                  if -tol <= (pos[2]-self.position[2]) <= tol:
-                      self.migration_paths['Plane'].append([tuple(idx),event_labels[tuple(idx - np.array(idx_origin))]])
-                  
-                  # Migration upward
-                  elif (pos[2]-self.position[2]) > tol:
-                      self.migration_paths['Up'].append([tuple(idx),event_labels[tuple(idx - np.array(idx_origin))]])
-                      
-                  # Migration downward
-                  elif (pos[2]-self.position[2]) < -tol:
-                      self.migration_paths['Down'].append([tuple(idx),event_labels[tuple(idx - np.array(idx_origin))]])
-
-                    
-            # Establish boundary conditions for neighbors in xy plane
-            # If pos is out of the boundary in xy but within z limits:
-            elif (-tol <= pos[2] <= crystal_size[2] + tol):
-                
-    
-                # Apply periodic boundary conditions in the xy plane
-                pos = (pos[0] % crystal_size[0], pos[1] % crystal_size[1], pos[2])
-
-                # Find the nearest neighbor within the grid
-                min_dist, min_dist_idx = min(
-                    ((np.linalg.norm(np.array(site.position) - np.array(pos)), idx) 
-                     for idx, site in grid_crystal.items() 
-                     if np.isclose(site.position[2], pos[2], atol=1e-9, rtol=1e-9)),
-                     key=lambda x: x[0]
-                )
-                
-                if self._is_mobile_site(grid_crystal[min_dist_idx]):
-                  self.nearest_neighbors_idx.append(tuple(min_dist_idx))
-                  self.nearest_neighbors_cart.append(tuple(grid_crystal[min_dist_idx].position))
-  
-                  # Migration in the plane
-                  if -tol <= (pos[2]-self.position[2]) <= tol:
-                      self.migration_paths['Plane'].append([tuple(min_dist_idx),event_labels[tuple(idx - np.array(idx_origin))]])
-                              
-                  # Migration upward
-                  elif (pos[2]-self.position[2]) > tol:
-                      self.migration_paths['Up'].append([tuple(min_dist_idx),event_labels[tuple(idx - np.array(idx_origin))]])
-                          
-                  # Migration downward
-                  elif (pos[2]-self.position[2]) < -tol:               
-                      self.migration_paths['Down'].append([tuple(min_dist_idx),event_labels[tuple(idx - np.array(idx_origin))]])
+            # Migration in the plane
+            if -tol <= (pos[2]-self.position[2]) <= tol:
+              self.migration_paths['Plane'].append([tuple(idx),event_labels[tuple(idx - np.array(idx_origin))]])
+            # Migration upward
+            elif (pos[2]-self.position[2]) > tol:
+              self.migration_paths['Up'].append([tuple(idx),event_labels[tuple(idx - np.array(idx_origin))]])     
+            # Migration downward
+            elif (pos[2]-self.position[2]) < -tol:
+              self.migration_paths['Down'].append([tuple(idx),event_labels[tuple(idx - np.array(idx_origin))]])
               
         self.mig_paths_plane = {num_event:site_idx for site_idx, num_event in self.migration_paths['Plane']}   
 
@@ -177,7 +140,8 @@ class Site():
             self.supp_by.append('top_layer')
             self.is_at_top_interface = True
 
-        if self.chemical_specie != "Empty":
+        current_defect = self._get_current_defect_name()
+        if self.chemical_specie != "Empty" and self.defects_config[current_defect]["CN_matters"]:
           # Go over the nearest neighbors
           for idx in self.nearest_neighbors_idx:
             neighbor = grid_crystal[idx]
@@ -186,17 +150,24 @@ class Site():
               self.supp_by.append(idx)
         
         # Calculate destination coordination for empty sites          
-        elif self.chemical_specie == "Empty":
+        elif self.chemical_specie == "Empty" and self.applicable_defects:
           self.destination_CN = {}
           for defect_name in self.applicable_defects:
-            if defect_name in self.Act_E_dict:
-              defect_specie = self.defects_config[defect_name]["symbol"]
-              cn_count = 0
-              for idx in self.nearest_neighbors_idx:
-                neighbor = grid_crystal[idx]
-                if (neighbor.chemical_specie == defect_specie and idx != idx_origin):
-                  cn_count += 1
-              self.destination_CN[defect_name] = cn_count 
+            defect_config = self.defects_config.get(defect_name)
+            if not defect_config or not defect_config.get("CN_matters", False):
+              continue
+            
+            if defect_name not in self.Act_E_dict:
+              continue
+              
+            defect_specie = defect_config["symbol"]
+            cn_count = 0
+            
+            for idx in self.nearest_neighbors_idx:
+              neighbor = grid_crystal[idx]
+              if (neighbor.chemical_specie == defect_specie and idx != idx_origin):
+                cn_count += 1
+            self.destination_CN[defect_name] = cn_count 
             
               
            
@@ -206,7 +177,6 @@ class Site():
         
         # Check for redox-capable defects
         has_redox = False
-        current_defect = self._get_current_defect_name()
         if current_defect in self.Act_E_dict:
           defect_energies = self.Act_E_dict[current_defect]
           if 'E_reduction' in defect_energies or 'E_oxidation' in defect_energies:
@@ -308,6 +278,8 @@ class Site():
       # Calculate redox energy based on support environment
       cn_index = len(self.supp_by)
         
+      print(f'CN index: {cn_index}, CN redox energies length: {len(cn_redox_energies)}')
+      print(f'Supp by: {self.supp_by}')
       
       if 'bottom_layer' in self.supp_by: # Bottom interface
         energy = cn_redox_energies[cn_index] + defect_energies['redox_bottom_electrode']

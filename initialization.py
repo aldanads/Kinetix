@@ -53,7 +53,7 @@ def initialization(n_sim):
     if save_data:
         files_copy = ['initialization.py', 'crystal_lattice.py','Site.py','main.py','KMC.py',
                       'balanced_tree.py','analysis.py','superbasin.py', 'PoissonSolver.py' , 'ElectricalController.py',
-                      'activation_energies_deposition.json', 'activation_energies_memristors.json']
+                      'activation_energies_deposition.json', 'activation_energies_memristors.json', 'config.py']
         
         if platform.system() == 'Windows': # When running in laptop
             dst = Path(r'\\FS1\Docs2\samuel.delgado\My Documents\Publications\Memristor ECM\Simulations\Tests')
@@ -382,28 +382,30 @@ def initialization(n_sim):
         defects_config = {
           "hydrogen_interstitial":{
             "symbol": "H",
-            "charge": +1,
+            "charge": 1,
             "site_type": "interstitial", # Default type
             "allowed_sublattices": ['interstitial', 'O'], # Geometric allowance (neighbors)
-            "initial_concentration_bulk": 1e-3,
+            "initial_concentration_bulk": 1e-2,
             "initial_concentration_GB": 1e-2,
             "valid_target_species": ['Empty'], # Chemical allowance for migration
             "activation_energies_key": "H",
             "enabled_events": ["migration", "reaction"],
+            "CN_matters": True,
             "sites_generation_layer": None,
             "description": "Hydrogen defect in interstitial"
        
             },
           "oxygen_vacancy": {
             "symbol": "V_O",
-            "charge": +2,
+            "charge": 2,
             "site_type": "O",
             "allowed_sublattices": ['O'],
-            "initial_concentration_bulk": 1e-3,
+            "initial_concentration_bulk": 1e-2,
             "initial_concentration_GB": 1e-2,
             "valid_target_species": ['O'],
             "activation_energies_key": "V_O",
             "enabled_events": ["reaction"],
+            "CN_matters": False,
             "passivation_level": 0,
             "max_passivation_level": 3,
             'charge_per_passivation': -1,
@@ -420,6 +422,7 @@ def initialization(n_sim):
             "valid_target_species": ['Empty'], # Chemical allowance for migration
             "activation_energies_key": "H2",
             "enabled_events": [],
+            "CN_matters": False,
             "sites_generation_layer": None,
             "description": "Hydrogen gas in interstitial"
           }
@@ -506,7 +509,7 @@ def initialization(n_sim):
           'position':crystal_size[1] * 0.5 + 2.0, # Position in y
           'width':4.0,
           'outer_width':5.0,
-          'Act_E_diff_GB': 3.95,
+          'Act_E_diff_GB': 3.25,
           'affected_defects': ['hydrogen_interstitial'],
           'affected_reactions': ["H2_formation"],
           'affected_events': ['reaction']
@@ -574,7 +577,6 @@ def initialization(n_sim):
         save_Poisson = False
         
         screening_factor = 0.01
-        ion_charge = 1
         conductivity_CF  = 6.3e7 * 0.1
         conductivity_dielectric = 1e-1
         
@@ -610,7 +612,6 @@ def initialization(n_sim):
           'mesh_file':mesh_file,
           'epsilon_r':epsilon_r,'chem_env_symmetry':chem_env_symmetry,'metal_valence':metal_valence,'d_metal_O':d_metal_O,'active_dipoles':active_dipoles,
           'poisson_solve_frequency':poisson_solve_frequency,'solve_Poisson':solve_Poisson,'save_Poisson':save_Poisson, 'screening_factor':screening_factor,
-          'ion_charge':ion_charge,
           'conductivity_CF':conductivity_CF, 'conductivity_dielectric':conductivity_dielectric,
           'defects_config':defects_config
         }
@@ -723,16 +724,16 @@ def initialization(n_sim):
         # =============================================================================
         System_state = initialize_grid_crystal(filename,crystal_features,experimental_conditions,Act_E_dict, 
               lammps_file,superbasin_parameters,save_data,poissonSolver_parameters) 
-              
+        System_state.write_metadata(paths['data'])      
         Elec_controller.crystal_size = System_state.crystal_size #  The crystal_size after the generation of the lattice may differ from the parameter provided in a NN points separation
                 
         # =============================================================================
         #             Initialization of defects
         #     
         # =============================================================================
-        #System_state.defect_gen()
+        System_state.defect_gen()
             
-        System_state.deposition_specie(0,test = 2)
+        #System_state.deposition_specie(0,test = 3)
         
         # This timestep_limits will depend on the V/s ratio
         System_state.timestep_limits = Elec_controller.voltage_update_time
@@ -858,7 +859,7 @@ def save_simulation(files_copy,dst,n_sim,experiment):
     
     # Define subdirectories
     program_directory = sim_dir / 'Program'
-    data_directory = sim_dir / 'Crystal evolution'
+    data_directory = sim_dir / 'output'
     
     # Create directories
     program_directory.mkdir(parents=True, exist_ok=True)

@@ -292,13 +292,6 @@ def main():
                     
                   search_superbasin(System_state,KMC_time_step)
                   
-                  print(f'Chosen event: {chosen_event}')
-                  print(f'Dest chemical specie: {System_state.grid_crystal[chosen_event[1]].chemical_specie}, origin chemical specie: {System_state.grid_crystal[chosen_event[3]].chemical_specie}')
-                  print(f'Dest charge: {System_state.grid_crystal[chosen_event[1]].ion_charge}, origin charge: {System_state.grid_crystal[chosen_event[3]].ion_charge}')
-                  print(f'Dest passivation: {System_state.grid_crystal[chosen_event[1]].passivation_level}')
-                  if j == 2:
-                    exit()
-                  
                 # Synchronize before continuing
                 if comm is not None:
                   broadcast_time = comm.bcast(System_state.time if rank == 0 else None, root=0)
@@ -318,8 +311,6 @@ def main():
                         print(str(j)+"/"+str(int(Elec_controller.total_simulation_time/Elec_controller.voltage_update_time)),'| Total time: ',System_state.list_time[-1],'| Voltage: ',V_top)
                         print(f'Events at step {j}: {events_tracking}')
                         print(f"Current: {Elec_controller.measurements['current'][-1]}")
-                        
-                        if j == 13: exit()
     
                         end_time = time.time()
                             
