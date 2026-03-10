@@ -508,11 +508,24 @@ def initialization(n_sim):
           'orientation':'xz',
           'position':crystal_size[1] * 0.5 + 2.0, # Position in y
           'width':4.0,
-          'outer_width':5.0,
-          'Act_E_diff_GB': 3.25,
-          'affected_defects': ['hydrogen_interstitial'],
-          'affected_reactions': ["H2_formation"],
-          'affected_events': ['reaction']
+          'outer_width':25.0,
+          'event_modifications': {
+            'migration': {
+              'region': 'outer_boundary',
+              'affected_defects': ['hydrogen_interstitial'],
+              'Act_E_diff_GB': 0.27,
+              'charge_state':{
+                'inner_boundary': 0, # H becomes neutral in GB ore
+                'outer_boundary': 1, # H remains charge in transition
+                'bulk': 1            # H remains charge in bulk
+              }
+            },
+            'reaction': {
+              'region': 'inner_boundary',
+              'affected_reactions': ['H2_formation'],
+              'Act_E_diff_GB': 3.25
+            }
+          }
           }
         ]
         
@@ -534,6 +547,7 @@ def initialization(n_sim):
             formula = material_summary[0].formula_pretty
                             
         crystal_features = {
+          'chemical_formula': formula,
           'id_material_Material_Project': material_info["mp_id"],
           'crystal_size': crystal_size,
           'miller_indices': miller_indices,
@@ -647,7 +661,7 @@ def initialization(n_sim):
           voltage=VoltageConfig(
             mode=VoltageMode.ZERO_HOLD,
             constant_voltage=0.0,
-            total_time=1e-5,
+            total_time=2e-5,
             voltage_update_time=1e-7
           )
         )
@@ -725,6 +739,7 @@ def initialization(n_sim):
         System_state = initialize_grid_crystal(filename,crystal_features,experimental_conditions,Act_E_dict, 
               lammps_file,superbasin_parameters,save_data,poissonSolver_parameters) 
         System_state.write_metadata(paths['data'])      
+
         Elec_controller.crystal_size = System_state.crystal_size #  The crystal_size after the generation of the lattice may differ from the parameter provided in a NN points separation
                 
         # =============================================================================

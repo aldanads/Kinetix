@@ -55,6 +55,7 @@ class Crystal_Lattice():
         self.crystal_size = crystal_features['crystal_size']
         self.miller_indices = crystal_features['miller_indices']
         api_key = crystal_features['api_key']
+        self.api_key = api_key
         use_parallel = crystal_features['use_parallel']
         self.facets_type = crystal_features['facets_type']
         self.affected_site = crystal_features['affected_site']
@@ -65,6 +66,7 @@ class Crystal_Lattice():
         self.defects_config = crystal_features.get('defects_config',{})
         self.reactions_config = crystal_features.get('reactions_config',{})
         self.rng = crystal_features.get('rng')
+        self.chemical_formula = crystal_features.get('chemical_formula')
              
         # --- Experimental conditions ---
         self.sticking_coefficient = experimental_conditions['sticking_coeff']
@@ -1740,6 +1742,46 @@ class Crystal_Lattice():
       """ Check if site is at top electrode """
       return np.isclose(self.grid_crystal[site_idx].position[2], self.crystal_size[2])
       
+    def _get_gb_charge_state(self, defect_name, site_position, event_type='migration'):
+      """
+      Get charge state for a defect based on GB region.
+      
+      Parameters:
+      -----------
+      defect_name : str
+          Name of defect (e.g., 'hydrogen_interstitial')
+      site_position : tuple
+          Site coordinates (x, y, z)
+      event_type : str
+          'migration', 'reaction', or 'generation'
+      
+      Returns:
+      --------
+      int : Charge state (may differ from defects_config based on GB region)
+      """
+      # Default: no GB modification
+
+      if not self.gb_model:
+        return None
+      
+      gb_config = self.gb_model.gb_configurations[0]
+      event_config = gb_config['event_modifications'].get(event_type)
+      if event_config is None:
+        return None
+        
+      # Check if this defect is affected
+      affected_defects = event_config.get('affected_defects',[])
+      if defect_name and defect_name not in affected_defects:
+        return None
+        
+      charge_state = event_config.get('charge_state', {})
+      if not charge_state:
+        return None
+        
+      # Get site region and return charge state
+      site_gb_region = self.gb_model.get_site_gb_region(site_position)
+      return charge_state.get(site_gb_region,None)
+      
     def _handle_migration_event(self, chosen_event, support_update_sites, event_update_sites):
       """Handle migration events with multi-species support."""
       source_idx = chosen_event[-1]
@@ -1753,9 +1795,20 @@ class Crystal_Lattice():
             event_update_sites.update(self._get_mobile_sites(self.sites_occupied))
           return
           
-      # Perform migration
-      migrating_charge = self.grid_crystal[source_idx].ion_charge
-      chemical_specie = self.grid_crystal[source_idx].chemical_specie
+      # Get source species info
+      source_site = self.grid_crystal[source_idx]
+      chemical_specie = source_site.chemical_specie
+      defect_name = source_site._get_current_defect_name()
+      
+      migrating_charge = source_site.ion_charge
+      
+      # Apply GB charge state modification
+      dest_pos = self.grid_crystal[dest_idx].position
+      gb_charge = self._get_gb_charge_state(defect_name, dest_pos, event_type='migration')
+      
+      if gb_charge is not None:
+        migrating_charge = gb_charge
+          
       self._introduce_specie_site(dest_idx, support_update_sites, event_update_sites, chemical_specie, migrating_charge)
       self._remove_species_at_site(source_idx, support_update_sites, event_update_sites)
       
@@ -1764,7 +1817,7 @@ class Crystal_Lattice():
         event_update_sites.update(self._get_mobile_sites(self.sites_occupied))
         
       # Handle cluster updates for neutral metal atoms
-      if self.grid_crystal[dest_idx].ion_charge == 0:
+      if migrating_charge == 0:
         self._add_metal_atom_to_clusters(dest_idx)
         self._remove_metal_atom_from_clusters(source_idx)  
         
@@ -1826,7 +1879,6 @@ class Crystal_Lattice():
         
         if product['symbol'] != 'Empty':
           defect = self._defect_by_name(product['symbol'])
-          
           species_changed = (site.chemical_specie != product['symbol'])
           
           if species_changed:
@@ -2137,28 +2189,87 @@ class Crystal_Lattice():
                     
     def write_metadata(self,output_path: str = './output') -> None:
       from datetime import datetime
+      import uuid
+
       """ Write simulation metadata to JSON file """
       metadata_path = output_path / "metadata.json"
       self._species_id_gen()
       
+      crystal_data = {}
+      
+      try:
+            with MPRester(self.api_key) as mpr:
+                # Query summary endpoint (most efficient)
+                results = mpr.materials.summary.search(
+                    material_ids=[self.id_material],
+                    fields=["symmetry", "formula_pretty"]
+                )
+                if results:
+                    symm = results[0].symmetry
+                    formula = results[0].formula_pretty
+                    
+                    crystal_data.update({
+                        "crystal_system": symm.crystal_system,
+                        "space_group": symm.symbol,
+                        "space_group_number": symm.number,
+                    })
+                    print(f"? MP data fetched for {self.id_material}: {crystal_data['space_group']} ({crystal_data['crystal_system']})")
+                else:
+                    print(f"??  MP query returned no results for {self.id_material}")
+      except Exception as e:
+            print(f"??  MP query failed: {e}")
+            
+      
+      sim_id = f"{self.chemical_formula}_{self.experiment}_{int(self.temperature)}K_{uuid.uuid4().hex[:8]}"
+      
       metadata = {
-        "timestamp": datetime.now().isoformat(),
-        "experimental_conditions": {
-          'Experiment': self.experiment,
-          'Temperature': self.temperature,
-          'Partial_pressure': self.partial_pressure,
-          'Sticking_coefficient': self.sticking_coefficient
+        "metadata_version": "2.0",
+        "simulation_id": sim_id,
+        "timestamp_start": datetime.now().isoformat(),
+        
+        "workflow":{
+          "type": "kinetic_monte_carlo",
+          "code_name": "Kinetix",
+          "code_url": "https://github.com/aldanads/Kinetix"
         },
-        "species": list(self.SPECIES_TYPE_MAP.keys()),
-        "species_mapping": self.SPECIES_TYPE_MAP,
-        "simulation_setup": {
-          'Simulation_domain_Angstrom': self.crystal_size,
-          'Growth_direction': self.miller_indices,
-          'Material_id_MP': self.id_material,
-          'Superbasin_search_interval': self.n_search_superbasin,
-          'Superbasin_time_limit': self.time_step_limits,
-          'E_min_superbasin': self.E_min,
-          'Activation_energy_set': {str(k):v for k,v in self.Act_E_dict.items()}
+        
+        "system":{
+          "chemical_formula": self.chemical_formula,
+          "species": list(self.SPECIES_TYPE_MAP.keys()),
+          "species_mapping": self.SPECIES_TYPE_MAP,
+          "crystal_system":crystal_data["crystal_system"],
+          "space_group":crystal_data["space_group"],
+          "lattice_type":crystal_data["space_group_number"],
+          "film_orientation": f"{self.miller_indices}",
+          "growth_direction": [d for d in self.miller_indices],
+          "simulation_domain_angstrom": list(self.crystal_size),
+          "periodic_boundary_conditions": [True, True, True],
+          "materials_project_id": self.id_material
+        },
+        
+        "conditions": {
+          'process_type': self.experiment,
+          'temperature_K': float(self.temperature),
+          'partial_pressure_Pa': float(self.partial_pressure) if self.partial_pressure is not None else None,
+          'sticking_coefficient': float(self.sticking_coefficient) if self.sticking_coefficient is not None else None,
+          'simulation_time_limit_s': self.time_step_limits
+        },
+        
+        "energy_model": {
+          "source": "DFT-derived parameters",
+          "superbasin_enabled": self.n_search_superbasin > 0,
+          "superbasin_search_interval": self.n_search_superbasin,
+          "superbasin_energy_threshold_ev": float(self.E_min) if self.E_min is not None else None
+        },
+        
+        "provenance": {
+          "associated_publication_doi": "unpublished",
+          "arxiv_id": "unpublished",
+          "github_repository": "unpublished",
+          "zenodo_concept_doi": "unpublished",
+          "simulation_creator": "Samuel Aldana Delgado",
+          "affiliation": "Tyndall National Institute, University College Cork",
+          "funding": "TBD"
         }
       }
       
@@ -2170,11 +2281,45 @@ class Crystal_Lattice():
       # Ensure deterministic ordering (e.g., sorted by name)
       sorted_defects = sorted(self.defects_config.items(), key=lambda x:x[0])
       
-      self.SPECIES_TYPE_MAP = {
-        defect['symbol']: i + 1 
-        for i,(name,defect) in enumerate(sorted_defects)
-      }
-
+      self.SPECIES_TYPE_MAP = {}
+      species_id = 1
+      
+      for name, defect in sorted_defects:
+        symbol = defect['symbol']
+        max_passivation = defect.get('max_passivation_level',0)
+        
+        if max_passivation > 0:
+          for level in range(max_passivation + 1):
+            # Create unique key
+            species_key = f"{symbol}_{level}"
+            self.SPECIES_TYPE_MAP[species_key] = species_id
+            species_id += 1
+        else:
+          self.SPECIES_TYPE_MAP[symbol] = species_id
+          species_id += 1
+      
+      
+      # Store reverse mapping for lookup during dump writing
+      self.SPECIES_ID_TO_TYPE = {v:k for k,v in self.SPECIES_TYPE_MAP.items()}
+      
+    def _get_species_key(self, site):
+      """
+      Get species key for dump file, including passivation level if applicable.
+      
+      Returns:
+          str: Species key (e.g., "H", "V_O_0", "V_O_2", "H2")
+      """
+      symbol = site.chemical_specie
+      
+      # Check if this defect supports passivation
+      defect_name = site._get_current_defect_name()
+      defect_config = self.defects_config.get(defect_name,{})
+      max_passivation = defect_config.get('max_passivation_level', 0)
+      
+      if max_passivation > 0:
+        return f"{symbol}_{site.passivation_level}"
+      else:
+        return symbol
                     
     def _write_dump(self, base_path: str = '.', step: int = 0, include_charge: bool = True) -> None:
       """
@@ -2207,12 +2352,13 @@ class Crystal_Lattice():
         
       for idx in self.sites_occupied:
         site = self.grid_crystal[idx]
-        specie = site.chemical_specie
+        species_key = self._get_species_key(site)
+        species_id = self.SPECIES_TYPE_MAP.get(species_key)
         
         # Build atom record
         atom = {
           'id': len(atoms) + 1,
-          'type': self.SPECIES_TYPE_MAP.get(specie,99),
+          'type': species_id,
           'pos': site.position,
         }
         

@@ -590,11 +590,12 @@ class Site():
       reactants = reaction["reactants"]
       current_defect = self._get_current_defect_name()
       
-      # Only one of the reactant drive the reaction, so if the reactant doesn't have the activation energy return
-      if reaction['name'] in self.Act_E_dict[current_defect]:
-        Act_E = self.Act_E_dict[current_defect][reaction['name']]
-      else:
+      # Check if this defect drives the reaction
+      if reaction['name'] not in self.Act_E_dict[current_defect]:
         return
+      
+      Act_E = self.Act_E_dict[current_defect][reaction['name']]
+      
     
       my_role_idx = -1
       # Find which reactant role the origin site fulfills (0 or 1)
@@ -602,6 +603,9 @@ class Site():
         if self._site_matches_reactant(site,reactant):
           my_role_idx = i
           break
+      
+      if my_role_idx == -1:
+        return
           
       # Neighbor must fulfill the other role
       partner_role_idx = 1 - my_role_idx
@@ -613,12 +617,22 @@ class Site():
         if self._site_matches_reactant(neighbor,partner_requirements):
           # Check passivation level of the trap
           neighbor_defect = neighbor._get_current_defect_name()
-          if neighbor.passivation_level < self.defects_config[neighbor_defect]["max_passivation_level"]:
-            self.site_events.append([
-              neighbor_idx,
-              reaction['name'],
-              Act_E
-            ])     
+          max_passivation = self.defects_config[neighbor_defect]["max_passivation_level"]
+          
+          if neighbor.passivation_level >= max_passivation:
+            continue # Trap is full
+            
+          if isinstance(Act_E,dict):
+            passivation_key = str(neighbor.passivation_level)
+            Act_E_value = Act_E[passivation_key]
+          else:
+            Act_E_value = Act_E
+          
+          self.site_events.append([
+            neighbor_idx,
+            reaction['name'],
+            Act_E_value
+          ])     
             
     def _handle_unimolecular_reaction(self,site,idx_origin,reaction):
       """
@@ -626,16 +640,24 @@ class Site():
       """
       reactants = reaction["reactants"]
       
-      if site.passivation_level >= reactants[0]['min_passivation']:
-        current_defect = self._get_current_defect_name()
-        Act_E = self.Act_E_dict[current_defect][reaction['name']]
-        site_passivation_level = str(site.passivation_level)
+      min_passivation = reactants[0]['min_passivation']
+      if site.passivation_level < min_passivation:
+        return
+      
+      current_defect = self._get_current_defect_name()
+      Act_E = self.Act_E_dict[current_defect][reaction['name']]
+      
+      if isinstance(Act_E, dict):
+        passivation_key = str(site.passivation_level)
+        Act_E_value = Act_E[passivation_key]
+      else:
+        Act_E_value = Act_E
         
-        self.site_events.append([
-          idx_origin,
-          reaction['name'],
-          Act_E[site_passivation_level]
-        ])
+      self.site_events.append([
+        idx_origin,
+        reaction['name'],
+        Act_E_value
+      ])
         
         
     def deposition_event(self,TR,idx_origin,num_event,Act_E):
@@ -1151,41 +1173,52 @@ class GrainBoundary:
         self.triple_junction_gbs = []
         
         for config in self.gb_configurations:
-          # Add linear interpolation parameters for all GB types
-          if 'outer_radius' in config or 'outer_width' in config:
-            # Determine the distance metric for this GB type
-            if config['type'] == 'vertical_planar':
-              inner_boundary = config['width'] / 2
-              outer_boundary = config.get('outer_width',config['width']) / 2
-              distance_function = self._distance_to_planar_gb
-            elif config['type'] == 'cylindrical':
-              inner_boundary = config['radius']
-              outer_boundary = config['outer_radius']
-              distance_function = self._distance_to_cylindrical_gb  
-            elif config['type'] == 'triple_junction_planes':
-              inner_boundary = config['width'] / 2
-              outer_boundary = config.get('outer_width',config['width']) / 2
-              # NEED TO WRITE THE FUNCTION: self._distance_to_triple_junction_gb
-              #distance_function = self._distance_to_triple_junction_gb
+          # Determine the distance metric for this GB type
+          if config['type'] == 'vertical_planar':
+            inner_boundary = config.get('width',0) / 2
+            outer_boundary = config.get('outer_width',config['width']) / 2
+            distance_function = self._distance_to_planar_gb
+          elif config['type'] == 'cylindrical':
+            inner_boundary = config.get('radius',0)
+            outer_boundary = config.get('outer_radius',config['radius'])
+            distance_function = self._distance_to_cylindrical_gb  
+          elif config['type'] == 'triple_junction_planes':
+            inner_boundary = config.get('width',0) / 2
+            outer_boundary = config.get('outer_width',config['width']) / 2
+            # NEED TO WRITE THE FUNCTION: self._distance_to_triple_junction_gb
+            #distance_function = self._distance_to_triple_junction_gb
+          else:
+            continue
             
-            # Calculate linear interpolation parameters
-            act_e_diff = config['Act_E_diff_GB']
+          config['inner_boundary'] = inner_boundary
+          config['outer_boundary'] = outer_boundary
+          config['distance_function'] = distance_function
+          
+          # Calculate event-specific interpolation parameters
+          event_modifications = config.get('event_modifications', {})
+          
+          for event_type, event_config in event_modifications.items():  
+            act_e_diff = event_config['Act_E_diff_GB']
+            
+            # Event-specific boundaries
+            event_inner = event_config.get('inner_boundary', inner_boundary)
+            event_outer = event_config.get('outer_boundary', outer_boundary)
           
             # Linear function: Act_E = slope * distance + intercept
             # At radius: Act_E = act_e_diff (inside GB)
             # At outer_radius: Act_E = 0 (outside GB)
-            if outer_boundary > inner_boundary:
-              slope = -act_e_diff / (outer_boundary - inner_boundary)
-              intercept = act_e_diff - slope * inner_boundary
+            if event_outer > event_inner:
+              slope = -act_e_diff / (event_outer - event_inner)
+              intercept = act_e_diff - slope * event_inner
             else:
               slope = 0
               intercept = act_e_diff
+            
               
-            config['linear_slope'] = slope
-            config['linear_intercept'] = intercept
-            config['inner_boundary'] = inner_boundary
-            config['outer_boundary'] = outer_boundary
-            config['distance_function'] = distance_function
+            event_config['linear_slope'] = slope
+            event_config['linear_intercept'] = intercept
+            event_config['inner_boundary'] = inner_boundary
+            event_config['outer_boundary'] = outer_boundary
             
           if config['type'] == 'vertical_planar':
             self.vertical_gbs.append(config)
@@ -1212,7 +1245,17 @@ class GrainBoundary:
             
     def is_site_in_grain_boundary(self, site_position: tuple) -> bool:
       """
-      Check if site is in any grain boundary
+      Check if site is in any grain boundary (inner or outer region)
+      Wrapper method for backward compatibility
+      """
+      return self.get_site_gb_region(site_position) != 'bulk'
+      
+    def get_site_gb_region(self,site_position: tuple) -> str:
+      """
+      Determine which GB region a site belongs to.
+      
+      Returns:
+        str: 'inner_boundary', 'outer_boundary', or 'bulk'
       """
       x, y, z = np.array(site_position)
       
@@ -1220,32 +1263,44 @@ class GrainBoundary:
       for gb in self.vertical_gbs:
         if gb['orientation'] == 'yz':
           # Vertical YZ place at specific x-position
-          if abs(x - gb['position']) <= gb['outer_boundary']: return True
-          
+          distance = abs(x - gb['position'])
         elif gb['orientation'] == 'xz':
           # Vertical XZ place at specific y-position
-          if abs(y - gb['position']) <= gb['outer_boundary']: return True
-          
+          distance = abs(y - gb['position'])
         elif gb['orientation'] == 'xy':
           # Horizontal XY place at specific z-position
-          if abs(z - gb['position']) <= gb['outer_boundary']: return True
+          distance = abs(z - gb['position'])
+        else:
+          continue
+        
+        inner_boundary = gb.get('inner_boundary', gb.get('width', 0))
+        outer_boundary = gb.get('outer_boundary', gb.get('outer_width', 0))
+        
+        if distance <= inner_boundary:
+          return 'inner_boundary'
+        elif distance <= outer_boundary:
+          return 'outer_boundary'
           
       # Check cylindrical boundaries
       for gb in self.cylindrical_gbs:
         cx, cy = gb['center']
-        #radius = gb['inner_boundary']
-        outer_radius = gb['outer_boundary']
-        
         # Distance from cylinder axis
         distance_from_axis = np.sqrt((x - cx)**2 + (y - cy)**2)
         
-        #if distance_from_axis <= radius: return True
-        if distance_from_axis <= outer_radius: return True
+        inner_radius = gb.get('inner_boundary', gb.get('radius', 0))
+        outer_radius = gb.get('outer_boundary', gb.get('outer_radius', 0))
         
-      return False
+        
+        #if distance_from_axis <= radius: return True
+        if distance_from_axis <= inner_radius:
+          return 'inner_boundary'
+        elif distance_from_axis <= outer_radius:
+          return 'outer_boundary'
+          
+      return 'bulk'
       
     
-    def get_activation_energy_GB(self, site_position:tuple) -> float:
+    def get_activation_energy_GB(self, site_position:tuple, event_type='migration') -> float:
       """
       Get activation energy with unified linear interpolation
       
@@ -1262,19 +1317,44 @@ class GrainBoundary:
       
       for gb_list in [self.vertical_gbs, self.cylindrical_gbs, self.triple_junction_gbs]:
         for gb in gb_list:
-          if 'linear_slope' in gb: # Has transition region
-            distance = gb['distance_function'](site_position, gb)
+          # Get event-specific config
+          event_mods = gb.get('event_modifications',{})
+          event_config = event_mods.get(event_type)
+          
+          if event_config is None:
+            continue
+          
+          # Get event-specific interpolation parameters
+          slope = event_config.get('linear_slope', 0)
+          intercept = event_config.get('linear_intercept', 0)
+          inner_boundary = event_config.get('inner_boundary', 0)
+          outer_boundary = event_config.get('outer_boundary', 0)
+          
+          distance_function = gb.get('distance_function')
+          if distance_function:
+            distance = distance_function(site_position,gb)
+          else:
+            continue
             
-            if distance <= gb['inner_boundary']:
-              # Inside GB core
-              return gb['Act_E_diff_GB']
-            elif distance <= gb['outer_boundary']:
-              # In transition region
-              energy = gb['linear_slope'] * distance + gb['linear_intercept']
-              return max(energy,0)
-            # Else: continue to next GB (not in this GB's region)
+          # Apply interpolation  
+          if distance <= inner_boundary:
+            # Inside GB core
+            return event_config.get('Act_E_diff_GB', 0.0)
+          elif distance <= outer_boundary:
+            # In transition region
+            energy = slope * distance + intercept
+            return max(energy,0)
+          # Else: continue to next GB (not in this GB's region)
             
-      return 0 # Not in any GB
+      return 0.0 # Not in any GB
+      
+    def _region_matches(self, site_region, required_region):
+      """Check if site region satisfies the requirement."""
+      if required_region == 'inner_boundary':
+        return site_region == 'inner_boundary'
+      elif required_region == 'outer_boundary':
+        return site_region in ['inner_boundary', 'outer_boundary']
+      return False
        
     
     def modify_act_energy_GB(self,site,migration_pathways,defects_config,reactions_config):
@@ -1291,74 +1371,83 @@ class GrainBoundary:
         
       # GB configuration
       gb_config = self.gb_configurations[0]
-      affected_events = gb_config.get('affected_events',[])
-      affected_defects = gb_config.get('affected_defects',[])
-      affected_reactions = gb_config.get('affected_reactions',[])
+      event_modifications = gb_config.get('event_modifications',{})
+      
+      if not event_modifications:
+        return
       
       site_pos = site.position
       # Check if site is in GB
-      is_in_gb = self.is_site_in_grain_boundary(site.position)
+      site_gb_region = self.get_site_gb_region(site_pos)
       
       # Iterate through all applicable defects
       for defect_name in applicable_defects:
-      
-        # Skip if this defect is not affected by GB
-        if affected_defects and defect_name not in affected_defects:
-          continue
-      
         base_energies = site.Act_E_dict[defect_name]
       
-      # 1. Handle generation
-      if "generation" in affected_events:
-        if is_in_gb and "E_gen_defect" in base_energies:
-          gb_reduction = self.get_activation_energy_GB(site_pos)
-          base_energies["E_gen_defect"] -= gb_reduction
+        # 1. Handle generation
+        if "generation" in event_modifications:
+          gen_config = event_modifications['generation']
+          required_region = gen_config.get('region', 'outer_boundary')
           
-      # 2. Handle migration    
-      if "migration" in affected_events:
-        Act_E_mig = {}
+          if self._region_matches(site_gb_region, required_region):
               
-        for key,migration_vector in migration_pathways.items():
-          # Calculate destination position
-          dest_pos = np.array(site_pos) + migration_vector['direction'] * migration_vector['distance']
-          z_component = migration_vector['direction'][2]
+            if defect_name in gen_config.get('affected_defects', []):
+              if "E_gen_defect" in base_energies:
+                gb_reduction = self.get_activation_energy_GB(site_pos,"generation")
+                base_energies["E_gen_defect"] -= gb_reduction
+                
           
-          # Migration in plane
-          if np.isclose(z_component, 0.0, atol=1e-9):
-            base_energy = base_energies['E_mig_plane'] 
-          # Migration upward
-          elif z_component > 0:
-            base_energy = base_energies['E_mig_upward']
-          # Migration downward
-          elif z_component < 0:
-            base_energy = base_energies['E_mig_downward']
-            
-          # Modify only if destination is in GB
-          if self.is_site_in_grain_boundary(dest_pos):
-            # Lower barrier to enter GB (particles prefer GB)
-            gb_reduction = self.get_activation_energy_GB(dest_pos)
-            modified_energy = base_energy - gb_reduction
-  
-          else:
-            # No modification for bulk destinations (base case)
-            modified_energy = base_energy
+        # 2. Handle migration    
+        if "migration" in event_modifications:
+          mig_config = event_modifications['migration']
+          required_region = mig_config.get('region', 'outer_boundary')
           
-          Act_E_mig[key] = modified_energy
-            
-        site.Act_E_dict[current_defect]['E_mig'] = Act_E_mig
-        
-      # 3. Handle reactions
-      if "reaction" in affected_events:
-      
-
-        for reaction_name, reaction in reactions_config.items():
-          if affected_reactions and reaction_name not in affected_reactions:
-            continue
+          if defect_name in mig_config.get('affected_defects', []):
+            Act_E_mig = {}
+                
+            for key,migration_vector in migration_pathways.items():
+              # Calculate destination position
+              dest_pos = np.array(site_pos) + migration_vector['direction'] * migration_vector['distance']
+              z_component = migration_vector['direction'][2]
+              
+              # Migration in plane
+              if np.isclose(z_component, 0.0, atol=1e-9):
+                base_energy = base_energies['E_mig_plane'] 
+              # Migration upward
+              elif z_component > 0:
+                base_energy = base_energies['E_mig_upward']
+              # Migration downward
+              else:
+                base_energy = base_energies['E_mig_downward']
+                
+              dest_gb_region = self.get_site_gb_region(dest_pos)
+              
+              # Modify only if destination is in GB
+              if self._region_matches(dest_gb_region, required_region):
+                # Lower barrier to enter GB (particles prefer GB)
+                gb_reduction = self.get_activation_energy_GB(dest_pos,'migration')
+                modified_energy = base_energy - gb_reduction
+              else:
+                # No modification for bulk destinations (base case)
+                modified_energy = base_energy
+              
+              Act_E_mig[key] = modified_energy
+                
+            site.Act_E_dict[defect_name]['E_mig'] = Act_E_mig
           
-          if reaction['name'] in base_energies:
-            if is_in_gb:
-              gb_reduction = self.get_activation_energy_GB(site_pos)
-              base_energies[reaction['name']] -= gb_reduction
+        # 3. Handle reactions
+        if "reaction" in event_modifications:
+          rxn_config = event_modifications['reaction']
+          required_region = rxn_config.get('region', 'inner_boundary')
+          
+          if self._region_matches(site_gb_region, required_region):
+               
+            for reaction_name, reaction in reactions_config.items():
+              if reaction_name in rxn_config.get('affected_reactions',[]):
+                if reaction['name'] in base_energies:
+                    gb_reduction = self.get_activation_energy_GB(site_pos, 'reaction')
+                    base_energies[reaction['name']] -= gb_reduction
+                  
          
       
         
