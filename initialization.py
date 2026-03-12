@@ -337,6 +337,12 @@ def initialization(n_sim):
 
         
     elif experiment == 'ECM memristor':
+        from utils.mpi_context import MPIContext
+        
+        # === Initialize MPI ===
+        mpi_ctx = MPIContext.get_instance()
+        
+        
         # =============================================================================
         #         Experimental conditions
         #         
@@ -736,7 +742,7 @@ def initialization(n_sim):
         #             Crystal structure generation
         #     
         # =============================================================================
-        System_state = initialize_grid_crystal(filename,crystal_features,experimental_conditions,Act_E_dict, 
+        System_state = initialize_grid_crystal(filename,mpi_ctx,crystal_features,experimental_conditions,Act_E_dict, 
               lammps_file,superbasin_parameters,save_data,poissonSolver_parameters) 
         System_state.write_metadata(paths['data'])      
 
@@ -760,6 +766,7 @@ def initialization(n_sim):
     # =============================================================================    
 def initialize_grid_crystal(
   filename,
+  mpi_ctx,
   crystal_features,
   experimental_conditions,
   Act_E_dict, 
@@ -819,6 +826,7 @@ def initialize_grid_crystal(
           Act_E_dict = Act_E_dict,
           lammps_file = lammps_file,
           superbasin_parameters = superbasin_parameters,
+          mpi_ctx = mpi_ctx,
           **crystal_kwargs 
         )
             

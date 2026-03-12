@@ -6,7 +6,6 @@ Created on Wed Mar 19 17:01:44 2025
 """
 
 from mpi4py import MPI
-
 import ufl
 import numpy as np
 import json

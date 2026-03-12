@@ -12,7 +12,7 @@ import math
 from matplotlib import cm
 import time
 import copy
-
+from utils.mpi_context import MPIContext
 
 # Pymatgen for creating crystal structure and connect with Crystallography Open Database or Material Project
 # from pymatgen.ext.cod import COD
@@ -47,8 +47,15 @@ class Crystal_Lattice():
       Act_E_dict,
       lammps_file,
       superbasin_parameters,
+      mpi_ctx = None,
       **kwargs
     ):
+        
+        # Handling MPI
+        self.mpi_ctx = mpi_ctx if mpi_ctx is not None else MPIContext.get_instance()
+        self.rank = self.mpi_ctx.rank
+        self.comm = self.mpi_ctx.comm
+        self.use_mpi = self.mpi_ctx.available
         
         # --- Crystal features ---
         self.id_material = crystal_features['id_material_Material_Project']
@@ -475,19 +482,11 @@ class Crystal_Lattice():
         
         self.coord_cache = {}
         
-        try:
-            from mpi4py import MPI
-            comm = MPI.COMM_WORLD
-            rank = comm.rank
-            use_mpi = True
-        except (ImportError, AttributeError):
-            # MPI not available or not initialized
-            rank = 0
-            use_mpi = False
- 
+        
         if grid_crystal == None:
-            
-            if rank == 0:
+        
+            # === Rank 0: Build the grid ===    
+            if self.rank == 0:
             
                 # We obtain integer idx
                 print(f'Initializing grid_crystal with {len(self.structure)} host sites')
@@ -568,27 +567,29 @@ class Crystal_Lattice():
                 print(f"  Step 5: {step5_time:.4f}s ({step5_time/total_time*100:.1f}%)")
                       
         
-                if use_mpi:
-                    # Prepare data for broadcasting
-                    grid_data = {
-                        'grid_crystal': self.grid_crystal,
-                        'domain_height': self.domain_height
-                    }
-                else:
-                    grid_data = None
+                
+                # Prepare data for broadcasting
+                grid_data = {
+                  'grid_crystal': self.grid_crystal,
+                  'domain_height': self.domain_height,
+                  'migration_pathways': self.migration_pathways
+                }
+                
+                print(f"Total sites: {len(self.grid_crystal)}")
                 
             else:
-                # Only reached when using MPI and rank != 0
+                # Non-root ranks: Prepare to receive
                 grid_data = None
                 self.migration_pathways = {}
                 
-            # Broadcast only if using MPI
-            if use_mpi:
-                grid_data = comm.bcast(grid_data,root = 0)
+            # Broadcast to all ranks
+            grid_data = self.mpi_ctx.bcast(grid_data,root=0)
                 
-                if rank != 0:
-                    self.grid_crystal = grid_data['grid_crystal']
-                    self.domain_height = grid_data['domain_height']
+            # Non-root ranks unpack the data
+            if self.rank != 0:
+              self.grid_crystal = grid_data['grid_crystal']
+              self.domain_height = grid_data['domain_height']
+              self.migration_pathways = grid_data['migration_pathways']
                         
                 
         else:
@@ -596,7 +597,6 @@ class Crystal_Lattice():
             #import copy
             self.grid_crystal = grid_crystal
             self.domain_height = self.crystal_size[2]
-            
             # Initialize pathways for loaded grids too 
             self._build_kdtree()
             self._initialize_migration_pathways(radius_neighbors)  
@@ -926,8 +926,31 @@ class Crystal_Lattice():
     def save_electric_bias(self,V):
       self.V = V
     
-    def get_evaluation_points(self):
-      # Get charge locations and charges from System_state
+    def get_evaluation_points(self, comm=None, root=0):
+      """
+      Get evaluation points for electric field calculation.
+      
+      Handles MPI broadcasting internally: only rank=root computes,
+      then broadcasts results to all ranks.
+      
+      Parameters:
+      -----------
+      comm : MPI.Comm, optional
+          MPI communicator. If None, runs in serial mode.
+      root : int, optional
+          Rank that performs the computation (default: 0)
+      
+      Returns:
+      --------
+      particle_locations : np.ndarray or None
+          Locations of charged particles [N, 3] in angstrom
+      charges : np.ndarray or None
+          Charge values [N] in Coulombs
+      E_field_points : np.ndarray or None
+          Combined points for E-field evaluation [M, 3] in angstrom
+          (particles + generation sites)
+      """
+      
       particle_locations, charges = self._extract_particles_charges()
       gen_site_locations = self._extract_generation_site_location()
                     
