@@ -1,6 +1,12 @@
 # Kinetix
 A fully open-source kinetic Monte Carlo (kMC) simulator for materials deposition, annealing, and memristive device modeling
 
+[!WARNING]
+> **⚠️ Developer Preview / Active Development**
+> This tool is currently in beta. The README and installation workflows are not ready yet. 
+> Feel free to contact me directly. 
+> Best suited for those comfortable with Python/FEniCS environments.
+
 ## Capacities
 Kinetix is a Python-based, license-free simulation framework that enables atomic-scale modeling of:
 * Material deposition (e.g., fcc metals),
