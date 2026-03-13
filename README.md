@@ -2,7 +2,7 @@
 A fully open-source kinetic Monte Carlo (kMC) simulator for materials deposition, annealing, and memristive device modeling
 
 > [!WARNING]
-> **⚠️ Developer Preview / Active Development**
+> **⚠️ Active Development**
 > This tool is currently in beta. The README and installation workflows are not ready yet. 
 > Feel free to contact me directly. 
 > Best suited for those comfortable with Python/FEniCS environments.
