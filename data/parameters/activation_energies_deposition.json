@@ -19,7 +19,7 @@
         "binding_energy": -0.636,
         "Coordination_number_contribution": -0.212,
         "Reference": ["10.1103/PhysRevB.76.245408"],
-        "Description": "Ni film growing in 111 direction (homoepitaxial)"
+        "Description": "Ni film growing in 111 direction (homoepitaxial). Binding energy is 3 times the CN contribution (supported by three atoms)."
 }
     },
     {
@@ -41,7 +41,7 @@
         "binding_energy": -0.78,
         "Coordination_number_contribution": -0.26,
         "Reference": ["10.1103/PhysRevB.76.245408"],
-        "Description": "Pd film growing in 111 direction (homoepitaxial)"
+        "Description": "Pd film growing in 111 direction (homoepitaxial). Binding energy is 3 times the CN contribution (supported by three atoms)."
 }
     },
     {
@@ -63,7 +63,7 @@
         "binding_energy": -0.645,
         "Coordination_number_contribution": -0.215,
         "Reference": ["10.1103/PhysRevB.76.245408","10.1103/PhysRevMaterials.2.063401"],
-        "Description": "Ag film growing in 111 direction (homoepitaxial)"
+        "Description": "Ag film growing in 111 direction (homoepitaxial). Binding energy is 3 times the CN contribution (supported by three atoms)."
 }
     },
     {
@@ -85,7 +85,7 @@
         "binding_energy": -0.96,
         "Coordination_number_contribution": -0.32,
         "Reference": ["10.1103/PhysRevB.76.245408"],
-        "Description": "Pt film growing in 111 direction (homoepitaxial)"
+        "Description": "Pt film growing in 111 direction (homoepitaxial). Binding energy is 3 times the CN contribution (supported by three atoms)."
 }
     },
     {
@@ -107,29 +107,7 @@
         "binding_energy": -0.54,
         "Coordination_number_contribution": -0.18,
         "Reference": ["10.1103/PhysRevB.76.245408"],
-        "Description": "Au film growing in 111 direction (homoepitaxial)"
-}
-    },
-    {
-      "name": "Au",
-      "activation_energies_111_template_upward (eV)": {
-        "plane_substrate": 0.117,
-        "upward_substrate_to_111": 0.089,
-        "downward_111_to_substrate": 0.244,
-        "upward_111": 0.089,
-        "downward_111": 0.244,
-        "upward_substrate_to_100": 0.133,
-        "downward_100_to_substrate": 0.262,
-        "surface_111": 0.117,
-        "surface_100": 0.531,
-        "edge_100": 0.352,      
-        "edge_111": 0.237,
-        "edge_111_on_substrate": null,
-        "edge_100_on_substrate": null,
-        "binding_energy": -0.24,
-        "Coordination_number_contribution": -0.18,
-        "Reference": ["10.1103/PhysRevB.76.245408"],
-        "Description": "Au film growing in 111 direction (homoepitaxial)"
+        "Description": "Au film growing in 111 direction (homoepitaxial). Binding energy is 3 times the CN contribution (supported by three atoms)."
 }
     },
     {
@@ -151,7 +129,7 @@
         "binding_energy": -0.78,
         "Coordination_number_contribution": -0.26,
         "Reference": ["10.1103/PhysRevB.76.245407","10.1103/PhysRevB.76.245408"],
-        "Description": "Cu film growing in 111 direction (homoepitaxial)"
+        "Description": "Cu film growing in 111 direction (homoepitaxial). Binding energy is 3 times the CN contribution (supported by three atoms)."
       },
       "activation_energies_Cu_111_on_TaN (eV)": {
         "plane_substrate": 0.85,

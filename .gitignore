@@ -1,16 +1,11 @@
 __pycache__/
-Version 2024-10-10/
-Version 2024-11-08/
-Version 2024-11-28/
+*.pkl
+results/
+test_output/
+data/cache/
+data/experimental
+*.pyc
 activation_energies_memristors.json
-video_via_images.py
-images_to_video.py
-Figure.csv
-Histogram_neighbors.csv
-Histogram_terraces.csv
-Occupation_rate.csv
-ovito_files.py
-profile_output.prof
+*.csv
 config.json
-Test_pymatgen.py
-*grid_crystal*
+.nfs*
