@@ -1,0 +1,43 @@
+# Defect definitions
+defects:
+  hydrogen_interstitial:
+    symbol: "H"
+    charge: 1
+    site_type: "interstitial"
+    allowed_sublattices: ["interstitial", "O"]
+    initial_concentration_bulk: 1.0e-2
+    initial_concentration_GB: 1.0e-2
+    valid_target_species: ["Empty"]
+    activation_energies_key: "H"
+    enabled_events: ["migration", "reaction"]
+    CN_matters: true
+    description: "Hydrogen defect in interstitial"
+
+  oxygen_vacancy:
+    symbol: "V_O"
+    charge: 2
+    site_type: "O"
+    allowed_sublattices: ["O"]
+    initial_concentration_bulk: 5.0e-3
+    initial_concentration_GB: 1.0e-2
+    valid_target_species: ["O"]
+    activation_energies_key: "V_O"
+    enabled_events: ["reaction"]
+    CN_matters: false
+    passivation_level: 0
+    max_passivation_level: 3
+    charge_per_passivation: -1
+    description: "Intrinsic vacancy in oxide lattice"
+
+  hydrogen_gas:
+    symbol: "H2"
+    charge: 0
+    site_type: "interstitial"
+    allowed_sublattices: ["interstitial", "O"]
+    initial_concentration_bulk: 0
+    initial_concentration_GB: 0
+    valid_target_species: ["Empty"]
+    activation_energies_key: "H2"
+    enabled_events: []
+    CN_matters: false
+    description: "Hydrogen gas in interstitial"

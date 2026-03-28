@@ -3,6 +3,8 @@
 from dataclasses import dataclass, field
 from typing import List, Dict, Optional, Any
 from enum import Enum
+from pathlib import Path
+import yaml
 
 class SiteType(Enum):
   INTERSTITIAL = "interstitial"
@@ -55,6 +57,28 @@ class DefectConfig:
       'max_passivation_level': self.max_passivation_level,
       'charge_per_passivation': self.charge_per_passivation,
     }
+    
+  @classmethod
+  def from_dict(cls, name: str, data: Dict[str, Any]) -> 'DefectConfig':
+    """Create DefectConfig from dictionary (e.g., loaded YAML)"""
+    return cls(
+      name=name,
+      symbol=data.get('symbol', ''),
+      charge=data.get('charge', 0),
+      site_type=data.get('site_type', 'interstitial'),
+      allowed_sublattices=data.get('allowed_sublattices', []),
+      initial_concentration_bulk=data.get('initial_concentration_bulk', 0.0),
+      initial_concentration_GB=data.get('initial_concentration_GB', 0.0),
+      valid_target_species=data.get('valid_target_species', []),
+      activation_energies_key=data.get('activation_energies_key', ''),
+      enabled_events=data.get('enabled_events', []),
+      CN_matters=data.get('CN_matters', False),
+      sites_generation_layer=data.get('sites_generation_layer'),
+      description=data.get('description', ''),
+      passivation_level=data.get('passivation_level', 0),
+      max_passivation_level=data.get('max_passivation_level', 0),
+      charge_per_passivation=data.get('charge_per_passivation', 0),
+    )
 
 @dataclass
 class DefectsConfig:
@@ -68,3 +92,33 @@ class DefectsConfig:
   def to_dict(self) -> Dict[str, Dict[str, Any]]:
     """Convert all defects to dictionary"""
     return {name: defect.to_dict() for name, defect in self.defects.items()}
+    
+  @classmethod
+  def from_yaml(cls, yaml_path: Path) -> 'DefectsConfig':
+    """
+    Load defect configurations from YAML file.
+        
+    Args:
+      yaml_path: Path to defects_config.yaml
+        
+    Returns:
+      DefectsConfig object with all defects loaded
+    """
+    yaml_path = Path(yaml_path)
+        
+    if not yaml_path.exists():
+      raise FileNotFoundError(f"Defect config file not found: {yaml_path}")
+        
+    with open(yaml_path, 'r') as f:
+      data = yaml.safe_load(f)
+        
+    # Create empty config object
+    config = cls()
+    
+    # Load each defect from YAML
+    defects_data = data.get('defects', {})
+    for defect_name, defect_dict in defects_data.items():
+      defect = DefectConfig.from_dict(defect_name, defect_dict)
+      config.add_defect(defect)
+        
+    return config

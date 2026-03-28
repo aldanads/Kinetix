@@ -13,7 +13,7 @@ from kinetix.lattice.crystal import Crystal_Lattice
 from kinetix.solvers.electrical import ElectricalController
 from kinetix.utils.mpi_context import MPIContext
 from kinetix.configs.electrical_config import ElectricalConfig, VoltageConfig, CurrentConfig, VoltageMode, CurrentModel
-from kinetix.configs.config_loader import get_api_key, get_activation_energies_memristors,get_grids_root,get_mesh_root
+from kinetix.configs.config_loader import get_api_key, get_activation_energies_memristors,get_grids_root,get_mesh_root,get_parameters_root
 from kinetix.configs.material_config import MaterialConfig, MaterialSelection, CrystalStructure
 from kinetix.configs.defect_config import DefectsConfig, DefectConfig
 from kinetix.configs.reaction_config import ReactionsConfig, ReactionConfig, ReactionSpecies
@@ -451,7 +451,14 @@ def initialization(n_sim):
           
         }
         
+        parameters_root = get_parameters_root()
+        defects_config = DefectsConfig.from_yaml(
+          parameters_root / 'defects_config.yaml'
+        )
         
+        print(defects_config)
+        exit()
+          
         
         """
           "Ag_interstitial":{
