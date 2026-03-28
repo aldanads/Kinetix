@@ -11,9 +11,14 @@ import shutil
 
 from kinetix.lattice.crystal import Crystal_Lattice
 from kinetix.solvers.electrical import ElectricalController
-from kinetix.electrical_config import ElectricalConfig, VoltageConfig, CurrentConfig, VoltageMode, CurrentModel
-from kinetix.config_loader import get_api_key, get_activation_energies_memristors,get_grids_root,get_mesh_root
 from kinetix.utils.mpi_context import MPIContext
+from kinetix.configs.electrical_config import ElectricalConfig, VoltageConfig, CurrentConfig, VoltageMode, CurrentModel
+from kinetix.configs.config_loader import get_api_key, get_activation_energies_memristors,get_grids_root,get_mesh_root
+from kinetix.configs.material_config import MaterialConfig, MaterialSelection, CrystalStructure
+from kinetix.configs.defect_config import DefectsConfig, DefectConfig
+from kinetix.configs.reaction_config import ReactionsConfig, ReactionConfig, ReactionSpecies
+from kinetix.configs.solver_config import PoissonSolverConfig, SuperbasinConfig, HeatSolverConfig
+from kinetix.configs.simulation_config import SimulationConfig, ExperimentalConditions, SimulationSettings, GrainBoundaryConfig
 
 from pymatgen.ext.matproj import MPRester
 # from mp_api.client import MPRester
@@ -448,7 +453,6 @@ def initialization(n_sim):
         
         
         
-        
         """
           "Ag_interstitial":{
             "symbol": "Ag",
@@ -496,12 +500,13 @@ def initialization(n_sim):
             "type": "unimolecular_escape",
             "reactants": [{"symbol": "V_O", "sublattice": "O", "min_passivation": 1}],
             "products":[
-              {"symbol": "V_O", "site_index": 0, "passivation_increment": -1},
+              {"symbol": "V_O","sublattice": "O", "site_index": 0, "passivation_increment": -1},
               {"symbol": "H", "sublattice": "interstitial", "site_index": "neighbor"}
             ],
             "enabled": True
           }
         }
+        
 
 
         # -----------------
@@ -546,8 +551,31 @@ def initialization(n_sim):
           }
         ]
         
-
-        
+        # Grain boundary configuration
+        grain_boundaries = [GrainBoundaryConfig(
+        type='vertical_planar',
+        orientation='xz',
+        position=27.0,  # crystal_size[1] * 0.5 + 2.0
+        width=4.0,
+        outer_width=25.0,
+        event_modifications={
+            'migration': {
+                'region': 'outer_boundary',
+                'affected_defects': ['hydrogen_interstitial'],
+                'Act_E_diff_GB': 0.27,
+                'charge_state': {
+                    'inner_boundary': 0,
+                    'outer_boundary': 1,
+                    'bulk': 1
+                }
+            },
+            'reaction': {
+                'region': 'inner_boundary',
+                'affected_reactions': ['H2_formation'],
+                'Act_E_diff_GB': 3.25
+            }
+        }
+        )]
         
         api_key = get_api_key()
         # Retrieve material data
@@ -574,7 +602,6 @@ def initialization(n_sim):
           'technology': technology,
           'rng': rng
         }
-
 
         # =============================================================================
         #             Superbasin parameters

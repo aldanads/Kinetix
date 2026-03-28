@@ -10,7 +10,7 @@ import scipy.constants as const
 import pandas as pd
 from pathlib import Path
 
-from kinetix.electrical_config import VoltageMode, CurrentModel, VoltageConfig, CurrentConfig, ElectricalConfig
+from kinetix.configs.electrical_config import VoltageMode, CurrentModel, VoltageConfig, CurrentConfig, ElectricalConfig
 
 
 class ElectricalController:

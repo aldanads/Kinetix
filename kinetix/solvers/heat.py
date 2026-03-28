@@ -15,7 +15,7 @@ from dolfinx import fem, mesh, geometry
 from dolfinx.fem.petsc import assemble_matrix, assemble_vector
 import petsc4py.PETSc as PETSc
 
-from solvers.base import FEMSolverBase
+from kinetix.solvers.base import FEMSolverBase
 
 
 class HeatSolver(FEMSolverBase):

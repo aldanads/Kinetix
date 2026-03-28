@@ -16,7 +16,7 @@ import petsc4py.PETSc as PETSc
 import gmsh
 
 from kinetix.utils.mpi_context import MPIContext
-from kinetix.config_loader import get_mesh_root
+from kinetix.configs.config_loader import get_mesh_root
 
 class FEMSolverBase:
   """ 
