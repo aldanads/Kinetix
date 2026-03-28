@@ -1,0 +1,12 @@
+__pycache__/
+*.pkl
+*.msh
+results/
+test_output/
+data/cache/
+data/experimental
+*.pyc
+activation_energies_memristors.json
+*.csv
+config.json
+.nfs*
