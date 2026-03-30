@@ -453,7 +453,7 @@ def initialization(n_sim):
         
         parameters_root = get_parameters_root()
         defects_config = DefectsConfig.from_yaml(
-          parameters_root / 'defects_config.yaml'
+          parameters_root / 'defects' / 'PZT_ZrPbO3_defects_config.yaml'
         )
         
         print(defects_config)
@@ -720,6 +720,9 @@ def initialization(n_sim):
         # =============================================================================
         # Retrieve the activation energies
         ae_data = get_activation_energies_memristors()
+        
+        print(ae_data)
+        exit()
             
         # Container: Act_E_dict[defect_name] = {energy_key: value or list}
         Act_E_dict = {}

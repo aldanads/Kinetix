@@ -81,6 +81,8 @@ def load_activation_energies(file_type: str = 'memristors') -> Dict[str, Any]:
   """
   parameters_root = get_parameters_root()
   
+  activation_energies_root = parameters_root / 'activation_energies'
+  
   file_mapping = {
     'memristors': 'activation_energies_memristors.json',
     'deposition': 'activation_energies_deposition.json'
