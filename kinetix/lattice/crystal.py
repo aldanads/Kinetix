@@ -70,7 +70,6 @@ class Crystal_Lattice():
         self.miller_indices = crystal_features['miller_indices']
         api_key = crystal_features['api_key']
         self.api_key = api_key
-        use_parallel = crystal_features['use_parallel']
         self.facets_type = crystal_features['facets_type']
         self.affected_site = crystal_features['affected_site']
         self.mode = crystal_features['mode']
@@ -86,7 +85,7 @@ class Crystal_Lattice():
         self.sticking_coefficient = experimental_conditions['sticking_coeff']
         self.partial_pressure = experimental_conditions['partial_pressure']
         self.temperature = experimental_conditions['T']
-        self.experiment = experimental_conditions['experiment']
+        self.simulation_type = experimental_conditions['simulation_type']
         
         # --- Activation energies (structured by defect name) ---
         self.Act_E_dict = Act_E_dict
@@ -124,13 +123,13 @@ class Crystal_Lattice():
         # --- Grid generation ---n
         self.lattice_model(api_key, self.mode, self.affected_site, self.miller_indices)
         grid_crystal = kwargs.get('grid_crystal', None)
-        self.crystal_grid(grid_crystal,self.radius_neighbors,self.mode,self.affected_site,api_key,use_parallel)
+        self.crystal_grid(grid_crystal,self.radius_neighbors,self.mode,self.affected_site,api_key)
 
         self.sites_occupied = [] # Sites occupy be a chemical specie
         self.adsorption_sites = [] # Sites availables for deposition or migration
         
         #Transition rate for adsortion of chemical species
-        if self.experiment != 'ECM memristor':
+        if self.simulation_type != 'ECM memristor':
             self.transition_rate_adsorption(experimental_conditions)
             # self.E_min_lim_superbasin = self.Act_E_gen * 0.9 # Don't create superbasin that include the deposition process
             self.E_min_lim_superbasin = 0.25 # Don't create superbasin that include the deposition process
@@ -489,7 +488,7 @@ class Crystal_Lattice():
               
           
             
-    def crystal_grid(self,grid_crystal,radius_neighbors,mode,affected_site,api_key,use_parallel=None):
+    def crystal_grid(self,grid_crystal,radius_neighbors,mode,affected_site,api_key):
         
         self.coord_cache = {}
         
@@ -2545,7 +2544,7 @@ class Crystal_Lattice():
             print(f"??  MP query failed: {e}")
             
       
-      sim_id = f"{self.chemical_formula}_{self.experiment}_{int(self.temperature)}K_{uuid.uuid4().hex[:8]}"
+      sim_id = f"{self.chemical_formula}_{self.simulation_type}_{int(self.temperature)}K_{uuid.uuid4().hex[:8]}"
       
       metadata = {
         "metadata_version": "2.0",
@@ -2573,7 +2572,7 @@ class Crystal_Lattice():
         },
         
         "conditions": {
-          'process_type': self.experiment,
+          'simulation_type': self.simulation_type,
           'temperature_K': float(self.temperature),
           'partial_pressure_Pa': float(self.partial_pressure) if self.partial_pressure is not None else None,
           'sticking_coefficient': float(self.sticking_coefficient) if self.sticking_coefficient is not None else None,

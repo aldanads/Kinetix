@@ -49,8 +49,8 @@ def initialization(n_sim):
     snapshoots_steps = int(4e1)
     total_steps = int(snapshoots_steps * 25)
     
-    experiments = ['deposition','annealing','ECM memristor']
-    experiment = experiments[2]
+    simulation_types = ['deposition','annealing','ECM memristor']
+    simulation_type = simulation_types[2]
     
     simulation_parameters = {
       'save_data':save_data, 'snapshoots_steps':snapshoots_steps,
@@ -70,7 +70,7 @@ def initialization(n_sim):
             dst = Path(r'/home/Docs2/samuel.delgado/linuxhome/Documents/Simulators/test')
             
         if mpi_ctx.rank == 0:
-          paths,Results = save_simulation(files_copy,dst,n_sim,experiment) # Create folders and python files
+          paths,Results = save_simulation(files_copy,dst,n_sim,simulation_type) # Create folders and python files
         else:
           # Other ranks create empty paths structure (same keys)
           sim_dir = dst / f'Sim_{n_sim}'
@@ -94,7 +94,7 @@ def initialization(n_sim):
 
 
 
-    if experiment == 'deposition':         
+    if simulation_type == 'deposition':         
 # =============================================================================
 #         Experimental conditions
 #         
@@ -116,7 +116,7 @@ def initialization(n_sim):
         temp = 431
         T = temp # (K)
         
-        experimental_conditions = [sticking_coeff,partial_pressure,T,experiment]
+        experimental_conditions = [sticking_coeff,partial_pressure,T,simulation_type]
     
 # =============================================================================
 #         Crystal structure
@@ -319,7 +319,7 @@ def initialization(n_sim):
             System_state.track_time(0) 
             System_state.add_time()
             
-    elif experiment == 'annealing':
+    elif simulation_type == 'annealing':
         
         script_directory = Path(__file__).parent
         filename = script_directory / 'variables_AsDeposited.pkl'
@@ -335,7 +335,7 @@ def initialization(n_sim):
         temp = [723] #(K)
     
         System_state.temperature = temp[n_sim]
-        System_state.experiment = experiment
+        System_state.experiment = simulation_type
         P_limits = 1
         System_state.TR_gen = 0;
         System_state.Act_E_gen = 0
@@ -357,7 +357,7 @@ def initialization(n_sim):
                 System_state.grid_crystal[site].site_events[0][-1] = System_state.Act_E_gen
 
         
-    elif experiment == 'ECM memristor':        
+    elif simulation_type == 'ECM memristor':        
         
         # =============================================================================
         #         Experimental conditions
@@ -369,7 +369,7 @@ def initialization(n_sim):
           'sticking_coeff':None,
           'partial_pressure':None,
           'T':T,
-          'experiment':experiment
+          'simulation_type':simulation_type
         }
         
         
@@ -389,7 +389,6 @@ def initialization(n_sim):
     
         crystal_size = (50,50,50) # (angstrom (Å))
         miller_indices = (0,0,1)
-        use_parallel = None
         facets_type = None
         affected_site_marker = 'Empty'
         
@@ -455,9 +454,6 @@ def initialization(n_sim):
         defects_config = DefectsConfig.from_yaml(
           parameters_root / 'defects' / 'PZT_ZrPbO3_defects_config.yaml'
         )
-        
-        print(defects_config)
-        exit()
           
         
         """
@@ -597,7 +593,6 @@ def initialization(n_sim):
           'crystal_size': crystal_size,
           'miller_indices': miller_indices,
           'api_key': api_key,
-          'use_parallel': use_parallel,
           'facets_type': facets_type,
           'affected_site': affected_site_marker,
           'mode': mode,
@@ -631,7 +626,6 @@ def initialization(n_sim):
         
         # Parameters for Poisson solver
         active_dipoles = 4
-        poisson_solve_frequency = int(snapshoots_steps)  # Solve Poisson every N KMC steps
         solve_Poisson = True
         save_Poisson = False
         
@@ -670,7 +664,7 @@ def initialization(n_sim):
         poissonSolver_parameters = {
           'mesh_file': mesh_file,
           'epsilon_r':epsilon_r,'chem_env_symmetry':chem_env_symmetry,'metal_valence':metal_valence,'d_metal_O':d_metal_O,'active_dipoles':active_dipoles,
-          'poisson_solve_frequency':poisson_solve_frequency,'solve_Poisson':solve_Poisson,'save_Poisson':save_Poisson, 'screening_factor':screening_factor,
+          'solve_Poisson':solve_Poisson,'save_Poisson':save_Poisson, 'screening_factor':screening_factor,
           'conductivity_CF':conductivity_CF, 'conductivity_dielectric':conductivity_dielectric,
           'defects_config':defects_config
         }
@@ -711,8 +705,17 @@ def initialization(n_sim):
           )
         )
         
+        
         Elec_controller = ElectricalController.from_config(electrical_config)
         
+        parameters_root = get_parameters_root()
+        electrical_path = parameters_root / 'electrical' / 'electrical_RAMP_CYCLE.yaml'
+        elect_config = ElectricalConfig.from_yaml(electrical_path)
+        
+        Elec_controller = ElectricalController.from_config(elect_config)
+        
+        print(elect_config)
+        exit()
         
         # =============================================================================
         #             Activation energies
@@ -721,8 +724,7 @@ def initialization(n_sim):
         # Retrieve the activation energies
         ae_data = get_activation_energies_memristors()
         
-        print(ae_data)
-        exit()
+
             
         # Container: Act_E_dict[defect_name] = {energy_key: value or list}
         Act_E_dict = {}
@@ -879,7 +881,7 @@ def initialize_grid_crystal(
         
         
 
-def save_simulation(files_copy,dst,n_sim,experiment):
+def save_simulation(files_copy,dst,n_sim,simulation_type):
     
      # === Exclusion patterns - don't copy these ===
     from shutil import ignore_patterns 
@@ -949,7 +951,7 @@ def save_simulation(files_copy,dst,n_sim,experiment):
           
     
 
-    if experiment in ['deposition','annealing']:
+    if simulation_type in ['deposition','annealing']:
       # Create and return results object
       excel_filename = paths['results'] / 'Results.csv'  # Define the path to the results CSV file
       Results = SimulationResults(excel_filename)

@@ -1,0 +1,96 @@
+# data/parameters/presets/PZT_ZrPbO3.yaml
+# =============================================================================
+# PZT Simulation - ZrPbO3 with hydrogen and oxygen vacancies defects
+# =============================================================================
+# This is the MASTER configuration file that references all other configs.
+# Edit this to change simulation-wide parameters.
+# Edit referenced files to change specific components (defects, reactions, etc.)
+# =============================================================================
+
+metadata:
+  name: "PZT_ZrPbO3"
+  description: "PZT simulation with H and O_vac in ZrPbO3"
+  author: "Samuel Aldana Delgado"
+  
+# -----------------------------------------------------------------------------
+# Experiment & Technology
+# -----------------------------------------------------------------------------
+simulation_type: "ECM memristor"
+technology: "PZT"
+mode: "interstitial"
+
+# -----------------------------------------------------------------------------
+# Material Selection (from Materials Project)
+# -----------------------------------------------------------------------------
+material:
+  name: "ZrPbO3"
+  mp_id: "mp-1068577"
+  radius_neighbors: 4.3
+  
+# -----------------------------------------------------------------------------
+# Crystal Structure
+# -----------------------------------------------------------------------------
+crystal:
+  size: [50, 50, 50] # Angstroms (x, y, z)
+  miller_indices: [0, 0, 1] # Surface orientation
+  sites_generation_layer: "top_layer" # or "bottom_layer"
+  
+# -----------------------------------------------------------------------------
+# Component Configuration Files
+# -----------------------------------------------------------------------------
+# These files are loaded relative to data/parameters/
+components:
+  defects: "defects/PZT_ZrPbO3_defects_config.yaml"
+  reactions: "reactions/reactions_H2_Ovac_passivation.yaml"
+  grain_boundaries: "grain_boundaries/gb_vertical_planar.yaml"
+  
+# -----------------------------------------------------------------------------
+# Electrical Configuration
+# -----------------------------------------------------------------------------
+electrical:
+  voltage_mode: "ZERO_HOLD"       # ZERO_HOLD, RAMP_CYCLE, CONSTANT
+  constant_voltage: 0.0           # V
+  total_time: 2.0e-5              # s
+  voltage_update_time: 1.0e-7     # s
+  
+# -----------------------------------------------------------------------------
+# Superbasin Acceleration
+# -----------------------------------------------------------------------------
+superbasin:
+  enabled: true
+  n_search_superbasin: 50
+  time_step_limits: 1.0e-4        # s
+  E_min: 0.5                      # eV
+  energy_step: 0.05               # eV
+  time_based_superbasin: true
+  
+# -----------------------------------------------------------------------------
+# Poisson Solver
+# -----------------------------------------------------------------------------
+poisson:
+  solve_Poisson: true 
+  save_Poisson: false
+  active_dipoles: 4
+  screening_factor: 0.01
+  conductivity_CF: 6.3e6          # S/m (conductive filament)
+  conductivity_dielectric: 1.0e-1 # S/m (dielectric)
+
+# -----------------------------------------------------------------------------
+# Heat Solver (optional)
+# -----------------------------------------------------------------------------  
+heat: 
+  solve_heat: false
+  thermal_conductivity: 2.5       # W/m-K
+  heat_capacity: 500.0            # J/kg-K
+  density: 5000.0                 # kg/m3
+  ambient_temperature: 300.0      # K 
+  
+# -----------------------------------------------------------------------------
+# Simulation Settings
+# -----------------------------------------------------------------------------
+settings:
+  save_data: true
+  snapshoots_step: 40
+  total_steps: 1000
+  seed_rng: 1
+  lammps_output: true

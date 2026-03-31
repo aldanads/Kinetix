@@ -1,0 +1,13 @@
+# data/parameters/electrical/electrical_ZERO_HOLD.yaml
+# =============================================================================
+# Electrical Configuration - ZERO_HOLD (Relaxation Study)
+# =============================================================================
+initial_voltage: 0.0
+initial_time: 0.0
+series_resistance: 0.0
+
+voltage:
+  mode: "ZERO_HOLD"
+  constant_voltage: 0.0
+  total_time: 1.0e-4
+  voltage_update_time: 1.0e-8

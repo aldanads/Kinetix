@@ -1,0 +1,23 @@
+# data/parameters/electrical/electrical_RAMP_CYCLE.yaml
+# =============================================================================
+# Electrical Configuration - RAMP_CYCLE
+# =============================================================================
+
+initial_voltage: 0.0
+initial_time: 0.0
+series_resistance: 200.0
+
+voltage:
+  mode: "RAMP_CYCLE"
+  max_voltage: 2.6
+  min_voltage: -1.5
+  ramp_rate: 1.0
+  num_cycles: 3
+  voltage_update_time: 0.1
+
+current:
+  model: "SCHOTTKY"
+  barrier_height: 0.53
+  temperature: 300.0 # Ambient -> Override during simulation
+  area: 7.85e-9
+  epsilon_r: 25 # Override if find in Materials Project

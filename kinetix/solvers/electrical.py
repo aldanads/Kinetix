@@ -50,7 +50,6 @@ class ElectricalController:
           initial_voltage=config.initial_voltage,
           initial_time=config.initial_time,
           series_resitance=config.series_resistance,
-          current_model=config.current.model.name.lower(),
           crystal_size=config.crystal_size
         )
     
@@ -76,12 +75,18 @@ class ElectricalController:
           )
         
         # Initialize current parameters
-        controller.initialize_current_parameters(
-          barrier_height=config.current.barrier_height,
-          temperature=config.current.temperature,
-          area=config.current.area,
-          epsilon_r=config.current.epsilon_r
-        )
+        if config.current is not None:
+          controller.initialize_current_parameters(
+            model=config.current.model.name.lower(),
+            barrier_height=config.current.barrier_height,
+            temperature=config.current.temperature,
+            area=config.current.area,
+            epsilon_r=config.current.epsilon_r
+          )
+          controller.current_enabled = True
+        else:
+          controller.current_enabled = False
+          controller.current_model = None
         
         return controller
     
@@ -298,6 +303,9 @@ class ElectricalController:
         """
         Calculate current based on the selected model and pre-initialized parameters
         """
+        
+        if not self.current_enabled:
+          return 0.0
         
         effective_gap = self.crystal_size[2] * 1e-10
         self.current_model = 'schottky'

@@ -4,12 +4,13 @@ from dataclasses import dataclass, field
 from typing import Dict, Any, List, Optional
 from pathlib import Path
 import numpy as np
+import yaml
 
 from kinetix.configs.material_config import MaterialConfig
 from kinetix.configs.defect_config import DefectsConfig
 from kinetix.configs.reaction_config import ReactionsConfig
 from kinetix.configs.solver_config import PoissonSolverConfig, HeatSolverConfig, SuperbasinConfig
-from kinetix.configs.electrical_config import ElectricalConfig
+from kinetix.configs.electrical_config import ElectricalConfig, VoltageConfig, VoltageMode
 
 @dataclass
 class ExperimentalConditions:
@@ -57,8 +58,18 @@ class SimulationConfig:
   Master configuration for kMC simulation.
   Combines all sub-configurations into one object.
   """
+  # Metadata
+  name: str = ""
+  description: str = ""
+  author: str = ""
+  
+  # Core settings
+  experiment: str = "ECM memristor"
+  technology: str = "PZT"
+  mode: str = "interstitial"
+  
   # Core configurations
-  material: MaterialConfig
+  material: MaterialConfig = field(default_factory=MaterialConfig)
   experimental: ExperimentalConditions = field(default_factory=ExperimentalConditions)
   settings: SimulationSettings = field(default_factory=SimulationSettings)
   defects: DefectsConfig = field(default_factory=DefectsConfig)
@@ -69,9 +80,10 @@ class SimulationConfig:
   electrical: Optional[ElectricalConfig] = None
   grain_boundaries: List[GrainBoundaryConfig] = field(default_factory=list)
     
-  # Runtime objects (not serialized)
+  # Runtime objects
   rng: Any = None
   mpi_ctx: Any = None
+  base_path: Optional[Path] = None # For resolving relative component paths
     
   def to_dict(self) -> Dict[str, Any]:
     """Convert entire config to dictionary for backwards compatibility"""
@@ -101,3 +113,89 @@ class SimulationConfig:
       'superbasin': self.superbasin.to_dict(),
       'gb_configurations': [gb.to_dict() for gb in self.grain_boundaries],
     }
+    
+  @classmethod
+  def from_yaml(cls, yaml_path: Path) -> 'SimulationConfig':
+    """
+    Load complete simulation configuration from YAML preset file.
+    Automatically loads referenced component files (defects first, reactions/GB later).
+        
+    Args:
+      yaml_path: Path to preset YAML file (e.g., presets/PZT_ZrPbO3.yaml)
+        
+    Returns:
+      SimulationConfig with all components loaded
+    """
+    yaml_path = Path(yaml_path)
+    
+    if not yaml_path.exists():
+      raise FileNotFoundError(f"Preset file not found: {yaml_path}")
+      
+    # Store base path for resolving relative component paths
+    # yaml_path is like: data/parameters/presets/PZT_ZrPbO3.yaml
+    # base_path should be: data/parameters
+    base_path =  yaml_path.parent.parent
+    
+    with open(yaml_path, 'r') as f:
+      data = yaml.safe_load(f)
+      
+    # Create config object with metadata
+    config = cls(
+      name=data.get('metadata', {}).get('name', yaml_path.stem),
+      description=data.get('metadata',{}).get('description', ''),
+      author=data.get('metadata', {}).get('author',''),
+      simulation_type=data.get('simulation_type'),
+      technology=data.get('technology'),
+      mode=data.get(),
+      base_path=base_path,
+    )
+    
+    # =========================================================================
+    # Load Material Configuration
+    # =========================================================================
+    material_data = data.get('material', {})
+    crystal_data = data.get('crystal', {})
+    
+    config.material = MaterialConfig(
+      selection=MaterialSelection(
+        name=material_data.get('name'),
+        mp_id=material_data.get('mp_id'),
+        radius_neighbors=material_data.get('radius_neighbors')
+      ),
+      structure=CrystalStructure(
+        size=tuple(crystal_data.get('size')),
+        miller_indices=tuple(crystal_data.get('miller_indices')),
+        sites_generation_layer=crystal_data.get('sites_generation_layer')
+      )
+    )
+    
+    # =========================================================================
+    # Load Component Files
+    # =========================================================================
+    components = data.get('components')
+    
+    # --- DEFECTS ---
+    if 'defects' in components:
+      defects_path = base_path / components['defects']
+      try: 
+        config.defects = DefectsConfig.from_yaml(defect_path)
+        print(f"Loaded defects from {defects_path}")
+        print(f"{len(config.defects.defects)} defect species")
+      except Exception as e:
+        print(f"Failed to load defects: {e}")
+
+    # --- REACTIONS ---
+    if 'reactions' in components:
+      reactions_path = base_path / components['reactions']
+      
+    # --- GRAIN BOUNDARIES ---
+    if 'grain_boundaries' in components:
+      gb_path = base_path / components['grain_boundaries']
+      
+    # =========================================================================
+    # Load Electrical Configuration
+    # =========================================================================
+    electrical_data = data.get('electrical')
+    #if electrical_data:
+    #  electrical_data = 
+    
