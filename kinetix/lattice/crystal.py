@@ -91,6 +91,7 @@ class Crystal_Lattice():
         self.Act_E_dict = Act_E_dict
         
          # --- Superbasin ---
+        self.enabled_superbasin = superbasin_parameters['enabled_superbasin']
         self.n_search_superbasin = superbasin_parameters['n_search_superbasin']
         self.time_step_limits = superbasin_parameters['time_step_limits']
         self.E_min = superbasin_parameters['E_min']
@@ -1253,6 +1254,8 @@ class Crystal_Lattice():
         --------
         bool : True if superbasin should be activated
         """ 
+        if not self.enabled_superbasin:
+          return False
         
         # Condition 1: Must have a percolating filament
         if not self.is_filament_percolating():

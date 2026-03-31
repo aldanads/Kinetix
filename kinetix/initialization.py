@@ -372,6 +372,11 @@ def initialization(n_sim):
           'simulation_type':simulation_type
         }
         
+        parameters_root = get_parameters_root()
+        config = SimulationConfig.from_yaml(parameters_root / 'presets' / 'PZT_ZrPbO3.yaml')
+        
+        print(config)
+        exit()
         
         # =============================================================================
         #         Material and crystal structure
@@ -610,6 +615,7 @@ def initialization(n_sim):
         #     
         # =============================================================================
         superbasin_parameters = {
+          'enabled_superbasin': True,
           'n_search_superbasin':50, # If the time step is very small during n_search_superbasin steps, search for superbasin
           'time_step_limits':1e-4, # Time needed for efficient evolution of the system
           'E_min':0.5, 
@@ -708,14 +714,6 @@ def initialization(n_sim):
         
         Elec_controller = ElectricalController.from_config(electrical_config)
         
-        parameters_root = get_parameters_root()
-        electrical_path = parameters_root / 'electrical' / 'electrical_RAMP_CYCLE.yaml'
-        elect_config = ElectricalConfig.from_yaml(electrical_path)
-        
-        Elec_controller = ElectricalController.from_config(elect_config)
-        
-        print(elect_config)
-        exit()
         
         # =============================================================================
         #             Activation energies

@@ -6,30 +6,37 @@ from pathlib import Path
 import numpy as np
 import yaml
 
-from kinetix.configs.material_config import MaterialConfig
+from kinetix.configs.material_config import MaterialConfig, MaterialSelection, CrystalStructure
 from kinetix.configs.defect_config import DefectsConfig
 from kinetix.configs.reaction_config import ReactionsConfig
 from kinetix.configs.solver_config import PoissonSolverConfig, HeatSolverConfig, SuperbasinConfig
 from kinetix.configs.electrical_config import ElectricalConfig, VoltageConfig, VoltageMode
+
+
+class ConfigValidationError(Exception):
+    """Raised when required configuration field is missing"""
+    pass
 
 @dataclass
 class ExperimentalConditions:
   """Experimental environment parameters."""
   temperature: float = 300.0  # K
   sticking_coeff: Optional[float] = None
-  partial_pressure: Optional[float] = None
-  experiment: str = "ECM memristor"
+  partial_pressure: Optional[float] = None # Pa
 
 @dataclass
 class SimulationSettings:
   """General simulation parameters."""
-  technology: str = "PZT"
-  mode: str = "interstitial"  # or 'vacancy'
-  use_parallel: bool = True
+  # Core settings
+  
+  total_steps: Optional[int] = None  
+  seed_rng: Optional[int] = None 
+  simulation_type: str = ""
+  technology: str = ""
+  mode: str = ""  # or 'vacancy'
   save_data: bool = True
   snapshoots_steps: int = 40
-  total_steps: int = 1000
-  seed: int = 1
+  lammps_output: bool = True
 
 @dataclass
 class GrainBoundaryConfig:
@@ -63,20 +70,15 @@ class SimulationConfig:
   description: str = ""
   author: str = ""
   
-  # Core settings
-  experiment: str = "ECM memristor"
-  technology: str = "PZT"
-  mode: str = "interstitial"
-  
   # Core configurations
-  material: MaterialConfig = field(default_factory=MaterialConfig)
-  experimental: ExperimentalConditions = field(default_factory=ExperimentalConditions)
-  settings: SimulationSettings = field(default_factory=SimulationSettings)
-  defects: DefectsConfig = field(default_factory=DefectsConfig)
-  reactions: ReactionsConfig = field(default_factory=ReactionsConfig)
-  poisson: PoissonSolverConfig = field(default_factory=PoissonSolverConfig)
-  heat: HeatSolverConfig = field(default_factory=HeatSolverConfig)
-  superbasin: SuperbasinConfig = field(default_factory=SuperbasinConfig)
+  material: Optional[MaterialConfig] = None
+  experimental: Optional[ExperimentalConditions] = None
+  settings: Optional[SimulationSettings] = None  
+  defects: Optional[DefectsConfig] = None        
+  reactions: Optional[ReactionsConfig] = None    
+  poisson: Optional[PoissonSolverConfig] = None  
+  heat: Optional[HeatSolverConfig] = None        
+  superbasin: Optional[SuperbasinConfig] = None  
   electrical: Optional[ElectricalConfig] = None
   grain_boundaries: List[GrainBoundaryConfig] = field(default_factory=list)
     
@@ -97,9 +99,11 @@ class SimulationConfig:
       },
       'experimental': {
         'temperature': self.experimental.temperature,
-        'experiment': self.experimental.experiment,
+        'sticking_coeff': self.experimental.sticking_coeff,
+        'partial_pressure': self.experimental.partial_pressure
       },
       'settings': {
+        'simulation_type': self.simulation_type.simulation_type,
         'technology': self.settings.technology,
         'mode': self.settings.mode,
         'save_data': self.settings.save_data,
@@ -141,48 +145,45 @@ class SimulationConfig:
       
     # Create config object with metadata
     config = cls(
-      name=data.get('metadata', {}).get('name', yaml_path.stem),
+      name=_get_required(data.get('metadata', {}), 'name', yaml_path, 'metadata.name'),
       description=data.get('metadata',{}).get('description', ''),
       author=data.get('metadata', {}).get('author',''),
-      simulation_type=data.get('simulation_type'),
-      technology=data.get('technology'),
-      mode=data.get(),
       base_path=base_path,
     )
     
     # =========================================================================
     # Load Material Configuration
     # =========================================================================
-    material_data = data.get('material', {})
-    crystal_data = data.get('crystal', {})
+    material_data = _get_required(data, 'material', yaml_path, 'material')
+    crystal_data = _get_required(data, 'crystal', yaml_path, 'crystal')
     
     config.material = MaterialConfig(
       selection=MaterialSelection(
-        name=material_data.get('name'),
-        mp_id=material_data.get('mp_id'),
-        radius_neighbors=material_data.get('radius_neighbors')
+        name=_get_required(material_data, 'name', yaml_path, 'material.name'),
+        mp_id=_get_required(material_data, 'mp_id', yaml_path, 'material.mp_id'),
+        radius_neighbors=_get_required(material_data, 'radius_neighbors', yaml_path, 'material.radius_neighbors')
       ),
       structure=CrystalStructure(
-        size=tuple(crystal_data.get('size')),
-        miller_indices=tuple(crystal_data.get('miller_indices')),
-        sites_generation_layer=crystal_data.get('sites_generation_layer')
+        size=tuple(_get_required(crystal_data, 'size', yaml_path, 'crystal.size')),
+        miller_indices=tuple(_get_required(crystal_data, 'miller_indices', yaml_path, 'crystal.miller_indices')),
+        sites_generation_layer=_get_required(crystal_data, 'sites_generation_layer', yaml_path, 'crystal.sites_generation_layer')
       )
     )
     
     # =========================================================================
     # Load Component Files
     # =========================================================================
-    components = data.get('components')
+    components = _get_required(data, 'components', yaml_path, 'components')
     
     # --- DEFECTS ---
-    if 'defects' in components:
-      defects_path = base_path / components['defects']
-      try: 
-        config.defects = DefectsConfig.from_yaml(defect_path)
-        print(f"Loaded defects from {defects_path}")
-        print(f"{len(config.defects.defects)} defect species")
-      except Exception as e:
-        print(f"Failed to load defects: {e}")
+    defects_path = _get_required(components, 'defects', yaml_path, 'components.defects')
+    defects_path = base_path / defects_path
+    try: 
+      config.defects = DefectsConfig.from_yaml(defects_path)
+      print(f"Loaded defects from {defects_path}")
+      print(f"{len(config.defects.defects)} defect species")
+    except Exception as e:
+      print(f"Failed to load defects: {e}")
 
     # --- REACTIONS ---
     if 'reactions' in components:
@@ -195,7 +196,111 @@ class SimulationConfig:
     # =========================================================================
     # Load Electrical Configuration
     # =========================================================================
-    electrical_data = data.get('electrical')
-    #if electrical_data:
-    #  electrical_data = 
+    if 'electrical' in components:
+      electrical_path = base_path / components['electrical']
+      try:
+        crystal_size = config.material.structure.size
+        config.electrical = ElectricalConfig.from_yaml(
+          electrical_path,
+          crystal_size=crystal_size
+        ) 
+        print(f"Loaded electrical from {electrical_path}")
+      except Exception as e:
+        print(f"Failed to load electrical: {e}")
+    
+    # =========================================================================
+    # Load Poisson Solver Configuration (OPTIONAL)
+    # =========================================================================
+    poisson_data = data.get('poisson')
+    if poisson_data:
+      config.poisson = PoissonSolverConfig(
+        solve_Poisson=_get_required(poisson_data, 'solve_Poisson', yaml_path, 'poisson.solve_Poisson'),
+        save_Poisson=poisson_data.get('save_Poisson', False),
+        active_dipoles=_get_required(poisson_data, 'active_dipoles', yaml_path, 'poisson.active_dipoles'),
+        screening_factor=poisson_data.get('screening_factor',0.01),
+        conductivity_CF=_get_required(poisson_data, 'conductivity_CF', yaml_path, 'poisson.conductivity_CF'),
+        conductivity_dielectric=_get_required(poisson_data, 'conductivity_dielectric', yaml_path, 'poisson.conductivity_dielectric')
+      )
+      print("Poisson solver config loaded")
+    else:
+      print("Poisson solver: Not configured")
+      
+    # =========================================================================
+    # Load Heat Solver Configuration (OPTIONAL)
+    # =========================================================================
+    heat_data = data.get('heat')
+    if heat_data:
+      config.heat = HeatSolverConfig(
+        solve_heat=_get_required(heat_data,'solve_heat', yaml_path, 'heat.solve_heat'),
+        thermal_conductivity=_get_required(heat_data,'thermal_conductivity',yaml_path, 'heat.thermal_conductivity'),
+        heat_capacity=_get_required(heat_data,'heat_capacity',yaml_path, 'heat.heat_capacity'),
+        density=_get_required(heat_data,'density',yaml_path, 'heat.density'),
+      
+      )
+      
+    # =========================================================================
+    # Load Heat Solver Configuration (OPTIONAL)
+    # =========================================================================
+    superbasin_data = data.get('superbasin')
+    if superbasin_data:
+      config.superbasin = SuperbasinConfig(
+        enabled_superbasin=_get_required(superbasin_data, 'enabled_superbasin', yaml_path, 'superbasin.enabled_superbasin'),
+        n_search_superbasin=_get_required(superbasin_data, 'n_search_superbasin', yaml_path, 'superbasin.n_search_superbasin'),
+        time_step_limits=_get_required(superbasin_data, 'time_step_limits', yaml_path, 'superbasin.time_step_limits'),
+        E_min=_get_required(superbasin_data, 'E_min', yaml_path, 'superbasin.E_min'),
+        energy_step=_get_required(superbasin_data, 'energy_step', yaml_path, 'superbasin.energy_step'),
+        time_based_superbasin=_get_required(superbasin_data, 'time_based_superbasin', yaml_path, 'superbasin.time_based_superbasin'),
+      )
+      
+    # =========================================================================
+    # Load Simulation Settings (REQUIRED)
+    # =========================================================================
+    settings_data = _get_required(data, 'settings', yaml_path, 'settings')
+    print(settings_data)
+    config.settings = SimulationSettings(
+      simulation_type=settings_data.get('simulation_type'),
+      technology=settings_data.get('technology'),
+      mode=settings_data.get('mode'),
+      save_data=_get_required(settings_data, 'save_data', yaml_path, 'settings.save_data'),
+      snapshoots_steps=settings_data.get('snapshoots_steps'),
+      seed_rng=settings_data.get('seed_rng'),
+      lammps_output=settings_data.get('lammps_output', True),
+    )
+    
+    # =========================================================================
+    # Load Experimental Conditions
+    # =========================================================================
+    experimental_data = _get_required(data, 'experimental', yaml_path, 'experimental')
+    config.experimental = ExperimentalConditions(
+            temperature=_get_required(experimental_data, 'temperature', yaml_path, 'experimental.temperature')
+    )
+    
+    return config
+    
+        
+def _get_required(data: dict, key: str, yaml_path: Path, field_name: str) -> Any:
+  """
+  Get required field from dictionary, raise clear error if missing.
+    
+  Args:
+    data: Dictionary to search
+    key: Key to look for
+    yaml_path: Path to YAML file (for error message)
+    field_name: Human-readable field name (for error message)
+    
+  Returns:
+    Value if found
+    
+  Raises:
+    ConfigValidationError: If field is missing or None
+  """
+  value = data.get(key)
+    
+  if value is None:
+    raise ConfigValidationError(
+      f"Missing required field '{field_name}' in {yaml_path}\n\n"
+      f"  Please add '{key}: <value>' to your YAML file"
+    )
+    
+  return value
     

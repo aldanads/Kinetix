@@ -63,6 +63,7 @@ class HeatSolverConfig:
 @dataclass
 class SuperbasinConfig:
   """Superbasin acceleration parameters."""
+  enabled_superbasin: bool = False
   n_search_superbasin: int = 50
   time_step_limits: float = 1e-4
   E_min: float = 0.5
@@ -72,6 +73,7 @@ class SuperbasinConfig:
   def to_dict(self) -> Dict[str, Any]:
     """Convert to dictionary"""
     return {
+      'enabled_superbasin': self.enabled_superbasin,
       'n_search_superbasin': self.n_search_superbasin,
       'time_step_limits': self.time_step_limits,
       'E_min': self.E_min,
