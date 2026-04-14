@@ -22,7 +22,7 @@ from kinetix.utils.superbasin import Superbasin
 
 from collections import Counter
 
-# Pymatgen for creating crystal structure and connect with Crystallography Open Database or Material Project
+# Pymatgen for creating crystal structure and connect with Material Project
 from pymatgen.core.operations import SymmOp
 from pymatgen.transformations.advanced_transformations import CubicSupercellTransformation
 from pymatgen.ext.matproj import MPRester
@@ -38,11 +38,6 @@ from typing import Dict, List
 import os
 from pathlib import Path
 import platform
-
-
-# Rotation of a vector - Is copper growing in [111] direction?
-# The basis vector is in [001]
-# https://stackoverflow.com/questions/48265646/rotation-of-a-vector-python
 
 
 class Crystal_Lattice():
@@ -2997,29 +2992,95 @@ class Crystal_Lattice():
        cid = self.atom_to_cluster[site_id]
        cluster = self.clusters[cid]
        
-       # Remove atom from cluster
+       
+       # 1. Remove atom from cluster
        cluster.atoms_id.discard(site_id)
-       cluster.size -= 1
+       cluster.size = len(cluster.atoms_id)
        del self.atom_to_cluster[site_id]
        
-       # Remove the corresponding atom position
+       # Clean positions: Remove the corresponding atom position
+       target_pos = self.grid_crystal[site_id].position
        cluster.atoms_positions = [
         pos for pos in cluster.atoms_positions
-        if not np.allclose(pos, self.grid_crystal[site_id].position)
+        if not np.allclose(pos, target_pos)
        ]
             
        # Reset the site's electrode flag (no longer in any cluster)
        self.grid_crystal[site_id].in_cluster_electrode = {'bottom_layer': False, 'top_layer': False}   
-       if cluster.size <= 1:
+       
+       
+       if cluster.size < 2:
          # Remove cluster
          for atom in list(cluster.atoms_id):
            del self.atom_to_cluster[atom]
            self.grid_crystal[atom].in_cluster_with_electrode = {'bottom_layer': False, 'top_layer': False}
          del self.clusters[cid]
-       else:
-         # Update cluster contact with electrodes (may have lost electrode contact)
+         return
          
-         cluster.update_electrode_contact(self.grid_crystal)  
+       # 3. Check connectivity and split if ruptured
+       components = self._dfs_find_components(list(cluster.atoms_id), self.grid_crystal)  
+         
+       if len(components) == 1:
+         # Still connected: just update flags
+         cluster.update_electrode_contact(self.grid_crystal)
+         return
+         
+       # 4. Fragmented: delete old cluster, create valid fragments only
+       del self.clusters[cid]
+       
+       for comp in components:
+         if len(comp) < 2:
+           # Dissolve small fragments, cluster should have at least 2 atoms
+           for atom in comp:
+             del self.atom_to_cluster[atom]
+             self.grid_crystal[atom].in_cluster_with_electrode = {'bottom_layer': False, 'top_layer': False}
+             continue 
+             
+         # Create new cluster for valid fragment
+         positions = [self.grid_crystal[a].position for a in comp]
+         new_cid = self.next_cluster_id 
+         self.next_cluster_id += 1
+         
+         new_cluster = Cluster(comp, positions, {}, self.conductivity)
+         new_cluster.update_electrode_contact(self.grid_crystal)
+         self.clusters[new_cid] = new_cluster
+         
+         for atom in comp:
+           self.atom_to_cluster[atom] = new_cid  
+
+    def _dfs_find_components(self, cluster_atoms, grid_crystal):
+      """
+      Find connected components within a single cluster using DFS.
+      Returns list of components, where each component is a list of site IDs.
+      """
+      atom_set = set(cluster_atoms)
+      visited = set()
+      components = []
+      
+      for start_atom in cluster_atoms:
+        if start_atom in visited:
+          continue
+          
+        component = []
+        stack = [start_atom]
+          
+        while stack:
+          atom = stack.pop()
+          if atom in visited:
+            continue
+            
+          visited.add(atom)
+          component.append(atom)
+            
+          # Filter neighbors: must be metal (charge 0) AND in the same cluster
+          for nb in grid_crystal[atom].nearest_neighbors_idx:
+            if nb in atom_set and grid_crystal[nb].ion_charge == 0 and nb not in visited:
+              stack.append(nb)
+              
+        components.append(component) 
+           
+      return components 
+
       
     def metal_clusters_analysis(self):
       
