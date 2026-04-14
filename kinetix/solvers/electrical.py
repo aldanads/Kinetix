@@ -4,6 +4,7 @@ Created on Wed Dec 17 13:25:49 2025
 
 @author: samuel.delgado
 """
+from typing import Dict, Tuple, Optional, List
 import numpy as np
 import matplotlib.pyplot as plt
 import scipy.constants as const
@@ -12,6 +13,7 @@ from pathlib import Path
 
 from kinetix.configs.electrical_config import VoltageMode, CurrentModel, VoltageConfig, CurrentConfig, ElectricalConfig
 
+ANGSTROM_TO_METER = 1e-10
 
 class ElectricalController:
     def __init__(self,initial_voltage=0.0, initial_time = 0.0, series_resistance = 0.0, **kwargs):
@@ -23,7 +25,7 @@ class ElectricalController:
         self.current_parameters = {}
         self.current_model = kwargs.get('current_model', 'ohmic')  # 'ohmic', 'schottky', 'poole_frenkel', etc. 
         self.crystal_size = kwargs.get('crystal_size')
-        
+        self.thickness_m = self.crystal_size[2] * ANGSTROM_TO_METER
         self.voltage_mode = None
         self._voltage_cycle_initialized = False
 
@@ -49,7 +51,7 @@ class ElectricalController:
         controller = cls(
           initial_voltage=config.initial_voltage,
           initial_time=config.initial_time,
-          series_resitance=config.series_resistance,
+          series_resistance=config.series_resistance,
           crystal_size=config.crystal_size
         )
     
@@ -109,8 +111,10 @@ class ElectricalController:
         """
         if not self._voltage_cycle_initialized:
             raise RuntimeError(
-              "Call initialize_ramp_voltage_cycle() first!"
-              "Available: initialize_ramp_voltage_cycle(), initialize_zero_voltage_hold()"  
+              "Voltage protocol not initialized. Call one of:\n"
+              "  - initialize_ramp_voltage_cycle()\n"
+              "  - initialize_zero_voltage_hold()\n"
+              "  - initialize_constant_voltage()"
             )
             
         self.time = time
@@ -163,7 +167,7 @@ class ElectricalController:
         
         self._ramp_cycle_time = self._ramp_t1 + self._ramp_t2 + self._ramp_t3 + self._ramp_t4
         self._ramp_total_time = self._ramp_cycle_time * num_cycles
-        self.total_simulation_time = self._ramp_total_time
+        self.total_simulation_time = self.time + self._ramp_total_time
         
         # Initialize tracking variables
         self._total_cycles_completed = 0
@@ -245,7 +249,7 @@ class ElectricalController:
         
     def _calculate_effective_device_voltage(self,current):
         
-        votage_drop = current * self.series_resistance
+        voltage_drop = current * self.series_resistance
         
         effective_voltage = self.voltage - votage_drop
         
@@ -301,41 +305,104 @@ class ElectricalController:
     
     def calculate_current(self,clusters = None):
         """
-        Calculate current based on the selected model and pre-initialized parameters
+        Determine conduction mechanism, compute current, and update measurements.
+        Returns: (effective_voltage, current)
         """
         
         if not self.current_enabled:
           return 0.0
-        
-        effective_gap = self.crystal_size[2] * 1e-10
-        self.current_model = 'schottky'
-        
-        for cluster in clusters.values():
-          touches_bottom = cluster.attached_layer['bottom_layer']
-          touches_top = cluster.attached_layer['top_layer']
-                    
-          if touches_bottom and touches_top:
-            self.current_model = 'ohmic'
-            filament_resistance = cluster.total_resistance
-          else:
-            effective_gap = cluster.distance_electrode * 1e-10
-            
-        if self.current_model == 'ohmic':
-            self._calculate_ohmic_current(self.voltage,filament_resistance)
-            V_eff = self._calculate_effective_device_voltage(self.current)
-            #print(f'Applied voltage: {self.voltage}, Effective V: {V_eff}, Ohmic current: {self.current}')
-            
-        elif self.current_model == 'schottky':
-            V_eff = self._solve_Schottky_with_series_resistance_Newton(self.voltage,effective_gap)
-            self._calculate_schottky_current(V_eff,effective_gap)
-            #print(f'Applied voltage: {self.voltage}, Effective V: {V_eff}, Schottky current: {self.current}')
+          
+        if not clusters:
+          gap_m = self.thickness_m
+          model, filament_resistance = "schottky", None      
         else:
-            raise ValueError(f'Unkown current model: {self.current_model}')
-            
-        self.update_measurements()
+          gap_m, model, filament_resistance = self._resolve_conduction_state(clusters)
+          
+        self.current_model = model
         
+        if model == "ohmic":
+          self._calculate_ohmic_current(self.voltage,filament_resistance)
+          V_eff = self._calculate_effective_device_voltage(self.current)
+        else:
+          V_eff = self._solve_Schottky_with_series_resistance_Newton(self.voltage,gap_m)
+          self._calculate_schottky_current(V_eff,gap_m) 
+        
+        self.update_measurements()
         return V_eff,self.current
+        
+        
+    def _resolve_conduction_state(self, clusters: Dict[str, object]) -> Tuple[float, str, Optional[float]]:
+      """Analyze cluster geometry to determine effective gap and conduction model."""
+      bottom_clusters = []
+      top_clusters = []
+      has_bridge = False
+      min_bridge_resistance = float('inf')
+      
+      # 1. Classify clusters
+      for cid, cluster in clusters.items():
+        touches_bottom = cluster.attached_layer['bottom_layer']
+        touches_top = cluster.attached_layer['top_layer']
+                    
+        if touches_bottom and touches_top:
+          has_bridge = True
+          min_bridge_resistance = min(min_bridge_resistance, cluster.total_resistance)
+
+        if touches_bottom:
+          bottom_clusters.append(cluster)
+        if touches_top:
+          top_clusters.append(cluster)
+
+      # 2. Determine conduction regime
+      if has_bridge:
+        return 0.0, "ohmic", min_bridge_resistance
+        
+      if not bottom_clusters and not top_clusters:
+        return self.thickness_m, "schottky", None
+        
+      # 3. Compute minimum insulating gap
+      min_gap_angstrom = float('inf')
+        
+      if bottom_clusters and top_clusters:
+        # Gap between closest bottom and top clusters
+        min_gap_angstroms = self._min_distance_between_sets(bottom_clusters, top_clusters)
+      elif bottom_clusters:
+        # Gap from highest bottom cluster to top electrode (z = thickness)
+        max_z_bottom = max(atom[2] for cl in bottom_clusters for atom in cl.atoms_positions)
+        min_gap_angstroms = (self.thickness_m / ANGSTROM_TO_METER) - max_z_bottom
+      else: # top_clusters only
+        # Gap from lowest top cluster to bottom electrode (z=0)
+        min_z_top = min(atom[2] for cl in top_clusters for atom in cl.atoms_positions)
+        min_gap_angstroms = min_z_top
+        
+        
+      #if np.allclose(min_gap_angstroms, 0.0): 
+      #  min_gap_angstroms = 2.0
+      return min_gap_angstroms * ANGSTROM_TO_METER, "schottky", None
     
+    @staticmethod
+    def _min_distance_between_sets(bottom_clusters: List, top_clusters: List) -> float:
+      """Find minimum 3D Euclidean distance between any two atoms across cluster sets."""
+      min_dist = float('inf')
+              
+      # Flatten positions for vectorized computation
+      b_pos = np.vstack([cl.atoms_positions for cl in bottom_clusters])
+      t_pos = np.vstack([cl.atoms_positions for cl in top_clusters])
+      
+      # Pairwise distance using broadcasting
+      diff = b_pos[:, np.newaxis, :] - t_pos[np.newaxis, :, :]
+      dists = np.sqrt(np.sum(diff**2, axis=2))
+      min_dist = np.min(dists)
+      
+      return min_dist
+      
+    def _calculate_effective_device_voltage(self,current):
+        
+      votage_drop = current * self.series_resistance  
+      effective_voltage = self.voltage - votage_drop
+        
+      return effective_voltage
+      
+      
     def _calculate_ohmic_current(self,voltage,filament_resistance):
         """Ohmic current through filament"""
         total_resistance = filament_resistance + self.series_resistance
@@ -442,8 +509,23 @@ class ElectricalController:
             numeric = pd.to_numeric(cleaned, errors='coerce')
             return numeric
 
-        voltage = clean_and_convert(df[voltage])
-        current = clean_and_convert(df[current])
+        headers_V = [f"{voltage}_pos", f"{voltage}_neg"]
+        headers_I = [f"{current}_pos", f"{current}_neg"]
+    
+        voltage_pos = clean_and_convert(df[headers_V[0]])
+        current_pos = clean_and_convert(df[headers_I[0]])
+        voltage_neg = clean_and_convert(df[headers_V[1]])
+        current_neg = clean_and_convert(df[headers_I[1]])
+        
+        voltage = pd.concat([
+          voltage_pos,
+          voltage_neg,
+          ], ignore_index=True)
+          
+        current = pd.concat([
+          current_pos,
+          current_neg,
+        ], ignore_index=True)
 
         
         self.experimental_data = {
@@ -527,6 +609,11 @@ class ElectricalController:
         self.measurements['time'].append(self.time)
         self.measurements['voltage'].append(self.voltage)
         self.measurements['current'].append(self.current)
+        # Add resistance if calculated:
+        if self.current != 0 and abs(self.voltage) > 1e-12:
+          self.measurements['resistance'].append(abs(self.voltage / self.current))
+        else:
+          self.measurements['resistance'].append(float('inf'))
         
     def plot_V_t(self):
         
@@ -537,9 +624,15 @@ class ElectricalController:
     
         self.load_experimental_data()
 
+        sim_voltage = np.array(self.measurements['voltage'])
+        sim_current = np.array(self.measurements['current'])
+    
+        exp_voltage = self.experimental_data['voltage']
+        exp_current = self.experimental_data['current']
+
         # Plot experimental and simulated values
-        plt.semilogy(self.measurements['voltage'], self.measurements['current'], label='Simulation', linewidth=2)
-        plt.semilogy(self.experimental_data['voltage'], self.experimental_data['current'], label='Experiment', marker='o', markersize=3)
+        plt.semilogy(sim_voltage, abs(sim_current), label='Simulation', linewidth=2)
+        plt.semilogy(exp_voltage, abs(exp_current), label='Experiment', marker='o', markersize=3)
         plt.xlabel('Voltage (V)')
         plt.ylabel('Current (A)')
         plt.legend()
