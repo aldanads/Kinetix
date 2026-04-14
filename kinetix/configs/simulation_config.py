@@ -256,7 +256,7 @@ class SimulationConfig:
     # Load Simulation Settings (REQUIRED)
     # =========================================================================
     settings_data = _get_required(data, 'settings', yaml_path, 'settings')
-    print(settings_data)
+    
     config.settings = SimulationSettings(
       simulation_type=settings_data.get('simulation_type'),
       technology=settings_data.get('technology'),

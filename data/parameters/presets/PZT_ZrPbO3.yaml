@@ -11,13 +11,6 @@ metadata:
   name: "PZT_ZrPbO3"
   description: "PZT simulation with H and O_vac in ZrPbO3"
   author: "Samuel Aldana Delgado"
-  
-# -----------------------------------------------------------------------------
-# Experiment & Technology
-# -----------------------------------------------------------------------------
-simulation_type: "ECM memristor"
-technology: "PZT"
-mode: "interstitial"
 
 # -----------------------------------------------------------------------------
 # Material Selection (from Materials Project)
