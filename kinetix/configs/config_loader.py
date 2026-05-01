@@ -92,7 +92,7 @@ def load_activation_energies(file_type: str = 'memristors') -> Dict[str, Any]:
     raise ValueError(f"Unknown file_type: {file_type}. Choose from {list(file_mapping.keys())}")
     
   filename = file_mapping[file_type]
-  file_path = parameters_root / filename
+  file_path = activation_energies_root / filename
   
   if not file_path.exists():
     raise FileNotFoundError(

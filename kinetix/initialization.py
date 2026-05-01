@@ -32,6 +32,10 @@ import time
 import warnings
 
 
+
+from typing import Any, Dict, List, Tuple
+
+
 def initialization(n_sim):
     
 # =============================================================================
@@ -375,9 +379,6 @@ def initialization(n_sim):
         parameters_root = get_parameters_root()
         config = SimulationConfig.from_yaml(parameters_root / 'presets' / 'PZT_ZrPbO3.yaml')
         
-        print(config)
-        exit()
-        
         # =============================================================================
         #         Material and crystal structure
         #         
@@ -455,11 +456,15 @@ def initialization(n_sim):
           
         }
         
+        
+        
         parameters_root = get_parameters_root()
         defects_config = DefectsConfig.from_yaml(
           parameters_root / 'defects' / 'PZT_ZrPbO3_defects_config.yaml'
         )
-          
+        defects_config = defects_config.to_dict()
+        
+         
         
         """
           "Ag_interstitial":{

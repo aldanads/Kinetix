@@ -2120,6 +2120,7 @@ class Crystal_Lattice():
         if reaction['name'] == reaction_name_chosen:
           products = reaction['products']
           
+          
       # Track sites that need kMC update
       for i, product in enumerate(products):
         # Determine which site this product applies to
@@ -2162,9 +2163,9 @@ class Crystal_Lattice():
           if 'passivation_increment' in product:
             site.passivation_level += product['passivation_increment']
             
-          # Handle charge variation
-          if 'charge_per_passivation' in defect:
-            site.ion_charge += defect['charge_per_passivation'] * product['passivation_increment']
+            # Handle charge variation
+            if 'charge_per_passivation' in defect:
+              site.ion_charge += defect['charge_per_passivation'] * product['passivation_increment']
           
           
         else:

@@ -310,7 +310,7 @@ class ElectricalController:
         """
         
         if not self.current_enabled:
-          return 0.0
+          return 0.0, 0.0
           
         if not clusters:
           gap_m = self.thickness_m

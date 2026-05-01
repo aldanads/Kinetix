@@ -1,0 +1,26 @@
+# data/parameters/grain_boundaries/gb_cylindrical.yaml
+# =============================================================================
+# Grain Boundary Configuration - Cylindrical
+# =============================================================================
+# A cylindrical grain boundary (e.g., columnar grain structure)
+# =============================================================================
+
+description: "Cylindrical grain boundary for columnar grain structure"
+
+grain_boundaries:
+  - type: "cylindrical"
+    enabled: true
+    center: [25.0, 25.0]                # [x, y] center position (Å)
+    radius: 8.0                         # Inner radius (Å)
+    outer_radius: 15.0                  # Outer radius including transition (Å)
+    description: "Central cylindrical GB"
+    
+    event_modifications:
+      migration:
+        region: "inner_boundary"
+        affected_defects: ["hydrogen_interstitial", "oxygen_vacancy"]
+        Act_E_diff_GB: 0.35             # eV
+      reaction:
+        region: "inner_boundary"
+        affected_reactions: ["V_O_passivation"]
+        Act_E_diff_GB: 2.5              # eV

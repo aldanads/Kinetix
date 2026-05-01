@@ -1,0 +1,33 @@
+# data/parameters/grain_boundaries/gb_vertical_planar.yaml
+# =============================================================================
+# Grain Boundary Configuration - Vertical Planar
+# =============================================================================
+# A planar grain boundary perpendicular to the y-axis (xz plane)
+# =============================================================================
+
+description: "Vertical planar grain boundary with modified migration barriers"
+
+grain_boundaries:
+  - type: "vertical_planar"
+    enabled: true
+    orientation: "xz"                   # Plane orientation
+    position: 27.0                      # Position in y (Å) - crystal_size[1] * 0.5 + 2.0
+    width: 4.0                          # GB core width (Å)
+    outer_width: 25.0                   # Transition region width (Å)
+    description: "Central vertical GB affecting H migration"
+    
+    # Event modifications (change activation energies in GB region)
+    event_modifications:
+      migration:
+        region: "outer_boundary"        # 'inner_boundary', 'outer_boundary', or 'bulk'
+        affected_defects: ["hydrogen_interstitial"]
+        Act_E_diff_GB: 0.27             # eV (barrier modification)
+        charge_state:
+          inner_boundary: 0             # H becomes neutral in GB core
+          outer_boundary: 1             # H remains charged in transition
+          bulk: 1                       # H remains charged in bulk
+      
+      reaction:
+        region: "inner_boundary"
+        affected_reactions: ["H2_formation"]
+        Act_E_diff_GB: 3.25             # eV (barrier modification)

@@ -33,14 +33,14 @@ class DefectConfig:
   sites_generation_layer: Optional[str] = None
   description: str = ""
     
-  # Passivation (for vacancies)
-  passivation_level: int = 0
-  max_passivation_level: int = 0
-  charge_per_passivation: int = 0
+  # Passivation (for vacancies) - OPTIONAL: only for defects that can be passivated
+  passivation_level: Optional[int] = None
+  max_passivation_level: Optional[int] = None
+  charge_per_passivation: Optional[int] = None
     
   def to_dict(self) -> Dict[str, Any]:
     """Convert to dictionary for backwards compatibility"""
-    return {
+    result = {
       'symbol': self.symbol,
       'charge': self.charge,
       'site_type': self.site_type,
@@ -53,10 +53,14 @@ class DefectConfig:
       'CN_matters': self.CN_matters,
       'sites_generation_layer': self.sites_generation_layer,
       'description': self.description,
-      'passivation_level': self.passivation_level,
-      'max_passivation_level': self.max_passivation_level,
-      'charge_per_passivation': self.charge_per_passivation,
     }
+    
+    if self.charge_per_passivation is not None:
+      result['passivation_level'] = self.passivation_level
+      result['max_passivation_level'] = self.max_passivation_level
+      result['charge_per_passivation'] = self.charge_per_passivation
+      
+    return result
     
   @classmethod
   def from_dict(cls, name: str, data: Dict[str, Any]) -> 'DefectConfig':
@@ -75,9 +79,9 @@ class DefectConfig:
       CN_matters=data.get('CN_matters', False),
       sites_generation_layer=data.get('sites_generation_layer'),
       description=data.get('description', ''),
-      passivation_level=data.get('passivation_level', 0),
-      max_passivation_level=data.get('max_passivation_level', 0),
-      charge_per_passivation=data.get('charge_per_passivation', 0),
+      passivation_level=data.get('passivation_level'),
+      max_passivation_level=data.get('max_passivation_level'),
+      charge_per_passivation=data.get('charge_per_passivation'),
     )
 
 @dataclass

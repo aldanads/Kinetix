@@ -40,7 +40,7 @@ def main():
     #     Deposition
     # 
     # =============================================================================
-        if System_state.experiment == 'deposition':   
+        if System_state.simulation_type == 'deposition':   
     
             nothing_happen = 0
             # list_time_step = []
@@ -97,7 +97,7 @@ def main():
     #     Annealing  
     #            
     # =============================================================================
-        elif System_state.experiment == 'annealing':
+        elif System_state.simulation_type == 'annealing':
             i = 0
             
             nothing_happen = 0
@@ -158,7 +158,7 @@ def main():
     #            
     # =============================================================================
                     
-        elif System_state.experiment == 'ECM memristor':
+        elif System_state.simulation_type == 'ECM memristor':
             
             from collections import Counter
             events_tracking = Counter()
@@ -180,7 +180,6 @@ def main():
                   mpi_ctx = System_state.mpi_ctx
                 )
                 poisson_solver.set_boundary_conditions(top_value=V_top, bottom_value=0.0)  # Set appropriate BCs
-                poisson_solve_frequency = System_state.poissonSolver_parameters['poisson_solve_frequency']  # Solve Poisson every N KMC steps
             
             
             while System_state.should_continue_simulation(Elec_controller.total_simulation_time):
@@ -229,7 +228,8 @@ def main():
                         # System_state.measurements_crystal()
                         print(str(j)+"/"+str(int(Elec_controller.total_simulation_time/Elec_controller.voltage_update_time)),'| Total time: ',System_state.list_time[-1],'| Voltage: ',V_top)
                         print(f'Events at step {j}: {events_tracking}')
-                        print(f"Current: {Elec_controller.measurements['current'][-1]}")
+                        if Elec_controller.current_enabled:
+                          print(f"Current: {Elec_controller.measurements['current'][-1]}")
     
                         end_time = time.time()
                             
