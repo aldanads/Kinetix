@@ -15,7 +15,10 @@ from matplotlib import cm
 import time
 import copy
 
-from kinetix.lattice.site import Site,Island,Cluster,GrainBoundary
+from kinetix.lattice.site import Site
+from kinetix.lattice.cluster import Cluster
+from kinetix.lattice.grain_boundary import GrainBoundary
+from kinetix.lattice.island import Island
 from kinetix.utils.mpi_context import MPIContext
 from kinetix.utils.balanced_tree import Node, build_tree, update_data, search_value
 from kinetix.utils.superbasin import Superbasin
@@ -28,8 +31,9 @@ from pymatgen.transformations.advanced_transformations import CubicSupercellTran
 from pymatgen.ext.matproj import MPRester
 from pymatgen.symmetry.analyzer import SpacegroupAnalyzer
 from pymatgen.analysis.wulff import WulffShape
+from pymatgen.analysis.local_env import VoronoiNN
 from pymatgen.core.periodic_table import Element
-from pymatgen.analysis.defects.generators import ChargeInterstitialGenerator
+from pymatgen.analysis.defects.generators import ChargeInterstitialGenerator, VoronoiInterstitialGenerator
 from pymatgen.core import Structure, PeriodicSite
 
 
@@ -630,7 +634,7 @@ class Crystal_Lattice():
         
            
             
-    def _generate_interstitial_sites(self,api_key):
+    def _generate_interstitial_sites(self,api_key=None):
       """
       Generate interstitial sites using the actual species being simulated.
       """
@@ -645,58 +649,55 @@ class Crystal_Lattice():
       if interstitial_species is None:
         raise ValueError("No interstitial species found in defects_config")
         
-      try:
-        with MPRester(api_key) as mpr:
-          chgcar = mpr.get_charge_density_from_material_id(self.id_material)
-          cig = ChargeInterstitialGenerator()
-          defects = cig.generate(chgcar, insert_species=[interstitial_species])
-          
-          defect_struct = next(defects).defect_structure
-          interstitial_pos = None
-          
-          # Find the interstitial atom
-          for site in reversed(defect_struct):
-            if site.specie.symbol == interstitial_species:
-              interstitial_pos = site.coords
-              break
-              
-          if interstitial_pos is None:
-            raise ValueError(f"Could not find {interstitial_species} interstitial position")
-        
-      except Exception as e:
-        print(f'Warning: Could not get interstitial position for {interstitial_species}: {e}')
-        # Fallback to reasonable default
-        interstitial_pos = np.array(self.structure.lattice.abc) / 2.0
-      
-      unit_cell_lattice = self.structure_basic.lattice
-          
-      # Convert interstitial position to fractional coordinates in UNIT CELL
-      frac_pos = unit_cell_lattice.get_fractional_coords(interstitial_pos)
-      
-      try:
-       # Generate all symmetry-equivalent positions in the unit cell
-        sga = SpacegroupAnalyzer(self.structure_basic)
-        sg = sga.get_space_group_operations()
-        equivalent_frac = set()
-          
-        for op in sg:
-          transformed_frac = op.operate(frac_pos)
-          # Wrap to [0,1)
-          transformed_frac = np.mod(transformed_frac, 1.0)
-          # Round to avoid floating point issues
-          transformed_frac = tuple(np.round(transformed_frac, 6))
-          equivalent_frac.add(transformed_frac)
-        
-        base_positions_unit_cell = [unit_cell_lattice.get_cartesian_coords(frac) for frac in equivalent_frac]
+      # Default minimum distance from atoms, adjust if you find sites too close/far from atoms
+      MIN_DISTANCE_FROM_ATOMS = 1.2  # Å
 
+      
+      # =========================================================================
+      # METHOD 1: Try MP charge density (keep for future, will likely fail)
+      # =========================================================================
+      base_positions_unit_cell = []
+      
+      if api_key:  
+        try:
+          with MPRester(api_key) as mpr:
+            chgcar = mpr.get_charge_density_from_material_id(self.id_material)
+            
+            if chgcar is not None:
+              print(f" Charge density retrieved (grid: {chgcar.data.shape})")
+              cig = ChargeInterstitialGenerator()
+              defects = cig.generate(chgcar, insert_species=[interstitial_species])
+            
+              defect_struct = next(defects).defect_structure
+              # Find the interstitial atom
+              for site in reversed(defect_struct):
+                if site.specie.symbol == interstitial_species:
+                  base_positions_unit_cell.append(site.coords)
+                  break
+            else:
+              print(f" MP returned None (data not available)")
         
-      except Exception:
-        # Fallback: use the single position found
-        base_positions_unit_cell = [interstitial_pos]
+          
+        except Exception as e:
+          print(f'Warning: MP method failed: {type(e).__name__}: {e}')
         
+      # =========================================================================
+      # METHOD 2: Voronoi tessellation (PRIMARY - reliable)
+      # =========================================================================
+      if not base_positions_unit_cell:
+        print(f"\n Using Voronoi tesellation")
+        base_positions_unit_cell = self._find_interstitials_voronoi(
+          interstitial_species,
+          min_distance=MIN_DISTANCE_FROM_ATOMS
+        )
+      
+
+          
+      # =========================================================================
       # Replicate in supercell
+      # =========================================================================
+      unit_cell_lattice = self.structure_basic.lattice
       supercell_interstitials = []
-      lattice = self.structure.lattice
       repetitions = np.ceil(np.array(self.crystal_size) / np.array(unit_cell_lattice.abc)).astype(int)
       
       tol_boundary = 1e-6
@@ -718,16 +719,47 @@ class Crystal_Lattice():
       unique_positions = []
       tol = 0.1
       for pos in supercell_interstitials:
-        is_duplicate = False
-        for existing in unique_positions:
-          if np.linalg.norm(np.array(pos) - np.array(existing)) < tol:
-            is_duplicate = True
-            break
-        if not is_duplicate:
+        if not any(np.linalg.norm(np.array(pos) - np.array(existing)) < tol
+                   for existing in unique_positions):
           unique_positions.append(pos)
             
       return unique_positions
-
+      
+    def _find_interstitials_voronoi(self, interstitial_species, min_distance=1.2):
+      """
+      Find interstitial sites using using pymatgen's VoronoiInterstitialGenerator.
+      Finds Voronoi vertices and filters by minimum distance
+      
+      Args:
+        interstitial_species: Element symbol (e.g., 'H', 'Ag')
+        min_distance: Minimum distance from existing atoms (angstroms)
+                     Default 1.2 angstroms
+    
+      Returns:
+        List of cartesian coordinates for interstitial sites
+      """
+      
+      structure = self.structure_basic
+      interstitial_positions = []
+      # Use InterstitialGenerator
+      gen = VoronoiInterstitialGenerator(min_dist=min_distance)
+      
+      # Iterate over the generator
+      for interstitial in gen.generate(structure, insert_species=[interstitial_species]):
+        # Extract cartesian coordinates from the Interstitial object
+        cart_pos = interstitial.site.coords
+        
+        # Duplicate check (VoronoiGen does clustering, we add this for safety)
+        is_duplicate = any(
+          np.linalg.norm(cart_pos - existing) < 0.1
+          for existing in interstitial_positions
+        )
+        
+        if not is_duplicate:
+          interstitial_positions.append(cart_pos)
+          
+      return interstitial_positions
+    
            
     def _handle_missing_neighbors(self,radius_neighbors, affected_site):
         """
@@ -1407,6 +1439,7 @@ class Crystal_Lattice():
         sites_needing_support_update = set()
         sites_needing_event_update = set()
         
+
         for defect in self.defects_config.values():
           for idx,site in self.grid_crystal.items():
               
@@ -1418,12 +1451,12 @@ class Crystal_Lattice():
                   
                 if self.rng.random() < probability:
                   chemical_specie = defect['symbol']
-                  ion_charge = defect['charge']   
+                  ion_charge = defect['charge'] 
                   self._introduce_specie_site(idx,sites_needing_support_update, sites_needing_event_update,chemical_specie,ion_charge)
 
           # Update sites availables, the support to each site and available migrations
           self.update_sites(sites_needing_support_update, sites_needing_event_update)
-
+              
     def deposition_specie(self,t,test = 0):  
 
         support_update_sites = set()

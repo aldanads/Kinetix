@@ -18,7 +18,8 @@ from kinetix.configs.material_config import MaterialConfig, MaterialSelection, C
 from kinetix.configs.defect_config import DefectsConfig, DefectConfig
 from kinetix.configs.reaction_config import ReactionsConfig, ReactionConfig, ReactionSpecies
 from kinetix.configs.solver_config import PoissonSolverConfig, SuperbasinConfig, HeatSolverConfig
-from kinetix.configs.simulation_config import SimulationConfig, ExperimentalConditions, SimulationSettings, GrainBoundaryConfig
+from kinetix.configs.simulation_config import SimulationConfig, ExperimentalConditions, SimulationSettings
+from kinetix.configs.grain_boundary_config import GrainBoundariesConfig
 
 from pymatgen.ext.matproj import MPRester
 # from mp_api.client import MPRester
@@ -564,6 +565,7 @@ def initialization(n_sim):
           }
         ]
         
+        """
         # Grain boundary configuration
         grain_boundaries = [GrainBoundaryConfig(
         type='vertical_planar',
@@ -589,6 +591,19 @@ def initialization(n_sim):
             }
         }
         )]
+        """
+        
+        """
+        gb_configurations = GrainBoundariesConfig.from_yaml(
+          parameters_root / 'grain_boundaries' / 'gb_vertical_planar.yaml'
+        )
+        gb_configurations = gb_configurations.to_dict()
+        
+        """
+        #print(gb_configurations)
+        #print(grain_boundaries)
+        #print(gb_config)
+        #exit()
         
         api_key = get_api_key()
         # Retrieve material data
@@ -789,7 +804,7 @@ def initialization(n_sim):
         # =============================================================================
         System_state = initialize_grid_crystal(filename,mpi_ctx,crystal_features,experimental_conditions,Act_E_dict, 
               lammps_file,superbasin_parameters,save_data,poissonSolver_parameters) 
-        System_state.write_metadata(paths['data'])      
+        System_state.write_metadata(paths['data'])   
 
         Elec_controller.crystal_size = System_state.crystal_size #  The crystal_size after the generation of the lattice may differ from the parameter provided in a NN points separation
                 

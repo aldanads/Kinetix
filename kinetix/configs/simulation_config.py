@@ -11,6 +11,7 @@ from kinetix.configs.defect_config import DefectsConfig
 from kinetix.configs.reaction_config import ReactionsConfig
 from kinetix.configs.solver_config import PoissonSolverConfig, HeatSolverConfig, SuperbasinConfig
 from kinetix.configs.electrical_config import ElectricalConfig, VoltageConfig, VoltageMode
+from kinetix.configs.grain_boundary_config import GrainBoundariesConfig
 
 
 class ConfigValidationError(Exception):
@@ -28,36 +29,14 @@ class ExperimentalConditions:
 class SimulationSettings:
   """General simulation parameters."""
   # Core settings
-  
-  total_steps: Optional[int] = None  
-  seed_rng: Optional[int] = None 
-  simulation_type: str = ""
+  simulation_type: str
   technology: str = ""
   mode: str = ""  # or 'vacancy'
+  total_steps: Optional[int] = None  
+  seed_rng: Optional[int] = None 
   save_data: bool = True
   snapshoots_steps: int = 40
   lammps_output: bool = True
-
-@dataclass
-class GrainBoundaryConfig:
-  """Grain boundary configuration."""
-  type: str = "vertical_planar"
-  orientation: str = "xz"
-  position: float = 0.0
-  width: float = 4.0
-  outer_width: float = 25.0
-  event_modifications: Dict[str, Any] = field(default_factory=dict)
-    
-  def to_dict(self) -> Dict[str, Any]:
-    """Convert to dictionary"""
-    return {
-      'type': self.type,
-      'orientation': self.orientation,
-      'position': self.position,
-      'width': self.width,
-      'outer_width': self.outer_width,
-      'event_modifications': self.event_modifications,
-    }
 
 @dataclass
 class SimulationConfig:
@@ -80,7 +59,7 @@ class SimulationConfig:
   heat: Optional[HeatSolverConfig] = None        
   superbasin: Optional[SuperbasinConfig] = None  
   electrical: Optional[ElectricalConfig] = None
-  grain_boundaries: List[GrainBoundaryConfig] = field(default_factory=list)
+  grain_boundaries: Optional[GrainBoundariesConfig] = None 
     
   # Runtime objects
   rng: Any = None
@@ -115,7 +94,7 @@ class SimulationConfig:
       'poisson': self.poisson.to_dict(),
       'heat': self.heat.to_dict(),
       'superbasin': self.superbasin.to_dict(),
-      'gb_configurations': [gb.to_dict() for gb in self.grain_boundaries],
+      'gb_configurations': self.grain_boundaries.to_dict() if self.grain_boundaries else [],
     }
     
   @classmethod
@@ -192,6 +171,13 @@ class SimulationConfig:
     # --- GRAIN BOUNDARIES ---
     if 'grain_boundaries' in components:
       gb_path = base_path / components['grain_boundaries']
+      try:
+        gb_config = GrainBoundariesConfig.from_yaml(gb_path)
+        config.grain_boundaries = gb_config.grain_boundaries
+        print(f"Loaded grain boundaries from {gb_path}")
+      except Exception as e:
+        print(f"Failed to load grain boundaries: {e}")
+        
       
     # =========================================================================
     # Load Electrical Configuration
