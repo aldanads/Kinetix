@@ -1444,7 +1444,7 @@ class Crystal_Lattice():
           for idx,site in self.grid_crystal.items():
               
               if site.site_type in defect['allowed_sublattices'] and site.chemical_specie in defect["valid_target_species"]:
-                if self.gb_model.is_site_in_grain_boundary(site.position):
+                if self.gb_model.get_site_gb_region(site.position) == 'inner_boundary':
                   probability = defect['initial_concentration_GB']
                 else:
                   probability = defect['initial_concentration_bulk']
