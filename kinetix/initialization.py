@@ -614,7 +614,7 @@ def initialization(n_sim):
         electrical_config = ElectricalConfig(
           voltage=VoltageConfig(
             mode=VoltageMode.CONSTANT,
-            constant_voltage=1.5,
+            constant_voltage=1.0,
             total_time=2e-5,
             voltage_update_time=1e-7
           )

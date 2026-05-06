@@ -820,6 +820,7 @@ class Site():
               
               if event[-2] == 'generation':
                 Act_E = max(event[-1] - 0.5 * round(np.dot(E_site_field,[0,0,-1]) * 1e-10,3), self.Act_E_dict[current_defect]['E_min_gen'])
+                print(f'Activation energy generation: {Act_E}')
                   
                             
               elif event[-2] in ('reduction', 'oxidation'):

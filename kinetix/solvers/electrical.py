@@ -244,6 +244,7 @@ class ElectricalController:
         return 0.0
         
     def _apply_constant_voltage(self,time: float) -> float:
+        self.voltage = self._constant_voltage_value
         return self._constant_voltage_value
         
         
@@ -308,9 +309,8 @@ class ElectricalController:
         Determine conduction mechanism, compute current, and update measurements.
         Returns: (effective_voltage, current)
         """
-        
         if not self.current_enabled:
-          return 0.0, 0.0
+          return self.voltage, 0.0
           
         if not clusters:
           gap_m = self.thickness_m
