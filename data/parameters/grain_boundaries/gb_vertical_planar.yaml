@@ -27,6 +27,15 @@ grain_boundaries:
           outer_boundary: 1             # H remains charged in transition
           bulk: 1                       # H remains charged in bulk
       
+      generation:
+        region: 'inner_boundary'
+        affected_defects: ["hydrogen_interstitial"]
+        Act_E_diff_GB: 0.0
+        charge_state:
+          inner_boundary: 0
+          outer_boundary: 1
+          bulk: 1
+      
       reaction:
         region: "inner_boundary"
         affected_reactions: ["H2_formation"]

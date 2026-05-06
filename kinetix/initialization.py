@@ -404,59 +404,6 @@ def initialization(n_sim):
         technology = "PZT" # or "PZT"
         sites_generation_layer = 'top_layer' # or "bottom_layer"
         mode = 'interstitial' # or 'vacancy'
-
-        
-        # Defect configuration  
-        defects_config = {
-          "hydrogen_interstitial":{
-            "symbol": "H",
-            "charge": 1,
-            "site_type": "interstitial", # Default type
-            "allowed_sublattices": ['interstitial', 'O'], # Geometric allowance (neighbors)
-            "initial_concentration_bulk": 1e-2,
-            "initial_concentration_GB": 1e-2,
-            "valid_target_species": ['Empty'], # Chemical allowance for migration
-            "activation_energies_key": "H",
-            "enabled_events": ["migration", "reaction"],
-            "CN_matters": True,
-            "sites_generation_layer": None,
-            "description": "Hydrogen defect in interstitial"
-       
-            },
-          "oxygen_vacancy": {
-            "symbol": "V_O",
-            "charge": 2,
-            "site_type": "O",
-            "allowed_sublattices": ['O'],
-            "initial_concentration_bulk": 1e-2,
-            "initial_concentration_GB": 1e-2,
-            "valid_target_species": ['O'],
-            "activation_energies_key": "V_O",
-            "enabled_events": ["reaction"],
-            "CN_matters": False,
-            "passivation_level": 0,
-            "max_passivation_level": 3,
-            'charge_per_passivation': -1,
-            "sites_generation_layer": None,
-            "description": "Intrinsic vacancy in oxide lattice"
-          },
-          "hydrogen_gas":{
-            "symbol": "H2",
-            "charge": 0,
-            "site_type": "interstitial",
-            "allowed_sublattices": ['interstitial', 'O'],
-            "initial_concentration_bulk": 0,
-            "initial_concentration_GB": 0,
-            "valid_target_species": ['Empty'], # Chemical allowance for migration
-            "activation_energies_key": "H2",
-            "enabled_events": [],
-            "CN_matters": False,
-            "sites_generation_layer": None,
-            "description": "Hydrogen gas in interstitial"
-          }
-          
-        }
-        
         
         
         parameters_root = get_parameters_root()
@@ -464,6 +411,7 @@ def initialization(n_sim):
           parameters_root / 'defects' / 'PZT_ZrPbO3_defects_config.yaml'
         )
         defects_config = defects_config.to_dict()
+       
         
          
         
@@ -538,72 +486,13 @@ def initialization(n_sim):
         ]
         
         """
-        gb_configurations = [
-          {
-          'type':'vertical_planar',
-          'orientation':'xz',
-          'position':crystal_size[1] * 0.5 + 2.0, # Position in y
-          'width':4.0,
-          'outer_width':25.0,
-          'event_modifications': {
-            'migration': {
-              'region': 'outer_boundary',
-              'affected_defects': ['hydrogen_interstitial'],
-              'Act_E_diff_GB': 0.27,
-              'charge_state':{
-                'inner_boundary': 0, # H becomes neutral in GB ore
-                'outer_boundary': 1, # H remains charge in transition
-                'bulk': 1            # H remains charge in bulk
-              }
-            },
-            'reaction': {
-              'region': 'inner_boundary',
-              'affected_reactions': ['H2_formation'],
-              'Act_E_diff_GB': 3.25
-            }
-          }
-          }
-        ]
         
-        """
-        # Grain boundary configuration
-        grain_boundaries = [GrainBoundaryConfig(
-        type='vertical_planar',
-        orientation='xz',
-        position=27.0,  # crystal_size[1] * 0.5 + 2.0
-        width=4.0,
-        outer_width=25.0,
-        event_modifications={
-            'migration': {
-                'region': 'outer_boundary',
-                'affected_defects': ['hydrogen_interstitial'],
-                'Act_E_diff_GB': 0.27,
-                'charge_state': {
-                    'inner_boundary': 0,
-                    'outer_boundary': 1,
-                    'bulk': 1
-                }
-            },
-            'reaction': {
-                'region': 'inner_boundary',
-                'affected_reactions': ['H2_formation'],
-                'Act_E_diff_GB': 3.25
-            }
-        }
-        )]
-        """
         
-        """
+        
         gb_configurations = GrainBoundariesConfig.from_yaml(
           parameters_root / 'grain_boundaries' / 'gb_vertical_planar.yaml'
         )
         gb_configurations = gb_configurations.to_dict()
-        
-        """
-        #print(gb_configurations)
-        #print(grain_boundaries)
-        #print(gb_config)
-        #exit()
         
         api_key = get_api_key()
         # Retrieve material data
@@ -724,8 +613,8 @@ def initialization(n_sim):
         """
         electrical_config = ElectricalConfig(
           voltage=VoltageConfig(
-            mode=VoltageMode.ZERO_HOLD,
-            constant_voltage=0.0,
+            mode=VoltageMode.CONSTANT,
+            constant_voltage=1.5,
             total_time=2e-5,
             voltage_update_time=1e-7
           )

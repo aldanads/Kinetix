@@ -1203,7 +1203,7 @@ class Crystal_Lattice():
         }
 
         
-    def available_generation_sites(self, support_update_sites = set()):
+    def available_generation_sites(self, support_update_sites = set(), defect=None):
         
         update_gen_sites = set()
         # Generation of vacancy in the bulk
@@ -1214,17 +1214,6 @@ class Crystal_Lattice():
                     
         # Normal deposition process: gas-substrate interface
         elif self.mode == 'regular':
-        
-            """
-            Deprecating: 2025/10/03
-            
-            if not update_supp_av:
-              # The sites in contact with the substrate or supported by more than 2 particles
-              self.adsorption_sites = [
-                  idx for idx, site in self.grid_crystal.items()
-                  if (self.sites_generation_layer in site.supp_by or len(site.supp_by) > 2) and site.chemical_specie == self.affected_site
-              ]
-            """
             
             adsorption_sites_set = set(self.adsorption_sites)
 
@@ -1245,22 +1234,48 @@ class Crystal_Lattice():
                         
         # Oxidation reaction at the electrode-dielectric interface
         elif self.mode == 'interstitial':
+        
+          # We need to introduce a tolerance to the interface, because the interstitial sites may not be in contact with the electrodes
+          interface_tolerance_generation = defect.get('interface_tolerance_generation', 2.0) 
+          sites_generation_layer = defect.get('sites_generation_layer')
+          
+          # Find interstitial sites within interface proximity
+          if sites_generation_layer == 'top_layer':
+            interface_z = self.crystal_size[2]
+          elif sites_generation_layer == 'bottom_layer':
+            interface_z = 0.0
+          else:
+            print(f"Warning: Unknown sites_generation_layer: {sites_generation_layer}")
+            
+          if interface_tolerance_generation <= 0.0:
+            raise ValueError("interface_tolerance_generation must be positive")
+            
                             
           adsorption_sites_set = set(self.adsorption_sites)
 
           for idx in support_update_sites:
                 site = self.grid_crystal[idx]
-
+                
+                # Check if this is an interstitial site near the top interface
+                is_interstitial_near_interface = (
+                  site.site_type == "interstitial" and
+                  abs(site.position[2] - interface_z) <= interface_tolerance_generation
+                )
+                
                 if idx in adsorption_sites_set:
                     if (site.chemical_specie != self.affected_site):
                         self.adsorption_sites.remove(idx)
                         site.remove_event_type(self.num_event-1)
                     
                 else:
-                    if (self.sites_generation_layer in site.supp_by) and (site.chemical_specie == self.affected_site):
+                    if (is_interstitial_near_interface and
+                        site.chemical_specie == self.affected_site):
                         self.adsorption_sites.append(idx)
                         site.ion_generation_interface(idx)
                         update_gen_sites.add(idx)
+                        
+          if len(adsorption_sites_set) == 0 and len(update_gen_sites) == 0:
+            print(f"Warning: No generation sites found within {interface_tolerance_generation} angstroms of interface for {defect.get('symbol')}")
                         
           return update_gen_sites  
        
@@ -2118,6 +2133,18 @@ class Crystal_Lattice():
     def _handle_generation_event(self, chosen_event, support_update_sites, event_update_sites):
       """ Handle defect generation events """
       dest_idx = chosen_event[1]
+      dest_site = self.grid_crystal[dest_idx]
+      defect_name = dest_site._get_current_defect_name()
+      chemical_specie = self.defects_config[defect_name]['symbol']
+      
+      
+      # Apply GB charge state modification
+      dest_pos = self.grid_crystal[dest_idx].position
+      gb_charge = self._get_gb_charge_state(defect_name, dest_pos, event_type='generation')
+      
+      if gb_charge is not None:
+        migrating_charge = gb_charge
+      
       self._introduce_specie_site(dest_idx, support_update_sites, event_update_sites, chemical_specie, migrating_charge)
       
     def _handle_redox_event(self, chosen_event, support_update_sites, event_update_sites):
@@ -2263,8 +2290,8 @@ class Crystal_Lattice():
         
         # Update generation sites
         for defect_name, defect in self.defects_config.items():
-          if 'generation' in defect['enabled_events']:          
-            generation_sites = self.available_generation_sites(support_update_sites)
+          if 'generation' in defect['enabled_events']:         
+            generation_sites = self.available_generation_sites(support_update_sites,defect)
 
         # Update event pathways for mobile sites
         if event_update_sites: 
@@ -2284,8 +2311,6 @@ class Crystal_Lattice():
         # We only detect generation sites with available_generation_sites 
             for site_idx in generation_sites:
               self.grid_crystal[site_idx].transition_rates()  
-              
-            
                 
                 
 # =============================================================================

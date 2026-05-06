@@ -233,10 +233,7 @@ def main():
     
                         end_time = time.time()
                             
-                        System_state.plot_crystal(45,45,paths['data'],j)
-                      
-                    
-                        
+                        System_state.plot_crystal(45,45,paths['data'],j)   
                               
     
     

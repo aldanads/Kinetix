@@ -31,6 +31,7 @@ class DefectConfig:
   enabled_events: List[str] = field(default_factory=list)
   CN_matters: bool = False
   sites_generation_layer: Optional[str] = None
+  interface_tolerance_generation: Optional[float] = 0.0
   description: str = ""
     
   # Passivation (for vacancies) - OPTIONAL: only for defects that can be passivated
@@ -52,6 +53,7 @@ class DefectConfig:
       'enabled_events': self.enabled_events,
       'CN_matters': self.CN_matters,
       'sites_generation_layer': self.sites_generation_layer,
+      'interface_tolerance_generation': self.interface_tolerance_generation,
       'description': self.description,
     }
     
@@ -78,6 +80,7 @@ class DefectConfig:
       enabled_events=data.get('enabled_events', []),
       CN_matters=data.get('CN_matters', False),
       sites_generation_layer=data.get('sites_generation_layer'),
+      interface_tolerance_generation=data.get('interface_tolerance_generation'),
       description=data.get('description', ''),
       passivation_level=data.get('passivation_level'),
       max_passivation_level=data.get('max_passivation_level'),
