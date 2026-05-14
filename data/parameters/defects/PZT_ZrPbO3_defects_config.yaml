@@ -12,6 +12,7 @@ defects:
     enabled_events: ["migration", "reaction", "generation"]
     interface_tolerance_generation: 3.0
     sites_generation_layer: "top_layer"
+    field_dependent_generation: False
     CN_matters: true
     description: "Hydrogen defect in interstitial"
 

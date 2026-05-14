@@ -380,6 +380,7 @@ def initialization(n_sim):
         parameters_root = get_parameters_root()
         config = SimulationConfig.from_yaml(parameters_root / 'presets' / 'PZT_ZrPbO3.yaml')
         
+        
         # =============================================================================
         #         Material and crystal structure
         #         
@@ -394,7 +395,7 @@ def initialization(n_sim):
         material_name = "ZrPbO3"
         material_info = material_db[material_name]
     
-        crystal_size = (50,50,50) # (angstrom (Å))
+        crystal_size = (50,50,100) # (angstrom (Å))
         miller_indices = (0,0,1)
         facets_type = None
         affected_site_marker = 'Empty'
@@ -406,30 +407,10 @@ def initialization(n_sim):
         mode = 'interstitial' # or 'vacancy'
         
         
-        parameters_root = get_parameters_root()
-        defects_config = DefectsConfig.from_yaml(
-          parameters_root / 'defects' / 'PZT_ZrPbO3_defects_config.yaml'
-        )
-        defects_config = defects_config.to_dict()
        
+        defects_config = config.defects.to_dict()
         
-         
-        
-        """
-          "Ag_interstitial":{
-            "symbol": "Ag",
-            "charge": +1,
-            "site_type": "interstitial",
-            "allowed_sublattices": ['interstitial'],
-            "initial_concentration": 0.0, # 0 if injected dynamically
-            "activation_energies_key": "Ag", # key in JSON file
-            "enabled_events": ["migration", "reduction", "oxidation"],
-            "sites_generation_layer": sites_generation_layer,
-            "description": "Mobile cation from active electrode"
-          }
-          
-        """
-        
+        """ 
         reactions_config = {
           "H2_formation":{
             "name": "H + H -> H2",
@@ -469,7 +450,7 @@ def initialization(n_sim):
           }
         }
         
-
+        """
 
         # -----------------
         # Grain boundaries
@@ -486,7 +467,9 @@ def initialization(n_sim):
         ]
         
         """
-        
+
+        reactions_config = config.reactions.to_dict()
+
         
         
         gb_configurations = GrainBoundariesConfig.from_yaml(
@@ -620,10 +603,13 @@ def initialization(n_sim):
           )
         )
         
+        #print(config.electrical)
+        #print(electrical_config)
+    
+        #Elec_controller = ElectricalController.from_config(electrical_config)
         
-        Elec_controller = ElectricalController.from_config(electrical_config)
-        
-        
+        Elec_controller = ElectricalController.from_config(config.electrical)
+           
         # =============================================================================
         #             Activation energies
         #     

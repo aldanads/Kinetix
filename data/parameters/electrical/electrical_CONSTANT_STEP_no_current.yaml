@@ -9,12 +9,5 @@ series_resistance: 100.0
 voltage:
   mode: "CONSTANT"
   constant_voltage: 1.0
-  total_time: 5.0e-5
-  voltage_update_time: 1.0e-8
-
-current:
-  model: "SCHOTTKY"
-  barrier_height: 0.53
-  temperature: 300.0 # Ambient -> Override during simulation
-  area: 7.85e-9
-  epsilon_r: 25 # Override if find in Materials Project
+  total_time: 2.0e-5
+  voltage_update_time: 1.0e-7

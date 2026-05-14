@@ -32,6 +32,7 @@ class DefectConfig:
   CN_matters: bool = False
   sites_generation_layer: Optional[str] = None
   interface_tolerance_generation: Optional[float] = 0.0
+  field_dependent_generation: bool = False
   description: str = ""
     
   # Passivation (for vacancies) - OPTIONAL: only for defects that can be passivated
@@ -54,6 +55,7 @@ class DefectConfig:
       'CN_matters': self.CN_matters,
       'sites_generation_layer': self.sites_generation_layer,
       'interface_tolerance_generation': self.interface_tolerance_generation,
+      'field_dependent_generation': self.field_dependent_generation,
       'description': self.description,
     }
     
@@ -81,6 +83,7 @@ class DefectConfig:
       CN_matters=data.get('CN_matters', False),
       sites_generation_layer=data.get('sites_generation_layer'),
       interface_tolerance_generation=data.get('interface_tolerance_generation'),
+      field_dependent_generation=data.get('field_dependent_generation'),
       description=data.get('description', ''),
       passivation_level=data.get('passivation_level'),
       max_passivation_level=data.get('max_passivation_level'),

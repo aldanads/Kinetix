@@ -161,7 +161,6 @@ def main():
         elif System_state.simulation_type == 'ECM memristor':
             
             from collections import Counter
-            events_tracking = Counter()
             solve_Poisson = System_state.poissonSolver_parameters['solve_Poisson']
             save_Poisson = System_state.poissonSolver_parameters['save_Poisson']
             
@@ -227,7 +226,7 @@ def main():
     
                         # System_state.measurements_crystal()
                         print(str(j)+"/"+str(int(Elec_controller.total_simulation_time/Elec_controller.voltage_update_time)),'| Total time: ',System_state.list_time[-1],'| Voltage: ',V_top)
-                        print(f'Events at step {j}: {events_tracking}')
+                        print(f'Events at step {j}: {System_state.events_tracking}')
                         if Elec_controller.current_enabled:
                           print(f"Current: {Elec_controller.measurements['current'][-1]}")
     

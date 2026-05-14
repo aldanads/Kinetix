@@ -394,7 +394,7 @@ dependencies:
   - conda-forge/linux-64::mpi4py==4.0.1=py312h0a6c937_1
   - conda-forge/linux-64::parmetis==4.0.3=hc7bef4e_1007
   - conda-forge/noarch::pooch==1.8.2=pyhd8ed1ab_1
-  - conda-forge/linux-64::pymatgen==2025.1.9=py312hc0a28a1_0
+  - pymatgen
   - conda-forge/noarch::s3transfer==0.11.1=pyhd8ed1ab_0
   - conda-forge/linux-64::scalapack==2.2.0=h7e29ba8_4
   - conda-forge/noarch::seaborn-base==0.13.2=pyhd8ed1ab_3
@@ -411,7 +411,7 @@ dependencies:
   - conda-forge/noarch::maggma==0.71.1=pyhd8ed1ab_0
   - conda-forge/linux-64::petsc==3.21.5=real_hbe534a9_101
   - conda-forge/linux-64::vtk-base==9.3.1=qt_py312h04237f5_214
-  - conda-forge/noarch::mp-api==0.45.1=pyhd8ed1ab_0
+  - mp-api
   - conda-forge/linux-64::petsc4py==3.21.5=py312h23142ab_1
   - conda-forge/linux-64::slepc==3.21.2=real_h00a54ed_300
   - conda-forge/linux-64::vtk-io-ffmpeg==9.3.1=qt_py312h71fb23e_214
@@ -422,4 +422,5 @@ dependencies:
   - conda-forge/noarch::pyvista==0.44.2=pyhd8ed1ab_1
   - python-gmsh
   - optimade
+  - pytest
 prefix: /local/anaconda3/envs/fenicsx-env

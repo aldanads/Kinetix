@@ -795,6 +795,7 @@ class Site():
         migration_pathways =  kwargs.get("migration_pathways")
         current_defect = self._get_current_defect_name()
         relevant_field = np.any(abs(E_site_field) > 1e6)
+        is_gen_field_dependent = self.defects_config[current_defect]['field_dependent_generation']
         
         # Ions in contact with the virtual electrode will have the reduction rate affected
         clusters = kwargs.get("clusters")
@@ -817,8 +818,9 @@ class Site():
         for event in self.site_events:
           
             if relevant_field:
+              Act_E = event[-1]
               
-              if event[-2] == 'generation':
+              if event[-2] == 'generation' and is_gen_field_dependent:
                 Act_E = max(event[-1] - 0.5 * round(np.dot(E_site_field,[0,0,-1]) * 1e-10,3), self.Act_E_dict[current_defect]['E_min_gen'])
                             
               elif event[-2] in ('reduction', 'oxidation'):

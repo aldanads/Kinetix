@@ -39,9 +39,9 @@ experimental:
 # These files are loaded relative to data/parameters/
 components:
   defects: "defects/PZT_ZrPbO3_defects_config.yaml"
-  reactions: "reactions/reactions_H2_Ovac_passivation.yaml"
+  reactions: "reactions/PZT_reactions_H_Ovac_passivation.yaml"
   grain_boundaries: "grain_boundaries/gb_vertical_planar.yaml"
-  electrical: "electrical/electrical_ZERO_HOLD.yaml"
+  electrical: "electrical/electrical_CONSTANT_STEP_no_current.yaml"
   
   
 # -----------------------------------------------------------------------------

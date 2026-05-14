@@ -491,12 +491,15 @@ class ElectricalController:
         file_path = current_directory / 'Crystalline IV.csv'
         
         # Read excel
-        df = pd.read_csv(
-            file_path, sep=None,           # Auto-detect separator
-            engine='python',    # More flexible
-            skipinitialspace=True,  # Handle spaces after separators
-            dtype=str 
-        )
+        try:
+          df = pd.read_csv(
+              file_path, sep=None,           # Auto-detect separator
+              engine='python',    # More flexible
+              skipinitialspace=True,  # Handle spaces after separators
+              dtype=str 
+          )
+        except Exception as e:
+          raise RuntimeError(f"Failed to read experimental data file '{file_path}': {str(e)}")
         
         def clean_and_convert(series):
             # Remove common problematic characters

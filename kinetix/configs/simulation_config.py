@@ -167,7 +167,11 @@ class SimulationConfig:
     # --- REACTIONS ---
     if 'reactions' in components:
       reactions_path = base_path / components['reactions']
-      
+      try:
+        config.reactions = ReactionsConfig.from_yaml(reactions_path)
+        print(f"Loaded reactions from {reactions_path}")
+      except Exception as e:
+        print(f"Failed to load reactions: {e}")
     # --- GRAIN BOUNDARIES ---
     if 'grain_boundaries' in components:
       gb_path = base_path / components['grain_boundaries']

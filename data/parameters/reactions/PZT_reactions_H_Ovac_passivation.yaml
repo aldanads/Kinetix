@@ -1,0 +1,79 @@
+# data/parameters/reactions/PZT_reactions_H_Ovac_passivation.yaml
+# =============================================================================
+# Reaction Configurations - H2 Formation and Oxygen Vacancy Passivation with H
+# =============================================================================
+
+
+metadata:
+  name: "PZT_reactions_H_Ovac_passivation"
+  description: "H2 formation and oxygen vacancy passivation/depassivation with H reactions"
+  compatible_technologies: ["PZT"]
+
+reactions:
+  # -------------------------------------------------------------------------
+  # H2 Formation: Two H interstitials combine to form H2 gas
+  # -------------------------------------------------------------------------
+  H2_formation:
+    name: "H + H -> H2"
+    type: "bimolecular_neighbor"
+    enabled: true
+    
+    reactants:
+      - symbol: "H"
+        sublattice: "interstitial"
+      - symbol: "H"
+        sublattice: "interstitial"
+    
+    products:
+      - symbol: "H2"
+        sublattice: "interstitial"
+        site_index: 0
+        key: "hydrogen_gas"
+      - symbol: "Empty"
+        sublattice: "interstitial"
+        site_index: 1
+
+  # -------------------------------------------------------------------------
+  # V_O Passivation: H interstitial fills an oxygen vacancy
+  # -------------------------------------------------------------------------
+  V_O_passivation:
+    name: "H + V_O -> V_OH"
+    type: "bimolecular_capture"
+    enabled: true
+    
+    reactants:
+      - symbol: "H"
+        sublattice: "interstitial"
+      - symbol: "V_O"
+        sublattice: "O"
+    
+    products:
+      - symbol: "Empty"
+        sublattice: "interstitial"
+        site_index: 0
+      - symbol: "V_O"
+        sublattice: "O"
+        site_index: 1
+        passivation_increment: 1
+
+  # -------------------------------------------------------------------------
+  # V_O Depassivation: V_OH releases H back to interstitial
+  # -------------------------------------------------------------------------
+  V_O_depassivation:
+    name: "V_OH -> V_O + H"
+    type: "unimolecular_escape"
+    enabled: true
+    
+    reactants:
+      - symbol: "V_O"
+        sublattice: "O"
+        min_passivation: 1  # Custom field for this reaction type
+    
+    products:
+      - symbol: "V_O"
+        sublattice: "O"
+        site_index: 0
+        passivation_increment: -1
+      - symbol: "H"
+        sublattice: "interstitial"
+        site_index: "neighbor"
