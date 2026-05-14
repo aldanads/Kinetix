@@ -410,47 +410,7 @@ def initialization(n_sim):
        
         defects_config = config.defects.to_dict()
         
-        """ 
-        reactions_config = {
-          "H2_formation":{
-            "name": "H + H -> H2",
-            "type": "bimolecular_neighbor",
-            "reactants": [
-              {"symbol": "H", "sublattice": "interstitial"},
-              {"symbol": "H", "sublattice": "interstitial"}
-            ],
-            "products":[
-              {"symbol":"H2", "sublattice": "interstitial", "site_index": 0, "key": "hydrogen_gas"},
-              {"symbol": "Empty", "sublattice": "interstitial", "site_index": 1}
-            ],
-            "enabled": True
-          },
-          "V_O_passivation":{
-            "name": "H + V_O -> V_OH",
-            "type": "bimolecular_capture",
-            "reactants":[
-              {"symbol": "H", "sublattice": "interstitial"},
-              {"symbol": "V_O", "sublattice": "O"}
-            ],
-            "products":[
-              {"symbol": "Empty", "sublattice":"interstitial", "site_index": 0},
-              {"symbol": "V_O", "sublattice": "O", "site_index": 1, "passivation_increment": 1}
-            ],
-            "enabled": True
-          },
-          "V_O_depassivation":{
-            "name": "V_OH -> V_O + H",
-            "type": "unimolecular_escape",
-            "reactants": [{"symbol": "V_O", "sublattice": "O", "min_passivation": 1}],
-            "products":[
-              {"symbol": "V_O","sublattice": "O", "site_index": 0, "passivation_increment": -1},
-              {"symbol": "H", "sublattice": "interstitial", "site_index": "neighbor"}
-            ],
-            "enabled": True
-          }
-        }
-        
-        """
+        reactions_config = config.reactions.to_dict()
 
         # -----------------
         # Grain boundaries
@@ -468,14 +428,18 @@ def initialization(n_sim):
         
         """
 
-        reactions_config = config.reactions.to_dict()
+
 
         
-        
+        """
         gb_configurations = GrainBoundariesConfig.from_yaml(
           parameters_root / 'grain_boundaries' / 'gb_vertical_planar.yaml'
         )
         gb_configurations = gb_configurations.to_dict()
+        """
+        
+        gb_configurations = [grainboundary.to_dict() for grainboundary in config.grain_boundaries]
+        
         
         api_key = get_api_key()
         # Retrieve material data
