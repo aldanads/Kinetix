@@ -29,9 +29,12 @@ class VoltageConfig:
   max_voltage: float = 2.0
   min_voltage: float = -2.0
   ramp_rate: float = 1.0
-  constant_voltage: float = 0.0
-  total_time: float = 100.0
   num_cycles: int = 1
+  
+  # CONSTANT / ZERO_HOLD parameters
+  constant_voltage: float = 0.0
+  total_time: Optional[float] = None # Optional: auto-calculated from RAMP, explicit for others
+  
   voltage_update_time: float = 0.1
   
   @classmethod

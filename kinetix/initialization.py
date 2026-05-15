@@ -365,19 +365,6 @@ def initialization(n_sim):
         
     elif simulation_type == 'electronic_device':        
         
-        # =============================================================================
-        #         Experimental conditions
-        #         
-        # =============================================================================
-    
-        T = 300 # (K)
-        experimental_conditions = {
-          'sticking_coeff':None,
-          'partial_pressure':None,
-          'T':T,
-          'simulation_type':simulation_type
-        }
-        
         # 1. Load configuration from yaml
         parameters_root = get_parameters_root()
         preset_path =parameters_root / 'presets' / 'PZT_ZrPbO3.yaml'
@@ -394,7 +381,7 @@ def initialization(n_sim):
         if mp_epsilon is not None:
           config.material.epsilon_r = mp_epsilon
         
-        # Update config with fetched data
+        # 3. Update config with fetched data
         config.material.formula = material_data['formula']
         config.material.chem_env_symmetry = material_data.get('chem_env_symmetry')
         config.material.metal_valence = material_data.get('metal_valence')
@@ -406,8 +393,16 @@ def initialization(n_sim):
         
         Elec_controller = ElectricalController.from_config(config.electrical)
         
-        # Prepare parameters for grid initialization
-        crystal_size = config.material.structure.size # (angstrom (Å))
+        # 4. Experimental conditions
+        experimental_conditions = {
+          'sticking_coeff': config.experimental.sticking_coeff,
+          'partial_pressure':config.experimental.partial_pressure,
+          'T':config.experimental.temperature,
+          'simulation_type':simulation_type
+        }
+        
+        # 5. Prepare parameters for grid initialization
+        crystal_size = config.material.structure.size # (angstrom)
         formula = config.material.formula
         
         defects_config = config.defects.to_dict()
@@ -431,74 +426,27 @@ def initialization(n_sim):
           'rng': rng
         }
         
-
-        # =============================================================================
-        #             Superbasin parameters
-        #     
-        # =============================================================================
-        superbasin_parameters = {
-          'enabled_superbasin': True,
-          'n_search_superbasin':50, # If the time step is very small during n_search_superbasin steps, search for superbasin
-          'time_step_limits':1e-4, # Time needed for efficient evolution of the system
-          'E_min':0.5, 
-          'energy_step':0.05,
-          'time_based_superbasin':True
-        }
+        # 6. Superbasin parameters
+        superbasin_parameters = config.superbasin.to_dict()
         
-        # =============================================================================
-        #             Electric field parameters: Required for the Poisson Solver
-        #     
-        # =============================================================================
-        
-        mesh_file = formula + "_" + str(int(max(crystal_size) / 10)) + "nm" + "_mesh.msh"  # Adjust filename as needed
-        
-        # Parameters for Poisson solver
-        active_dipoles = 4
-        solve_Poisson = True
-        save_Poisson = False
-        
-        screening_factor = 0.01
-        conductivity_CF  = 6.3e7 * 0.1
-        conductivity_dielectric = 1e-1
-        
-
-        
-        # Extract data from Materials Project
-        with MPRester(api_key) as mpr:
-            # Get the material with chemenv data specifically: chemical environment: valence, local symmetry
-            material_data = mpr.materials.chemenv.search(material_ids=[config.material.selection.mp_id])
-            dielectric_data = mpr.materials.dielectric.search(material_ids=[config.material.selection.mp_id])
-        
-        chem_env_symmetry = material_data[0].chemenv_name[0]
-        metal_valence = material_data[0].valences[0]
-        
-        # Bond lengths
-        central_atom = material_data[0].mol_from_site_environments[0][0]
-        d_metal_O = central_atom.distance(material_data[0].mol_from_site_environments[0][1])
-        
-        # Dielectric constant
-        try:
-            if dielectric_data and len(dielectric_data) > 0 and hasattr(dielectric_data[0], 'e_total'):
-                epsilon_r = dielectric_data[0].e_total
-            else:
-                warnings.warn("No dielectric data available for this material. Using manual-introduced value.")
-                epsilon_r = 23
-        except (IndexError, AttributeError) as e:
-            warnings.warn(f"Could not extract dielectric constant: {e}. Using manual-introduced value.")
-            epsilon_r = 23
-            
-
-            
-
+        # 7. Poisson solver parameters
+        mesh_file = f"{formula}_{int(max(crystal_size) / 10)}nm_mesh.msh"
         poissonSolver_parameters = {
           'mesh_file': mesh_file,
-          'epsilon_r':epsilon_r,'chem_env_symmetry':chem_env_symmetry,'metal_valence':metal_valence,'d_metal_O':d_metal_O,'active_dipoles':active_dipoles,
-          'solve_Poisson':solve_Poisson,'save_Poisson':save_Poisson, 'screening_factor':screening_factor,
-          'conductivity_CF':conductivity_CF, 'conductivity_dielectric':conductivity_dielectric,
+          'epsilon_r': config.material.epsilon_r,
+          'chem_env_symmetry': config.material.chem_env_symmetry,
+          'metal_valence': config.material.metal_valence,
+          'd_metal_O': config.material.bond_length,
+          'active_dipoles': config.poisson.active_dipoles,
+          'solve_Poisson': config.poisson.solve_Poisson,
+          'save_Poisson': config.poisson.save_Poisson, 
+          'screening_factor': config.poisson.screening_factor,
+          'conductivity_CF': config.poisson.conductivity_CF, 
+          'conductivity_dielectric':config.poisson.conductivity_dielectric,
           'defects_config':defects_config
         }
 
-        
+        # 8. Activation energies
         ae_data = load_activation_energies(preset_path, config.settings)
         Act_E_dict = _process_activation_energies(
           defects_config,
@@ -506,35 +454,31 @@ def initialization(n_sim):
           config.settings.technology
         )
         
-          
-        # =============================================================================
-        #             Filename
-        #     
-        # =============================================================================
+        # 9. Initialize crystal lattice
+        filename = f'grid_{formula}_{int(max(crystal_size) / 10)}nm'
+
+        System_state = initialize_grid_crystal(
+          filename,
+          mpi_ctx,
+          crystal_features,
+          experimental_conditions,
+          Act_E_dict, 
+          lammps_file,
+          superbasin_parameters,
+          save_data,
+          poissonSolver_parameters
+        ) 
         
-        filename = 'grid_' + formula + "_" + str(int(max(crystal_size) / 10)) + "nm"
-        
-        
-        # =============================================================================
-        #             Crystal structure generation
-        #     
-        # =============================================================================
-        System_state = initialize_grid_crystal(filename,mpi_ctx,crystal_features,experimental_conditions,Act_E_dict, 
-              lammps_file,superbasin_parameters,save_data,poissonSolver_parameters) 
+        # 10. Post initialization steps
+        # Write metadata
         System_state.write_metadata(paths['data'])   
 
         Elec_controller.crystal_size = System_state.crystal_size #  The crystal_size after the generation of the lattice may differ from the parameter provided in a NN points separation
-                
-        # =============================================================================
-        #             Initialization of defects
-        #     
-        # =============================================================================
-        System_state.defect_gen()
-            
-        #System_state.deposition_specie(0,test = 3)
+        System_state.timestep_limits = Elec_controller.voltage_update_time  
         
-        # This timestep_limits will depend on the V/s ratio
-        System_state.timestep_limits = Elec_controller.voltage_update_time
+        # Initialize defects
+        System_state.defect_gen()
+        
 
     return System_state,rng,paths,Results, simulation_parameters,Elec_controller
 

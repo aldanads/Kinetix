@@ -18,6 +18,7 @@ metadata:
 material:
   name: "ZrPbO3"
   mp_id: "mp-1068577"
+  #mp-1079056
   radius_neighbors: 4.3
   epsilon_r: 25.0
   
