@@ -129,7 +129,7 @@ class Crystal_Lattice():
         self.adsorption_sites = [] # Sites availables for deposition or migration
         
         #Transition rate for adsortion of chemical species
-        if self.simulation_type != 'ECM memristor':
+        if self.simulation_type != 'electronic_device':
             self.transition_rate_adsorption(experimental_conditions)
             # self.E_min_lim_superbasin = self.Act_E_gen * 0.9 # Don't create superbasin that include the deposition process
             self.E_min_lim_superbasin = 0.25 # Don't create superbasin that include the deposition process

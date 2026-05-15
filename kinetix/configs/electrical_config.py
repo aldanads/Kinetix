@@ -58,7 +58,7 @@ class CurrentConfig:
   barrier_height: float = 0.5
   temperature: float = 300.0
   area: float = 1.e-10
-  epsilon_r: float = 25.0
+  epsilon_r: float = 23.0
   
   @classmethod
   def from_dict(cls, data: Dict[str,Any]) -> 'CurrentConfig':

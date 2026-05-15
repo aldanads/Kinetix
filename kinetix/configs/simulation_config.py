@@ -37,6 +37,7 @@ class SimulationSettings:
   save_data: bool = True
   snapshoots_steps: int = 40
   lammps_output: bool = True
+  activation_energies: str = "" # Path relative too data/parameters
 
 @dataclass
 class SimulationConfig:
@@ -88,6 +89,7 @@ class SimulationConfig:
         'save_data': self.settings.save_data,
         'snapshoots_steps': self.settings.snapshoots_steps,
         'total_steps': self.settings.total_steps,
+        'activation_energies': self.activation_energies,
       },
       'defects_config': self.defects.to_dict(),
       'reactions_config': self.reactions.to_dict(),
@@ -145,7 +147,9 @@ class SimulationConfig:
       structure=CrystalStructure(
         size=tuple(_get_required(crystal_data, 'size', yaml_path, 'crystal.size')),
         miller_indices=tuple(_get_required(crystal_data, 'miller_indices', yaml_path, 'crystal.miller_indices')),
-        sites_generation_layer=_get_required(crystal_data, 'sites_generation_layer', yaml_path, 'crystal.sites_generation_layer')
+        sites_generation_layer=_get_required(crystal_data, 'sites_generation_layer', yaml_path, 'crystal.sites_generation_layer'),
+        affected_site=_get_required(crystal_data, 'affected_site', yaml_path, 'crystal.affected_site'),
+        facets_type=crystal_data.get('facets_type'),
       )
     )
     
@@ -255,6 +259,7 @@ class SimulationConfig:
       snapshoots_steps=settings_data.get('snapshoots_steps'),
       seed_rng=settings_data.get('seed_rng'),
       lammps_output=settings_data.get('lammps_output', True),
+      activation_energies=settings_data.get('activation_energies'),
     )
     
     # =========================================================================

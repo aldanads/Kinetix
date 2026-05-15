@@ -19,6 +19,7 @@ class PoissonSolverConfig:
   screening_factor: float = 0.01
   conductivity_CF: float = 6.3e6  # S/m
   conductivity_dielectric: float = 1e-1  # S/m
+  epsilon_r: float = 23.0
   defects_config: Dict[str, Any] = field(default_factory=dict)
     
   def to_dict(self) -> Dict[str, Any]:

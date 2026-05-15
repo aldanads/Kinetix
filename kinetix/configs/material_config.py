@@ -1,7 +1,7 @@
 # kinetix/configs/material_config.py
 """Material and crystal structure configuration."""
 from dataclasses import dataclass, field
-from typing import Tuple, Optional
+from typing import Tuple, Optional, Any
 
 @dataclass
 class MaterialSelection:
@@ -16,6 +16,8 @@ class CrystalStructure:
   size: Tuple[float, float, float] = (50.0, 50.0, 50.0)  # Angstroms
   miller_indices: Tuple[int, int, int] = (0, 0, 1)
   sites_generation_layer: str = 'top_layer'  # or 'bottom_layer'
+  affected_site: str = ''
+  facets_type: Optional[Any] = None
   
 @dataclass
 class MaterialConfig:

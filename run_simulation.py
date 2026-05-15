@@ -158,7 +158,7 @@ def main():
     #            
     # =============================================================================
                     
-        elif System_state.simulation_type == 'ECM memristor':
+        elif System_state.simulation_type == 'electronic_device':
             
             from collections import Counter
             solve_Poisson = System_state.poissonSolver_parameters['solve_Poisson']
@@ -215,7 +215,6 @@ def main():
                         
 
                 System_state.step_kmc(rng)
-
                 
                 if snapshoots:
                 

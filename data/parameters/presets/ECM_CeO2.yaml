@@ -1,0 +1,22 @@
+# data/parameters/presets/ECM_CeO2.yaml
+# =============================================================================
+# ECM Simulation - CeO2 with Ag interstitial
+# =============================================================================
+# This is the MASTER configuration file that references all other configs.
+# Edit this to change simulation-wide parameters.
+# Edit referenced files to change specific components (defects, reactions, etc.)
+# =============================================================================
+
+metadata:
+  name: "ECM_CeO2"
+  description: "ECM simulation with Ag interstitial in CeO2"
+  author: "Samuel Aldana Delgado"
+
+# -----------------------------------------------------------------------------
+# Material Selection (from Materials Project)
+# -----------------------------------------------------------------------------
+material:
+  name: "CeO2"
+  mp_id: "mp-20194"
+  radius_neighbors: 4.0
+  epsilon_r: 23.0

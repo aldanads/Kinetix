@@ -69,46 +69,28 @@ def get_api_key() -> str:
 # =============================================================================
 # Activation Energy Loading
 # =============================================================================
-def load_activation_energies(file_type: str = 'memristors') -> Dict[str, Any]:
+def load_activation_energies(preset_path: Path, config_settings) -> Dict[str, Any]:
   """
-  Load activation energy parameters.
+    Load activation energies from the file specified in the simulation settings.
     
   Args:
-    file_type: 'memristors' or 'deposition'
+    preset_path: Path to the loaded YAML preset (used to resolve relative paths)
+    config_settings: SimulationSettings dataclass instance
     
   Returns:
-    Dictionary with activation energy data
+    Dictionary with structure: {"PZT": [{"specie": "H", ...}, ...]}
   """
-  parameters_root = get_parameters_root()
-  
-  activation_energies_root = parameters_root / 'activation_energies'
-  
-  file_mapping = {
-    'memristors': 'activation_energies_memristors.json',
-    'deposition': 'activation_energies_deposition.json'
-  }
-  
-  if file_type not in file_mapping:
-    raise ValueError(f"Unknown file_type: {file_type}. Choose from {list(file_mapping.keys())}")
+  if not config_settings.activation_energies:
+    raise ValueError("No activation energies file specified in settings")
     
-  filename = file_mapping[file_type]
-  file_path = activation_energies_root / filename
-  
-  if not file_path.exists():
-    raise FileNotFoundError(
-      f"Activation energy file not found at {file_path}\n"
-      f"Please ensure the file exists in data/parameters/"
-    )
+  # Resolve relative to data/parameters/ (parent of presets/)
+  base_path = preset_path.parent.parent
+  ae_path = base_path / config_settings.activation_energies
+
+  if not ae_path.exists():
+    raise FileNotFoundError(f'Activation energies file not found: {ae_path}')
     
-  with open(file_path, 'r') as f:
-    data = json.load(f)
+  with open(ae_path, 'r') as f:
+    ae_data = json.load(f)
     
-  return data
-  
-def get_activation_energies_memristors() -> Dict[str,Any]:
-  """Convenience function for memristor activation energies"""
-  return load_activation_energies('memristors')
-  
-def get_activation_energies_deposition() -> Dict[str, Any]:
-  """Convenience function for deposition activation energies"""
-  return load_activation_energies('deposition')
+  return ae_data

@@ -19,6 +19,7 @@ material:
   name: "ZrPbO3"
   mp_id: "mp-1068577"
   radius_neighbors: 4.3
+  epsilon_r: 25.0
   
 # -----------------------------------------------------------------------------
 # Crystal Structure
@@ -27,6 +28,8 @@ crystal:
   size: [50, 50, 50] # Angstroms (x, y, z)
   miller_indices: [0, 0, 1] # Surface orientation
   sites_generation_layer: "top_layer" # or "bottom_layer"
+  affected_site: "Empty"
+  facets_type: null
   
 # -----------------------------------------------------------------------------
 # Experimental conditions
@@ -48,13 +51,13 @@ components:
 # Simulation Settings (ALL simulation parameters in one place)
 # -----------------------------------------------------------------------------
 settings:
-  simulation_type: "ECM memristor"      
+  simulation_type: "electronic_device"      
   technology: "PZT"                     
   mode: "interstitial"                  
   seed_rng: 1                           
   save_data: true                      
-  lammps_output: true                   
-  
+  lammps_output: true
+  activation_energies: "activation_energies/PZT_ZrPbO3.json"                   
   
 # -----------------------------------------------------------------------------
 # Superbasin Acceleration

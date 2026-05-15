@@ -1,0 +1,68 @@
+{
+  "PZT": [
+        {
+            "specie": "V_O",
+            "activation_energies": {
+                "E_gen_defect": 3.6,
+                "E_min_gen": 0.3,
+                "E_mig_plane": 3.1,
+                "E_mig_upward": 3.1,
+                "E_mig_downward": 3.1,
+                "E_min_mig": 0.1,
+                "binding_energy_bottom_layer": -0.3,
+                "binding_energy_top_layer": -0.0,
+                "CN_clustering_energy": 0.3,
+                "V_OH -> V_O + H": {
+                  "1": 1.47,
+                  "2": 1.15,
+                  "3": 0.26
+                }
+            }
+        },
+        {
+            "specie": "H",
+            "activation_energies": {
+                "E_gen_defect": 0.5,
+                "E_min_gen": 0.4,
+                "E_mig_plane": 0.5,
+                "E_mig_upward": 0.5,
+                "E_mig_downward": 0.5,
+                "E_min_mig": 0.1,
+                "binding_energy_bottom_layer": -0.0,
+                "binding_energy_top_layer": -0.0,
+                "CN_clustering_energy": 0.1,
+                "H + H -> H2": 4.0,
+                "H + V_O -> V_OH": {
+                  "0": 0.34,
+                  "1": 0.22,
+                  "2": 0.17
+                } 
+            }
+        },
+        {
+            "specie": "H2",
+            "activation_energies": {
+            }
+        },    
+        {
+            "specie": "Ag",
+            "activation_energies": {
+                "E_gen_defect": 3.5,
+                "E_min_gen": 0.4,
+                "E_mig_plane": 3.1,
+                "E_mig_upward": 3.1,
+                "E_mig_downward": 3.1,
+                "E_min_mig": 0.3,
+                "binding_energy_bottom_layer": -0.3,
+                "binding_energy_top_layer": -0.0,
+                "CN_clustering_energy": -0.05,
+                "E_reduction": 0.4,
+                "E_oxidation": 0.45,
+                "CN_redox_energy":0.075,
+                "redox_bottom_electrode":0.075,
+                "redox_top_electrode": 1.0
+            }
+        }
+        
+  ]
+}

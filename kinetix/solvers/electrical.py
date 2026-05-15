@@ -490,6 +490,11 @@ class ElectricalController:
         current_directory = Path(__file__).parent
         file_path = current_directory / 'Crystalline IV.csv'
         
+        if not file_path.exists():
+          print(f'Experimental data file not found: {file_path}')
+          self.experimental_data = None
+          return
+        
         # Read excel
         try:
           df = pd.read_csv(
@@ -499,7 +504,8 @@ class ElectricalController:
               dtype=str 
           )
         except Exception as e:
-          raise RuntimeError(f"Failed to read experimental data file '{file_path}': {str(e)}")
+          print(f'Failed to parse experimental data: {e}')
+          self.experimental_data = None
         
         def clean_and_convert(series):
             # Remove common problematic characters
@@ -630,12 +636,14 @@ class ElectricalController:
         sim_voltage = np.array(self.measurements['voltage'])
         sim_current = np.array(self.measurements['current'])
     
-        exp_voltage = self.experimental_data['voltage']
-        exp_current = self.experimental_data['current']
+        if self.experimental_data is not None and len(self.experimental_data) > 0:
+          exp_voltage = self.experimental_data['voltage']
+          exp_current = self.experimental_data['current']
+          plt.semilogy(exp_voltage, abs(exp_current), label='Experiment', marker='o', markersize=3)
 
         # Plot experimental and simulated values
         plt.semilogy(sim_voltage, abs(sim_current), label='Simulation', linewidth=2)
-        plt.semilogy(exp_voltage, abs(exp_current), label='Experiment', marker='o', markersize=3)
+        
         plt.xlabel('Voltage (V)')
         plt.ylabel('Current (A)')
         plt.legend()

@@ -12,8 +12,9 @@ import shutil
 from kinetix.lattice.crystal import Crystal_Lattice
 from kinetix.solvers.electrical import ElectricalController
 from kinetix.utils.mpi_context import MPIContext
+from kinetix.material_fetcher import MaterialDataFetcher
 from kinetix.configs.electrical_config import ElectricalConfig, VoltageConfig, CurrentConfig, VoltageMode, CurrentModel
-from kinetix.configs.config_loader import get_api_key, get_activation_energies_memristors,get_grids_root,get_mesh_root,get_parameters_root
+from kinetix.configs.config_loader import get_api_key,load_activation_energies, get_grids_root,get_mesh_root,get_parameters_root
 from kinetix.configs.material_config import MaterialConfig, MaterialSelection, CrystalStructure
 from kinetix.configs.defect_config import DefectsConfig, DefectConfig
 from kinetix.configs.reaction_config import ReactionsConfig, ReactionConfig, ReactionSpecies
@@ -54,7 +55,7 @@ def initialization(n_sim):
     snapshoots_steps = int(4e1)
     total_steps = int(snapshoots_steps * 25)
     
-    simulation_types = ['deposition','annealing','ECM memristor']
+    simulation_types = ['deposition','annealing','electronic_device']
     simulation_type = simulation_types[2]
     
     simulation_parameters = {
@@ -362,7 +363,7 @@ def initialization(n_sim):
                 System_state.grid_crystal[site].site_events[0][-1] = System_state.Act_E_gen
 
         
-    elif simulation_type == 'ECM memristor':        
+    elif simulation_type == 'electronic_device':        
         
         # =============================================================================
         #         Experimental conditions
@@ -377,94 +378,59 @@ def initialization(n_sim):
           'simulation_type':simulation_type
         }
         
+        # 1. Load configuration from yaml
         parameters_root = get_parameters_root()
-        config = SimulationConfig.from_yaml(parameters_root / 'presets' / 'PZT_ZrPbO3.yaml')
+        preset_path =parameters_root / 'presets' / 'PZT_ZrPbO3.yaml'
+        config = SimulationConfig.from_yaml(preset_path)
         
-        
-        # =============================================================================
-        #         Material and crystal structure
-        #         
-        # =============================================================================
-        # Material selection
-        material_db = {
-          "CeO2": {"mp_id":"mp-20194", "radius_neighbors": 4.0},
-          "ZrPbO3": {"mp_id": "mp-1068577", "radius_neighbors": 4.3}
-        }
-        
-        # Selected material
-        material_name = "ZrPbO3"
-        material_info = material_db[material_name]
-    
-        crystal_size = (50,50,100) # (angstrom (Å))
-        miller_indices = (0,0,1)
-        facets_type = None
-        affected_site_marker = 'Empty'
-        
-        # Simulation level settings
-        # ['ECM','PZT']
-        technology = "PZT" # or "PZT"
-        sites_generation_layer = 'top_layer' # or "bottom_layer"
-        mode = 'interstitial' # or 'vacancy'
-        
-        
-       
-        defects_config = config.defects.to_dict()
-        
-        reactions_config = config.reactions.to_dict()
-
-        # -----------------
-        # Grain boundaries
-        # -----------------
-        """
-        gb_configurations = [
-          {
-          'type':'cylindrical',
-          'center': [crystal_size[0] * 0.5, crystal_size[1] * 0.5],
-          'radius': 8.0,
-          'outer_radius': 8.0,
-          'Act_E_diff_GB': 2.7
-          }
-        ]
-        
-        """
-
-
-
-        
-        """
-        gb_configurations = GrainBoundariesConfig.from_yaml(
-          parameters_root / 'grain_boundaries' / 'gb_vertical_planar.yaml'
-        )
-        gb_configurations = gb_configurations.to_dict()
-        """
-        
-        gb_configurations = [grainboundary.to_dict() for grainboundary in config.grain_boundaries]
-        
-        
+        # 2. Fetch Material Data from Materials Project
         api_key = get_api_key()
-        # Retrieve material data
-        with MPRester(api_key) as mpr:
-            # Retrieve material summary information
-            material_summary = mpr.materials.summary.search(material_ids=[material_info["mp_id"]])
-            formula = material_summary[0].formula_pretty
-                            
+        fetcher = MaterialDataFetcher(api_key)
+        material_data = fetcher.get_all_material_data(config.material.selection.mp_id)
+        
+        
+        # Resolve epsilon_r: override user value with MP data if exists
+        mp_epsilon = material_data.get('epsilon_r')
+        if mp_epsilon is not None:
+          config.material.epsilon_r = mp_epsilon
+        
+        # Update config with fetched data
+        config.material.formula = material_data['formula']
+        config.material.chem_env_symmetry = material_data.get('chem_env_symmetry')
+        config.material.metal_valence = material_data.get('metal_valence')
+        config.material.bond_length = material_data.get('bond_length_metal_O')
+        
+        if config.electrical and config.electrical.current:
+          config.electrical.currrent.epsilon_r = config.material.epsilon_r
+          
+        
+        Elec_controller = ElectricalController.from_config(config.electrical)
+        
+        # Prepare parameters for grid initialization
+        crystal_size = config.material.structure.size # (angstrom (Å))
+        formula = config.material.formula
+        
+        defects_config = config.defects.to_dict()
+        reactions_config = config.reactions.to_dict()
+        gb_configurations = [grainboundary.to_dict() for grainboundary in config.grain_boundaries]                    
         crystal_features = {
           'chemical_formula': formula,
-          'id_material_Material_Project': material_info["mp_id"],
+          'id_material_Material_Project': config.material.selection.mp_id,
           'crystal_size': crystal_size,
-          'miller_indices': miller_indices,
+          'miller_indices': config.material.structure.miller_indices,
           'api_key': api_key,
-          'facets_type': facets_type,
-          'affected_site': affected_site_marker,
-          'mode': mode,
-          'radius_neighbors': material_info["radius_neighbors"],
-          'sites_generation_layer': sites_generation_layer,
+          'facets_type': config.material.structure.facets_type,
+          'affected_site': config.material.structure.affected_site,
+          'mode': config.settings.mode,
+          'radius_neighbors': config.material.selection.radius_neighbors,
+          'sites_generation_layer': config.material.structure.sites_generation_layer,
           'defects_config': defects_config,
           'reactions_config': reactions_config,
           'gb_configurations': gb_configurations,
-          'technology': technology,
+          'technology': config.settings.technology,
           'rng': rng
         }
+        
 
         # =============================================================================
         #             Superbasin parameters
@@ -500,8 +466,8 @@ def initialization(n_sim):
         # Extract data from Materials Project
         with MPRester(api_key) as mpr:
             # Get the material with chemenv data specifically: chemical environment: valence, local symmetry
-            material_data = mpr.materials.chemenv.search(material_ids=[material_info["mp_id"]])
-            dielectric_data = mpr.materials.dielectric.search(material_ids=[material_info["mp_id"]])
+            material_data = mpr.materials.chemenv.search(material_ids=[config.material.selection.mp_id])
+            dielectric_data = mpr.materials.dielectric.search(material_ids=[config.material.selection.mp_id])
         
         chem_env_symmetry = material_data[0].chemenv_name[0]
         metal_valence = material_data[0].valences[0]
@@ -521,6 +487,7 @@ def initialization(n_sim):
             warnings.warn(f"Could not extract dielectric constant: {e}. Using manual-introduced value.")
             epsilon_r = 23
             
+
             
 
         poissonSolver_parameters = {
@@ -530,105 +497,16 @@ def initialization(n_sim):
           'conductivity_CF':conductivity_CF, 'conductivity_dielectric':conductivity_dielectric,
           'defects_config':defects_config
         }
+
         
-        # =============================================================================
-        #             Electrical parameters
-        #     
-        # =============================================================================
-        """
-        electrical_config = ElectricalConfig(
-          initial_voltage=0.0, 
-          initial_time=0.0,   
-          series_resistance=2e2,
-          crystal_size=crystal_size,
-          voltage=VoltageConfig(
-            mode=VoltageMode.RAMP_CYCLE,
-            max_voltage = 2.6,
-            min_voltage = -1.5,
-            ramp_rate=1.0,
-            num_cycles=1,
-            voltage_update_time = 0.1
-          ),
-          current=CurrentConfig(
-            model=CurrentModel.SCHOTTKY,
-            barrier_height=0.53,
-            temperature=T,
-            area=np.pi * (50*1e-6)**2,
-            epsilon_r=epsilon_r
-          )  
-        )
-        """
-        electrical_config = ElectricalConfig(
-          voltage=VoltageConfig(
-            mode=VoltageMode.CONSTANT,
-            constant_voltage=1.0,
-            total_time=2e-5,
-            voltage_update_time=1e-7
-          )
+        ae_data = load_activation_energies(preset_path, config.settings)
+        Act_E_dict = _process_activation_energies(
+          defects_config,
+          ae_data,
+          config.settings.technology
         )
         
-        #print(config.electrical)
-        #print(electrical_config)
-    
-        #Elec_controller = ElectricalController.from_config(electrical_config)
-        
-        Elec_controller = ElectricalController.from_config(config.electrical)
-           
-        # =============================================================================
-        #             Activation energies
-        #     
-        # =============================================================================
-        # Retrieve the activation energies
-        ae_data = get_activation_energies_memristors()
-        
-
-            
-        # Container: Act_E_dict[defect_name] = {energy_key: value or list}
-        Act_E_dict = {}
-        
-        def expand_clustering_energy(base_energy, max_cn = 15):
-          """ 
-          Returns list where index = CN, values = base_energy * CN for CN >= 2
-          """
-          energies = [0.0, 0.0] # CN = 0,1 -> No clustering
-          for cn in range(2,max_cn+1):
-            energies.append(base_energy * cn)
-          return energies
           
-        for defect_name, defect_cfg in defects_config.items():
-          key = defect_cfg["activation_energies_key"]  
-          
-          matching_entry = None
-          for entry in ae_data[technology]:
-            if entry.get("specie") == key:
-              matching_entry = entry
-              break
-          
-          if matching_entry is None:
-            warnings.warn(f'No activation energy data found for "{key}" in technology "{technology}". Skipping.')
-            continue
-            
-          # Extract all activation energies from this entry
-          energies = {}
-          for field_name, value in matching_entry.items():
-            if "activation_energies" in field_name and isinstance(value, dict):
-              # This block contains named energies (e.g., "migration", "clustering")
-              for energy_name, energy_val in value.items():
-                if isinstance(energy_val, (int,float,dict)):
-                  energies[energy_name] = energy_val
-                  
-          # Expand clustering and redox energies into CN-dependent lists
-          if "CN_clustering_energy" in energies:
-            base = energies["CN_clustering_energy"]
-            energies["CN_clustering_energy"] = expand_clustering_energy(base)
-            
-          if "CN_redox_energy" in energies:
-            base = energies["CN_redox_energy"]
-            energies["CN_redox_energy"] = expand_clustering_energy(base)
-            
-          Act_E_dict[defect_name] = energies
-          
-
         # =============================================================================
         #             Filename
         #     
@@ -735,8 +613,60 @@ def initialize_grid_crystal(
           save_variables(grid_directory, {filename : System_state.grid_crystal}, filename)
 
         return System_state
+           
+           
+def _process_activation_energies(defects_config, ae_data:Dict, technology: str) -> Dict:
+  """
+  Process activation energies from JSON into Act_E_dict format.
+  Handles CN-dependent energy expansion.
+  """   
+  def expand_clustering_energy(base_energy: float, max_cn: int = 15) -> list:
+    """ 
+    Returns list where index = CN, values = base_energy * CN for CN >= 2
+    """
+    energies = [0.0, 0.0] # CN = 0,1 -> No clustering
+    for cn in range(2,max_cn+1):
+      energies.append(base_energy * cn)
+    return energies
+  
+  # Container: Act_E_dict[defect_name] = {energy_key: value or list}
+  Act_E_dict = {}
+          
+  for defect_name, defect_cfg in defects_config.items():
+    key = defect_cfg["activation_energies_key"]  
+          
+    matching_entry = None
+    for entry in ae_data[technology]:
+      if entry.get("specie") == key:
+        matching_entry = entry
+        break
         
-        
+    if matching_entry is None:
+      warnings.warn(f'No activation energy data found for "{key}" in technology "{technology}". Skipping.')
+      continue
+            
+    # Extract all activation energies from this entry
+    energies = {}
+    for field_name, value in matching_entry.items():
+      if "activation_energies" in field_name and isinstance(value, dict):
+      # This block contains named energies (e.g., "migration", "clustering")
+        for energy_name, energy_val in value.items():
+          if isinstance(energy_val, (int,float,dict)):
+            energies[energy_name] = energy_val
+            
+    # Expand clustering and redox energies into CN-dependent lists
+    if "CN_clustering_energy" in energies:
+      base = energies["CN_clustering_energy"]
+      energies["CN_clustering_energy"] = expand_clustering_energy(base)
+            
+    if "CN_redox_energy" in energies:
+      base = energies["CN_redox_energy"]
+      energies["CN_redox_energy"] = expand_clustering_energy(base)
+            
+    Act_E_dict[defect_name] = energies
+    
+  return Act_E_dict        
+    
 
 def save_simulation(files_copy,dst,n_sim,simulation_type):
     

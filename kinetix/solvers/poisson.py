@@ -67,7 +67,7 @@ class PoissonSolver(FEMSolverBase):
     self.fine_mesh_size = kwargs.pop('fine_mesh_size', 0.2) # angstroms
     self.refinement_radius = kwargs.pop('refinement_radius', 1.2) # angstroms
     self.defects_config = poisson_parameters.get('defects_config', {})
-    self.epsilon_r = poisson_parameters.get('epsilon_r', 25.0)
+    self.epsilon_r = poisson_parameters.get('epsilon_r', 23.0)
     self.poisson_parameters = poisson_parameters
     
     # === Initialize base class ===
