@@ -575,7 +575,7 @@ class Crystal_Lattice():
                 print(f"  Step 3: {step3_time:.4f}s ({step3_time/total_time*100:.1f}%)")
                 print(f"  Step 4: {step4_time:.4f}s ({step4_time/total_time*100:.1f}%)")
                 print(f"  Step 5: {step5_time:.4f}s ({step5_time/total_time*100:.1f}%)")
-                      
+                     
         
                 
                 # Prepare data for broadcasting
@@ -600,6 +600,9 @@ class Crystal_Lattice():
               self.grid_crystal = grid_data['grid_crystal']
               self.domain_height = grid_data['domain_height']
               self.migration_pathways = grid_data['migration_pathways']
+              
+            print('Succesfully transfer data to all the cores')
+            exit()
                         
                 
         else:

@@ -367,7 +367,7 @@ def initialization(n_sim):
         
         # 1. Load configuration from yaml
         parameters_root = get_parameters_root()
-        preset_path =parameters_root / 'presets' / 'PZT_ZrPbO3.yaml'
+        preset_path =parameters_root / 'presets' / 'PZT_ZrTi(PbO3)2.yaml'
         config = SimulationConfig.from_yaml(preset_path)
         
         # 2. Fetch Material Data from Materials Project

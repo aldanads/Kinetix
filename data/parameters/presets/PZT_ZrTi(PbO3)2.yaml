@@ -1,4 +1,4 @@
-# data/parameters/presets/PZT_ZrPbO3.yaml
+# data/parameters/presets/PZT_ZrTi(PbO3)2.yaml
 # =============================================================================
 # PZT Simulation - ZrPbO3 with hydrogen and oxygen vacancies defects
 # =============================================================================
@@ -8,16 +8,16 @@
 # =============================================================================
 
 metadata:
-  name: "PZT_ZrPbO3"
-  description: "PZT simulation with H and O_vac in ZrPbO3"
+  name: "PZT_ZrTi(PbO3)2"
+  description: "PZT simulation with H and O_vac in ZrTi(PbO3)2"
   author: "Samuel Aldana Delgado"
 
 # -----------------------------------------------------------------------------
 # Material Selection (from Materials Project)
 # -----------------------------------------------------------------------------
 material:
-  name: "ZrPbO3"
-  mp_id: "mp-1068577"
+  name: "ZrTi(PbO3)2"
+  mp_id: "mp-1079056"
   radius_neighbors: 4.3
   epsilon_r: 25.0
   
@@ -89,4 +89,3 @@ heat:
   thermal_conductivity: 2.5       # W/m-K
   heat_capacity: 500.0            # J/kg-K
   density: 5000.0                 # kg/m3
-
