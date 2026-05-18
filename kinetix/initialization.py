@@ -469,6 +469,7 @@ def initialization(n_sim):
           poissonSolver_parameters
         ) 
         
+        
         # 10. Post initialization steps
         # Write metadata
         System_state.write_metadata(paths['data'])   
