@@ -498,7 +498,11 @@ class Crystal_Lattice():
           
             
     def crystal_grid(self,grid_crystal,radius_neighbors,mode,affected_site,api_key):
-               
+    
+        self.coord_cache = {}
+        rank = self.mpi_ctx.rank if self.mpi_ctx else 0
+        is_root = (rank == 0) 
+             
         # Loading existing grid
         if grid_crystal is not None:
           self.grid_crystal = grid_crystal  
@@ -511,9 +515,8 @@ class Crystal_Lattice():
         else:
           
           # Initialize grid_crystal on all ranks  
-          self.coord_cache = {}
-          rank = self.mpi_ctx.rank if self.mpi_ctx else 0
-          is_root = (rank == 0)
+          
+          
             
           if is_root:  
             # We obtain integer idx
