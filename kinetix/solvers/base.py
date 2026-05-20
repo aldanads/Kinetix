@@ -74,11 +74,11 @@ class FEMSolverBase:
     self.gmsh_model_rank = kwargs.get("gmsh_model_rank", 0)
     self.gdim = kwargs.get("gdim", 3)
     self.mesh_size = kwargs.get("mesh_size", 0.8)
-    self.padding = kwargs.get("bounding_box_padding",5.0)
+    self.padding = kwargs.get("bounding_box_padding",3.0)
     self.epsilon_gc = kwargs.get("epsilon_gaussian_charge",0.8) #(angstrom)
     self.active_mesh_refinement = kwargs.get("activate_mesh_refinement",True)
-    self.fine_mesh_size = kwargs.get("fine_mesh_size",0.2) #(angstrom)
-    self.refinement_radius = kwargs.get("refinement_radius",1.2) #(angstrom)
+    self.fine_mesh_size = kwargs.get("fine_mesh_size",1) #(angstrom)
+    self.refinement_radius = kwargs.get("refinement_radius",3.0) #(angstrom)
     self.defects_config = solver_parameters["defects_config"]
     
     # === Mesh handling ===
