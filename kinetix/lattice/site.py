@@ -12,8 +12,11 @@ from typing import NamedTuple
 
 
 class Site():
+    # Physical constants
+    KB = constants.physical_constants['Boltzmann constant in eV/K'][0]    
+    NU0=7E12  # nu0 (s^-1) bond vibration frequency
     
-    def __init__(self,chemical_specie,position,site_type=None,Act_E_dict=None, defects_config = None, reactions_config = None):
+    def __init__(self,chemical_specie,position,site_type=None,Act_E_dict=None, defects_config = None, reactions_config = None, is_active_site=True):
         """
         Initialize a site in the kMC grid.
         
@@ -30,10 +33,11 @@ class Site():
         
         # Neighbor information
         self.nearest_neighbors_idx = [] # Nearest neighbors indexes
-        self.nearest_neighbors_cart = [] # Nearest neighbors cartesian coordinates
         
         # Activation energies
-        self.Act_E_dict = Act_E_dict  
+        self.Act_E_dict = Act_E_dict if Act_E_dict is not None else {}  
+        
+        # Global configs
         self.defects_config = defects_config 
         self.reactions_config = reactions_config
         
@@ -47,11 +51,7 @@ class Site():
         self.cache_edges = {}
         self.cache_site_energy = {}
         self.cache_CN_contr_redox_energy = {}
-        
-        # Physical constants
-        self.kb = constants.physical_constants['Boltzmann constant in eV/K'][0]
-        self.nu0=7E12  # nu0 (s^-1) bond vibration frequency
-        
+
         # Electrostatic properties
         self.ion_charge = 0
         self.in_cluster_with_electrode = {'bottom_layer': False, 'top_layer': False}
@@ -60,13 +60,15 @@ class Site():
 
         
         # Calculate applicable defects
-        self.applicable_defects = self._get_applicable_defects()
-        current_defect = self._get_current_defect_name()
-        if current_defect is not None:
-          self.sites_generation_layer = defects_config[current_defect]["sites_generation_layer"]
-        
-        if current_defect is not None and "passivation_level" in defects_config[current_defect]:
-          self.passivation_level = defects_config[current_defect]["passivation_level"]   
+        if is_active_site and defects_config is not None:
+          self.applicable_defects = self._get_applicable_defects()
+          current_defect = self._get_current_defect_name()
+          if current_defect is not None:
+            self.sites_generation_layer = defects_config[current_defect]["sites_generation_layer"]
+            if "passivation_level" in defects_config[current_defect]:
+              self.passivation_level = defects_config[current_defect]["passivation_level"] 
+        else:
+          self.applicable_defects = []   
           
 
 # =============================================================================
@@ -101,15 +103,16 @@ class Site():
 # =============================================================================
 #     We only consider the neighbors within the lattice domain            
 # =============================================================================
-    def neighbors_analysis(self,grid_crystal,neigh_idx,neigh_cart,crystal_size,event_labels,idx_origin):
+    def neighbors_analysis(self,grid_crystal,neigh_idx,crystal_size,event_labels,idx_origin):
        
         tol = 1e-6
 
-        for idx,pos in zip(neigh_idx,neigh_cart):
+        for idx in neigh_idx:
                     
           if self._is_mobile_site(grid_crystal[idx]):
-            self.nearest_neighbors_idx.append(tuple(idx))             
-            self.nearest_neighbors_cart.append(tuple(pos))
+            self.nearest_neighbors_idx.append(tuple(idx)) 
+            
+            pos = grid_crystal[idx].position            
                 
             # Migration in the plane
             if -tol <= (pos[2]-self.position[2]) <= tol:
@@ -871,7 +874,7 @@ class Site():
                 tr_value = self.cache_TR[Act_E]
 
             else:
-                tr_value = self.nu0 * np.exp(-Act_E / (self.kb * T))
+                tr_value = Site.NU0 * np.exp(-Act_E / (Site.KB * T))
                 self.cache_TR[Act_E] = tr_value
                 
             # Use the length of event to determine the appropriate action

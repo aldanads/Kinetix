@@ -76,6 +76,10 @@ class Crystal_Lattice():
         self.sites_generation_layer = crystal_features['sites_generation_layer']
         self.gb_configurations = crystal_features['gb_configurations']
         self.defects_config = crystal_features.get('defects_config',{})
+        self._active_site_types = {
+          stype for cfg in self.defects_config.values()
+          for stype in cfg.get("allowed_sublattices", [])
+        }
         self.reactions_config = crystal_features.get('reactions_config',{})
         self.rng = crystal_features.get('rng')
         self.chemical_formula = crystal_features.get('chemical_formula')
@@ -348,7 +352,7 @@ class Crystal_Lattice():
         self.basis_vectors = np.array(self.structure_basic.lattice.matrix) * min_non_zero_element
                  
             
-    def _initialize_migration_pathways(self, radius_neighbors):
+    def _initialize_migration_pathways(self, radius_neighbors, reset_energies=False):
       """Initialize migration pathways from the COMPLETE grid_crystal."""
       self.event_labels = {}
       self.migration_pathways = {}
@@ -402,10 +406,15 @@ class Crystal_Lattice():
               else:
                 Act_E_mig[key] = self.Act_E_dict[name].get('E_mig_downward')
             self.Act_E_dict[name]['E_mig'] = Act_E_mig  
-            
-          for site in self.grid_crystal.values():
-                site.site_events = []
-                site.Act_E_dict = copy.deepcopy(self.Act_E_dict)
+          
+          if reset_energies:  
+            for site in self.grid_crystal.values():
+              site.site_events = [] # Clear old events
+              
+              if self._is_active_site(site.site_type):
+                site.Act_E_dict = self._efficient_act_e_copy(self.Act_E_dict)
+              else:
+                site.Act_E_dict = {}
             
     
     def _build_kdtree(self):
@@ -489,17 +498,16 @@ class Crystal_Lattice():
           
             
     def crystal_grid(self,grid_crystal,radius_neighbors,mode,affected_site,api_key):
-        
-        
-        
+               
         # Loading existing grid
         if grid_crystal is not None:
           self.grid_crystal = grid_crystal  
           self.domain_height = self.crystal_size[2]
           # Initialize pathways for loaded grids too 
           self._build_kdtree()
-          self._initialize_migration_pathways(radius_neighbors)   
-              
+          self._initialize_migration_pathways(radius_neighbors, reset_energies=True)   
+          if self.mpi_ctx: self.mpi_ctx.barrier()
+    
         else:
           
           # Initialize grid_crystal on all ranks  
@@ -517,41 +525,44 @@ class Crystal_Lattice():
           self.grid_crystal = {}
           for site in self.structure:
             idx = self.get_idx_coords(site.coords, self.basis_vectors)
+            site_type = site.specie.symbol
+            is_active = self._is_active_site(site_type)
+            
             self.grid_crystal[idx] = Site(
-              chemical_specie=site.specie.symbol,
+              chemical_specie=site_type,
               position=tuple(site.coords),
-              site_type=site.specie.symbol,
-              Act_E_dict=copy.deepcopy(self.Act_E_dict), # Its own copy
+              site_type=site_type,
+              Act_E_dict=self._efficient_act_e_copy(self.Act_E_dict) if is_active else {}, # Its own copy
               defects_config = self.defects_config,
-              reactions_config = self.reactions_config
+              reactions_config = self.reactions_config,
+              is_active_site=is_active
             )
           
           if is_root:
             print(f"Step 1 (Build host lattice): {time.perf_counter() - start_time:.4f} seconds")
-                  
+                             
           # --- STEP 2: Handle boundary sites (if needed) ---
           start_time = time.perf_counter()
           self._handle_missing_neighbors(radius_neighbors, affected_site)
           if is_root:
-            print(f"Step 2 (Boundary sites): {time.perf_counter() - start_time:.4f} seconds")     
+            print(f"Step 2 (Boundary sites): {time.perf_counter() - start_time:.4f} seconds")    
                 
           # --- STEP 3: Add interstitial/hollow sites ---
           start_time = time.perf_counter()
           interstitial_count = 0
           if mode == "interstitial":
-            # api_key=None to all ranks to force Voronoi.
-            interstitial_sites = self._generate_interstitial_sites(api_key=None)
-            
-            for pos in interstitial_sites:
+            # api_key=None to all ranks to force Voronoi.  
+            for pos in self._generate_interstitial_sites(api_key=None):
               idx = self.get_idx_coords(pos, self.basis_vectors)      
               if idx not in self.grid_crystal:
                 self.grid_crystal[idx] = Site(
                   chemical_specie=affected_site,
                   position=tuple(pos),
                   site_type="interstitial",
-                  Act_E_dict=copy.deepcopy(self.Act_E_dict),
+                  Act_E_dict=self._efficient_act_e_copy(self.Act_E_dict),
                   defects_config = self.defects_config,
-                  reactions_config = self.reactions_config
+                  reactions_config = self.reactions_config,
+                  is_active_site=True # Interstitials are always active
                 )
                 interstitial_count += 1
                 
@@ -562,11 +573,11 @@ class Crystal_Lattice():
           # --- STEP 4: Initialize migration pathways from grid ---
           start_time = time.perf_counter()
           self._build_kdtree()
-          self._initialize_migration_pathways(radius_neighbors)
+          self._initialize_migration_pathways(radius_neighbors, reset_energies=False)
           
           if is_root:
             print(f"Step 4 (Migration pathways): {time.perf_counter() - start_time:.4f} seconds")
-
+            
           # --- STEP 5: Neighbor analysis (uses FULL grid) ---
           start_time = time.perf_counter()
           self._sequencial_neighbors_analysis()
@@ -576,7 +587,7 @@ class Crystal_Lattice():
             print(f"\n{'='*60}")
             print(f"TOTAL INITIALIZATION TIME: {total_time:.4f} seconds")
             print(f"{'='*60}")
-            
+           
         # --- STEP 6: Grain Boundaries (if applicable) ---
         start_time = time.perf_counter()
         if hasattr(self, 'gb_configurations'):
@@ -586,24 +597,40 @@ class Crystal_Lattice():
           defects_cfg = self.defects_config
           reactions_cfg = self.reactions_config
           
-          for i, site in enumerate(self.grid_crystal.values()):
-            
-            if is_root and i%500 == 0:
-              print(f'Progress: {100 * i/len(self.grid_crystal):.0f}% done', flush=True)
-            
+          sites_list = list(self.grid_crystal.values())
+          
+          for i, site in enumerate(sites_list):
             self.gb_model.modify_act_energy_GB(site, mig_paths, defects_cfg, reactions_cfg)
         
           if is_root:
             print(f"Step 6 (Grain boundaries): {time.perf_counter() - start_time:.4f} seconds") 
+            
         
         print('Finished grid initialization')    
-        exit()
             
         # Synchronize all ranks before starting kMC steps
         if self.mpi_ctx:
           self.mpi_ctx.barrier()
             
-     
+    def _efficient_act_e_copy(self, base_dict):
+      """
+      Memory-efficient copy of Act_E_dict.
+      - Copies inner dicts (so per-site energy mods don't leak)
+      - Shares CN lists (they are only READ, never mutated per-site)
+      """
+      site_dict = {}
+      for defect_name, energies in base_dict.items():
+        # Shallow copy of inner dict: creates new dict, shares list/float refs
+        site_dict[defect_name] = energies.copy()
+        
+        # Keep CN list reference (safe because they're never mutated)
+        if 'CN_clustering_energy' in energies:
+          site_dict[defect_name]['CN_clustering_energy'] = energies['CN_clustering_energy']
+        if 'CN_redox_energy' in energies:
+          site_dict[defect_name]['CN_redox_energy'] = energies['CN_redox_energy']
+        
+      return site_dict
+    
     def _get_applicable_defects_for_site(self,site_type):
       """
       Determine which defect configurations apply to this site.
@@ -617,8 +644,6 @@ class Crystal_Lattice():
           applicable_defects.append(defect_name)
           
       return applicable_defects
-        
-           
             
     def _generate_interstitial_sites(self,api_key=None):
       """
@@ -781,15 +806,19 @@ class Crystal_Lattice():
                             pos[1] % self.crystal_size[1], 
                             pos[2])
                     
-                    # If not in the boundary region, where we should apply periodic boundary conditions
+                  # If not in the boundary region, where we should apply periodic boundary conditions
                   if tuple(pos) == pos_aux:
+                    site_type = neigh.specie.symbol
+                    is_active = self._is_active_site(site_type)
+                    
                     self.grid_crystal[idx] = Site(
-                      chemical_specie = neigh.specie.symbol,
+                      chemical_specie = site_type,
                       position = tuple(pos),
-                      site_type = neigh.specie.symbol,
-                      Act_E_dict = copy.deepcopy(self.Act_E_dict),
+                      site_type = site_type,
+                      Act_E_dict = self._efficient_act_e_copy(self.Act_E_dict) if is_active else {},
                       defects_config = self.defects_config,
-                      reactions_config = self.reactions_config
+                      reactions_config = self.reactions_config,
+                      is_active_site=is_active
                     )
                         
         self.domain_height = domain_height
@@ -846,15 +875,11 @@ class Crystal_Lattice():
         neighbor_site_indices = self._get_neighbors_for_site(site_idx, self.radius_neighbors)
         
         if site_idx in neighbor_site_indices:
-          neighbor_site_indices.remove(site_idx)
-        
-        # Convert to positions
-        neighbor_positions = [self.grid_crystal[idx].position for idx in neighbor_site_indices]  
+          neighbor_site_indices.remove(site_idx) 
       
         site.neighbors_analysis(
           self.grid_crystal,
           neighbor_site_indices,
-          neighbor_positions,
           self.crystal_size,
           self.event_labels,
           site_idx
@@ -2023,15 +2048,13 @@ class Crystal_Lattice():
         
         self.update_sites(sites_needing_support_update, sites_needing_event_update)
      
+    def _is_active_site(self, site_type: str) -> bool:
+      """ Check if a site type can host defects or participate in kMC events"""
+      return site_type in self._active_site_types
             
     def _get_mobile_sites(self, site_indices):
       """Filter only sites that can have mobile defects"""
-      mobile_sites = []
-      for idx in site_indices:
-        site = self.grid_crystal[idx]
-        if any(site.site_type in cfg.get("allowed_sublattices", []) for cfg in self.defects_config.values()):
-          mobile_sites.append(idx)
-      return mobile_sites
+      return [idx for idx in site_indices if self._is_active_site(self.grid_crystal[idx].site_type)]
       
     def _is_at_top_electrode(self, site_idx):
       """ Check if site is at top electrode """

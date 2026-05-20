@@ -77,12 +77,13 @@ class GrainBoundary:
         self.vertical_gbs = []
         self.cylindrical_gbs = []
         self.triple_junction_gbs = []
+        self.max_gb_influence = 0.0
         
         for config in self.gb_configurations:
           # Determine the distance metric for this GB type
           if config['type'] == 'vertical_planar':
-            inner_boundary = config.get('width',0) / 2
-            outer_boundary = config.get('outer_width',config['width']) / 2
+            inner_boundary = config.get('width',0) / 2.0
+            outer_boundary = config.get('outer_width',config['width']) / 2.0
             distance_function = self._distance_to_planar_gb
           elif config['type'] == 'cylindrical':
             inner_boundary = config.get('radius',0)
@@ -93,12 +94,16 @@ class GrainBoundary:
             outer_boundary = config.get('outer_width',config['width']) / 2
             # NEED TO WRITE THE FUNCTION: self._distance_to_triple_junction_gb
             #distance_function = self._distance_to_triple_junction_gb
+            distance_function = None
           else:
             continue
             
           config['inner_boundary'] = inner_boundary
           config['outer_boundary'] = outer_boundary
           config['distance_function'] = distance_function
+          
+          if outer_boundary > self.max_gb_influence:
+            self.max_gb_influence = outer_boundary
           
           # Calculate event-specific interpolation parameters
           event_modifications = config.get('event_modifications', {})
@@ -136,18 +141,20 @@ class GrainBoundary:
     def _distance_to_planar_gb(self,site_pos,gb_config):
       """Calculate distance to planar GB core"""
       x, y, z = site_pos
-      if gb_config['orientation'] == 'yz':
+      
+      orient = gb_config['orientation']
+      if orient == 'yz':
         return abs(x - gb_config['position'])
-      elif gb_config['orientation'] == 'xz':
+      if orient == 'xz':
         return abs(y - gb_config['position'])
-      elif gb_config['orientation'] == 'xy':
+      if orient == 'xy':
         return abs(z - gb_config['position'])
         
     def _distance_to_cylindrical_gb(self,site_pos,gb_config):
       """Calculate distance to cylindrical GB axis"""
       x, y, z = site_pos
       cx, cy = gb_config['center']
-      return np.sqrt((x - cx)**2 + (y - cy)**2)
+      return math.sqrt((x - cx)**2 + (y - cy)**2)
             
     def is_site_in_grain_boundary(self, site_position: tuple) -> bool:
       """
@@ -163,44 +170,38 @@ class GrainBoundary:
       Returns:
         str: 'inner_boundary', 'outer_boundary', or 'bulk'
       """
-      x, y, z = np.array(site_position)
+      x, y, z = site_position
       
       # Check vertical planar boundaries
       for gb in self.vertical_gbs:
-        if gb['orientation'] == 'yz':
+        orient = gb['orientation']
+        if orient == 'yz':
           # Vertical YZ place at specific x-position
           distance = abs(x - gb['position'])
-        elif gb['orientation'] == 'xz':
+        elif orient == 'xz':
           # Vertical XZ place at specific y-position
           distance = abs(y - gb['position'])
-        elif gb['orientation'] == 'xy':
+        elif orient == 'xy':
           # Horizontal XY place at specific z-position
           distance = abs(z - gb['position'])
         else:
           continue
         
-        inner_boundary = gb.get('inner_boundary', gb.get('width', 0))
-        outer_boundary = gb.get('outer_boundary', gb.get('outer_width', 0))
-        
-        if distance <= inner_boundary:
+        if distance <= gb['inner_boundary']:
           return 'inner_boundary'
-        elif distance <= outer_boundary:
+        elif distance <= gb['outer_boundary']:
           return 'outer_boundary'
           
       # Check cylindrical boundaries
       for gb in self.cylindrical_gbs:
         cx, cy = gb['center']
         # Distance from cylinder axis
-        distance_from_axis = np.sqrt((x - cx)**2 + (y - cy)**2)
-        
-        inner_radius = gb.get('inner_boundary', gb.get('radius', 0))
-        outer_radius = gb.get('outer_boundary', gb.get('outer_radius', 0))
-        
+        distance_from_axis = math.sqrt((x - cx)**2 + (y - cy)**2)
         
         #if distance_from_axis <= radius: return True
-        if distance_from_axis <= inner_radius:
+        if distance_from_axis <= gb['inner_boundary']:
           return 'inner_boundary'
-        elif distance_from_axis <= outer_radius:
+        elif distance_from_axis <= gb['outer_boundary']:
           return 'outer_boundary'
           
       return 'bulk'
@@ -219,7 +220,7 @@ class GrainBoundary:
       --------
       float : Activation energy at site
       """
-      x, y, z = np.array(site_position)
+      x, y, z = site_position
       
       for gb_list in [self.vertical_gbs, self.cylindrical_gbs, self.triple_junction_gbs]:
         for gb in gb_list:
@@ -275,81 +276,130 @@ class GrainBoundary:
       if not applicable_defects: 
         return # No defects can occupy this site type
         
+      sx, sy, sz = site.position
+      
+      if not self._is_site_near_gb(sx, sy, sz):
+        return
+        
+        
       # GB configuration
       gb_config = self.gb_configurations[0]
       event_modifications = gb_config.get('event_modifications',{})
-      
       if not event_modifications:
         return
+        
+      # ========================================================================
+      # CACHE CONFIGURATION (avoids repeated dict lookups)
+      # ========================================================================
+      mig_cfg = event_modifications.get('migration', {})
+      gen_cfg = event_modifications.get('generation', {})
+      rxn_cfg = event_modifications.get('reaction', {})
       
-      site_pos = site.position
+      if mig_cfg:
+        req_mig = mig_cfg.get('region')
+        affected_mig = set(mig_cfg.get('affected_defects', []))
+        slope_m = mig_cfg.get('linear_slope', 0.0)
+        intercept_m = mig_cfg.get('linear_intercept', 0.0)
+        inner_m = mig_cfg.get('inner_boundary', 0.0)
+        outer_m = mig_cfg.get('out_boundary', 0.0)
+        
+        v_gbs = self.vertical_gbs
+        c_gbs_sq = [
+          (gb['center'][0], gb['center'][1], gb['inner_boundary']**2, gb['outer_boundary']**2)
+          for gb in self.cylindrical_gbs
+        ]
+      
       # Check if site is in GB
-      site_gb_region = self.get_site_gb_region(site_pos)
+      #site_gb_region = self.get_site_gb_region(site.position)
       
       # Iterate through all applicable defects
       for defect_name in applicable_defects:
         base_energies = site.Act_E_dict[defect_name]
       
         # 1. Handle generation
-        if "generation" in event_modifications:
-          gen_config = event_modifications['generation']
-          required_region = gen_config.get('region', 'outer_boundary')
+        if gen_cfg and defect_name in gen_cfg.get('affected_defects', []) and "E_gen_defect" in base_energies:
+          req_gen = gen_cfg.get('region')
+          region = self.get_site_gb_region(site.position)
           
-          if self._region_matches(site_gb_region, required_region):
-              
-            if defect_name in gen_config.get('affected_defects', []):
-              if "E_gen_defect" in base_energies:
-                gb_reduction = self.get_activation_energy_GB(site_pos,"generation")
-                base_energies["E_gen_defect"] -= gb_reduction
-                
-          
+          if (req_gen == 'inner_boundary' and region == 'inner_boundary') or (req_gen == 'outer_boundary' and region != 'bulk'):
+            base_energies["E_gen_defect"] -= self.get_activation_energy_GB(site.position,"generation")
+
         # 2. Handle migration    
-        if "migration" in event_modifications:
-          mig_config = event_modifications['migration']
-          required_region = mig_config.get('region', 'outer_boundary')
-          
-          if defect_name in mig_config.get('affected_defects', []):
-            Act_E_mig = {}
+        if mig_cfg and defect_name in affected_mig:
+          Act_E_mig = {}
                 
-            for key,migration_vector in migration_pathways.items():
-              # Calculate destination position
-              dest_pos = np.array(site_pos) + migration_vector['direction'] * migration_vector['distance']
-              z_component = migration_vector['direction'][2]
+          for key,vec in migration_pathways.items():
+            # Raw math destination 
+            dx = sx + vec['direction'][0] * vec['distance']
+            dy = sy + vec['direction'][1] * vec['distance']
+            dz = sz + vec['direction'][2] * vec['distance']
+            
+            z_comp = vec['direction'][2]
+            # Base energy selection
+            if abs(z_comp) < 1e-9: base_e = base_energies['E_mig_plane'] 
+            elif z_comp > 0: base_e = base_energies['E_mig_upward']
+            else: base_e = base_energies['E_mig_downward']
               
-              # Migration in plane
-              if np.isclose(z_component, 0.0, atol=1e-9):
-                base_energy = base_energies['E_mig_plane'] 
-              # Migration upward
-              elif z_component > 0:
-                base_energy = base_energies['E_mig_upward']
-              # Migration downward
+            dist = 0.0; in_gb = False; is_inner = False
+            
+            # Check Planar GBs
+            for gb in v_gbs:
+              o = gb['orientation']
+              if o == 'yz': d = abs(dx - gb['position'])
+              elif o == 'xz': d = abs(dy - gb['position'])
+              elif o == 'xy': d = abs(dz - gb['position'])
+              else: continue
+              
+              if d <= inner_m: dist = d; in_gb = True; is_inner = True; break
+              if d <= outer_m: dist = d; in_gb = True; is_inner = False; break
+              
+            # Check cylindrical GBs (if not already in planar)  
+            if not in_gb:  
+              for cx, cy, in_sq, out_sq in c_gbs_sq:
+                d_sq = (dx - cx)**2 + (dy - cy)**2
+                if d_sq <= in_sq: dist = d_sq**0.5; in_gb = True; is_inner = True; break
+                if d_sq <= out_sq: dist = d_sq**0.5; in_gb = True; is_inner = False; break
+                
+            # Apply modification if region matches
+            if in_gb:
+              if (req_mig == 'inner_boundary' and is_inner) or (req_mig == 'outer_boundary'):
+                red = slope_m * dist + intercept_m
+                Act_E_mig[key] = base_e - (red if red > 0 else 0.0)
               else:
-                base_energy = base_energies['E_mig_downward']
-                
-              dest_gb_region = self.get_site_gb_region(dest_pos)
-              
-              # Modify only if destination is in GB
-              if self._region_matches(dest_gb_region, required_region):
-                # Lower barrier to enter GB (particles prefer GB)
-                gb_reduction = self.get_activation_energy_GB(dest_pos,'migration')
-                modified_energy = base_energy - gb_reduction
-              else:
-                # No modification for bulk destinations (base case)
-                modified_energy = base_energy
-              
-              Act_E_mig[key] = modified_energy
-                
+                Act_E_mig[key] = base_e
+            else:
+              Act_E_mig[key] = base_e
+            
             site.Act_E_dict[defect_name]['E_mig'] = Act_E_mig
           
         # 3. Handle reactions
-        if "reaction" in event_modifications:
-          rxn_config = event_modifications['reaction']
-          required_region = rxn_config.get('region', 'inner_boundary')
-          
-          if self._region_matches(site_gb_region, required_region):
-               
+        if rxn_cfg:
+          req_rxn = rxn_cfg.get('region')
+          region = self.get_site_gb_region(site.position)
+          if (req_rxn == 'inner_boundary' and region == 'inner_boundary') or (req_rxn == 'outer_boundary' and region != 'bulk'):
+            affected_rxns = rxn_cfg.get('affected_reactions',[])
             for reaction_name, reaction in reactions_config.items():
-              if reaction_name in rxn_config.get('affected_reactions',[]):
-                if reaction['name'] in base_energies:
-                    gb_reduction = self.get_activation_energy_GB(site_pos, 'reaction')
-                    base_energies[reaction['name']] -= gb_reduction
+              if reaction_name in affected_rxns and reaction['name'] in base_energies:
+                base_energies[reaction['name']] -= self.get_activation_energy_GB(site.position, 'reaction')
+                    
+                    
+    def _is_site_near_gb(self, x, y, z):
+      """Fast bounding check: Is this site within max influence of ANY GB?"""
+      # Quick planar check
+      for gb in self.vertical_gbs:
+        orient = gb['orientation']
+        pos = gb['position']
+        outer = gb['outer_boundary']
+        if orient == 'yz' and abs(x - pos) > outer: continue
+        if orient == 'xz' and abs(y - pos) > outer: continue
+        if orient == 'xy' and abs(z - pos) > outer: continue
+        return True
+        
+      # Quick cylindrical check
+      for gb in self.cylindrical_gbs:
+        cx, cy = gb['center']
+        outer = gb['outer_boundary']
+        if ((x - cx)**2 + (y - cy)**2)**0.5 <= outer:
+          return True
+          
+      return False
