@@ -367,7 +367,8 @@ def initialization(n_sim):
         
         # 1. Load configuration from yaml
         parameters_root = get_parameters_root()
-        preset_path =parameters_root / 'presets' / 'PZT_ZrTi(PbO3)2.yaml'
+        #preset_path = parameters_root / 'presets' / 'PZT_ZrTi(PbO3)2.yaml'
+        preset_path = parameters_root / 'presets' / 'PZT_ZrPbO3.yaml'
         config = SimulationConfig.from_yaml(preset_path)
         
         # 2. Fetch Material Data from Materials Project
@@ -443,7 +444,8 @@ def initialization(n_sim):
           'screening_factor': config.poisson.screening_factor,
           'conductivity_CF': config.poisson.conductivity_CF, 
           'conductivity_dielectric':config.poisson.conductivity_dielectric,
-          'defects_config':defects_config
+          'defects_config':defects_config,
+          'mesh_config': config.mesh.to_dict()
         }
 
         # 8. Activation energies

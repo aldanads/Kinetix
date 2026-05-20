@@ -71,14 +71,15 @@ class FEMSolverBase:
     self.path_results_folder = kwargs.get("path_results", "")
     
     # === Mesh parameters ===
-    self.gmsh_model_rank = kwargs.get("gmsh_model_rank", 0)
-    self.gdim = kwargs.get("gdim", 3)
-    self.mesh_size = kwargs.get("mesh_size", 0.8)
-    self.padding = kwargs.get("bounding_box_padding",3.0)
-    self.epsilon_gc = kwargs.get("epsilon_gaussian_charge",0.8) #(angstrom)
-    self.active_mesh_refinement = kwargs.get("activate_mesh_refinement",True)
-    self.fine_mesh_size = kwargs.get("fine_mesh_size",1) #(angstrom)
-    self.refinement_radius = kwargs.get("refinement_radius",3.0) #(angstrom)
+    mesh_config = solver_parameters['mesh_config']
+    self.gmsh_model_rank = mesh_config.get("gmsh_model_rank", 0)
+    self.gdim = mesh_config.get("gdim", 3)
+    self.mesh_size = mesh_config.get("mesh_size", 0.8)
+    self.padding = mesh_config.get("bounding_box_padding",3.0)
+    self.epsilon_gc = mesh_config.get("epsilon_gaussian_charge",0.8) #(angstrom)
+    self.active_mesh_refinement = mesh_config.get("activate_mesh_refinement",True)
+    self.fine_mesh_size = mesh_config.get("fine_mesh_size",1) #(angstrom)
+    self.refinement_radius = mesh_config.get("refinement_radius",3.0) #(angstrom)
     self.defects_config = solver_parameters["defects_config"]
     
     # === Mesh handling ===

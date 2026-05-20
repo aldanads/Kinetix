@@ -9,6 +9,7 @@ import yaml
 from kinetix.configs.material_config import MaterialConfig, MaterialSelection, CrystalStructure
 from kinetix.configs.defect_config import DefectsConfig
 from kinetix.configs.reaction_config import ReactionsConfig
+from kinetix.configs.mesh_config import MeshConfig
 from kinetix.configs.solver_config import PoissonSolverConfig, HeatSolverConfig, SuperbasinConfig
 from kinetix.configs.electrical_config import ElectricalConfig, VoltageConfig, VoltageMode
 from kinetix.configs.grain_boundary_config import GrainBoundariesConfig
@@ -55,7 +56,8 @@ class SimulationConfig:
   experimental: Optional[ExperimentalConditions] = None
   settings: Optional[SimulationSettings] = None  
   defects: Optional[DefectsConfig] = None        
-  reactions: Optional[ReactionsConfig] = None    
+  reactions: Optional[ReactionsConfig] = None 
+  mesh: Optional[MeshConfig] = None   
   poisson: Optional[PoissonSolverConfig] = None  
   heat: Optional[HeatSolverConfig] = None        
   superbasin: Optional[SuperbasinConfig] = None  
@@ -93,6 +95,7 @@ class SimulationConfig:
       },
       'defects_config': self.defects.to_dict(),
       'reactions_config': self.reactions.to_dict(),
+      'mesh': self.mesh.to_dict(),
       'poisson': self.poisson.to_dict(),
       'heat': self.heat.to_dict(),
       'superbasin': self.superbasin.to_dict(),
@@ -201,7 +204,25 @@ class SimulationConfig:
         print(f"Loaded electrical from {electrical_path}")
       except Exception as e:
         print(f"Failed to load electrical: {e}")
-    
+        
+    # =========================================================================
+    # Load mesh configuration
+    # =========================================================================
+    mesh_data = data.get('mesh')
+    if mesh_data:
+      config.mesh = MeshConfig(
+        gdim=mesh_data.get('gdim'),
+        gmsh_model_rank=mesh_data.get('gmsh_model_rank'),
+        mesh_size=mesh_data.get('mesh_size'), # Angstroms
+        bounding_box_padding=mesh_data.get('bounding_box_padding'), # Angstroms
+        epsilon_gaussian_charge=mesh_data.get('epsilon_gaussian_charge'), # Angstroms
+        activate_mesh_refinement=mesh_data.get('activate_mesh_refinement'),
+        fine_mesh_size=mesh_data.get('fine_mesh_size'), # Angstroms
+        refinement_radius=mesh_data.get('refinement_radius'), # Angstroms
+      )
+      print("Mesh configuration loaded")
+    else:
+      print("Mesh: Not configured")
     # =========================================================================
     # Load Poisson Solver Configuration (OPTIONAL)
     # =========================================================================

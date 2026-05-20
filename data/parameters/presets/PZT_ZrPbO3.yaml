@@ -89,4 +89,23 @@ heat:
   thermal_conductivity: 2.5       # W/m-K
   heat_capacity: 500.0            # J/kg-K
   density: 5000.0                 # kg/m3
-
+  
+# -----------------------------------------------------------------------------
+# Mesh Generation (Gmsh parameters)
+# -----------------------------------------------------------------------------
+mesh:
+  # Domain settings
+  gdim: 3                         # Spatial dimension (2 or 3)
+  gmsh_model_rank: 0              # MPI rank for Gmsh initialization
+  
+  # Global mesh sizing
+  mesh_size: 0.8                  # Anstroms - Coarse mesh size
+  bounding_box_padding: 5.0       # Angtroms - Padding around atomic structure (x, y only)
+  
+  # Charge spreading (physical parameter)
+  epsilon_gaussian_charge: 0.8    # Gaussian width for point charges
+  
+  # Adaptive refinement
+  activate_mesh_refinement: true
+  fine_mesh_size: 0.2             # Angstroms - Fine mesh size near defects
+  refinement_radius: 1.2          # Angstroms - Radius of refinement sphere around each site
