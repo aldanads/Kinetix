@@ -106,23 +106,25 @@ class Site():
     def neighbors_analysis(self,grid_crystal,neigh_idx,crystal_size,event_labels,idx_origin):
        
         tol = 1e-6
-
+        pos_origin = grid_crystal[idx_origin].position
+        
         for idx in neigh_idx:
                     
           if self._is_mobile_site(grid_crystal[idx]):
             self.nearest_neighbors_idx.append(tuple(idx)) 
             
-            pos = grid_crystal[idx].position            
+            pos = grid_crystal[idx].position
+            migration_vector_key = tuple(np.round(np.array(pos) - np.array(pos_origin), decimals=6))
                 
             # Migration in the plane
             if -tol <= (pos[2]-self.position[2]) <= tol:
-              self.migration_paths['Plane'].append([tuple(idx),event_labels[tuple(idx - np.array(idx_origin))]])
+              self.migration_paths['Plane'].append([tuple(idx),event_labels[migration_vector_key]])
             # Migration upward
             elif (pos[2]-self.position[2]) > tol:
-              self.migration_paths['Up'].append([tuple(idx),event_labels[tuple(idx - np.array(idx_origin))]])     
+              self.migration_paths['Up'].append([tuple(idx),event_labels[migration_vector_key]])     
             # Migration downward
             elif (pos[2]-self.position[2]) < -tol:
-              self.migration_paths['Down'].append([tuple(idx),event_labels[tuple(idx - np.array(idx_origin))]])
+              self.migration_paths['Down'].append([tuple(idx),event_labels[migration_vector_key]])
               
         self.mig_paths_plane = {num_event:site_idx for site_idx, num_event in self.migration_paths['Plane']}   
 
@@ -280,9 +282,6 @@ class Site():
         
       # Calculate redox energy based on support environment
       cn_index = len(self.supp_by)
-        
-      print(f'CN index: {cn_index}, CN redox energies length: {len(cn_redox_energies)}')
-      print(f'Supp by: {self.supp_by}')
       
       if 'bottom_layer' in self.supp_by: # Bottom interface
         energy = cn_redox_energies[cn_index] + defect_energies['redox_bottom_electrode']
@@ -444,8 +443,7 @@ class Site():
             
             # Migration types
             migration_types = ['Plane', 'Up', 'Down']
-            
-            
+         
             for migration_type in migration_types:
               for site_idx, num_event in self.migration_paths[migration_type]:
                 dest_site = grid_crystal[site_idx]
@@ -471,7 +469,6 @@ class Site():
                 # 5. Barrier Model   
                 energy_change = max(energy_site_destiny - self.energy_site, 0)
                 self.site_events.append([site_idx, num_event, Act_E_mig[num_event] + energy_change])
-
             
     def available_reduction(self,idx_origin):
         current_defect = self._get_current_defect_name()

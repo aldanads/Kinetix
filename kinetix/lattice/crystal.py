@@ -351,7 +351,7 @@ class Crystal_Lattice():
         # This gives basis vectors where integer steps land on atomic sites
         self.basis_vectors = np.array(self.structure_basic.lattice.matrix) * min_non_zero_element
                  
-            
+    
     def _initialize_migration_pathways(self, radius_neighbors, reset_energies=False):
       """Initialize migration pathways from the COMPLETE grid_crystal."""
       self.event_labels = {}
@@ -375,14 +375,11 @@ class Crystal_Lattice():
           neighbor_pos = self.grid_crystal[neighbor_idx].position
           dist = np.linalg.norm(np.array(site_pos) - np.array(neighbor_pos))
           # Create migration key
-          key = tuple(
-            np.array(self.get_idx_coords(neighbor_pos,self.basis_vectors)) -
-            np.array(self.get_idx_coords(site_pos,self.basis_vectors))
-          )
+          vector = np.array(neighbor_pos) - np.array(site_pos)
+          migration_vector_key = tuple(np.round(vector, decimals=6))
           
-          if key not in self.event_labels:
-            self.event_labels[key] = i
-            vector = np.array(neighbor_pos) - np.array(site_pos)
+          if migration_vector_key not in self.event_labels:
+            self.event_labels[migration_vector_key] = i
             self.migration_pathways[i] = {
               'direction': vector / np.linalg.norm(vector),
               'distance': dist
@@ -415,6 +412,7 @@ class Crystal_Lattice():
                 site.Act_E_dict = self._efficient_act_e_copy(self.Act_E_dict)
               else:
                 site.Act_E_dict = {}
+                
             
     
     def _build_kdtree(self):
@@ -511,7 +509,6 @@ class Crystal_Lattice():
           self._build_kdtree()
           self._initialize_migration_pathways(radius_neighbors, reset_energies=True)   
           if self.mpi_ctx: self.mpi_ctx.barrier()
-    
         else:
           
           # Initialize grid_crystal on all ranks  
@@ -604,11 +601,9 @@ class Crystal_Lattice():
           
           for i, site in enumerate(sites_list):
             self.gb_model.modify_act_energy_GB(site, mig_paths, defects_cfg, reactions_cfg)
-        
           if is_root:
             print(f"Step 6 (Grain boundaries): {time.perf_counter() - start_time:.4f} seconds") 
             
-        
         print('Finished grid initialization')    
             
         # Synchronize all ranks before starting kMC steps

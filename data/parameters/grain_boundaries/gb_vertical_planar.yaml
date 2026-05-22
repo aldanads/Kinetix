@@ -12,8 +12,8 @@ grain_boundaries:
     enabled: true
     orientation: "xz"                   # Plane orientation
     position: 27.0                      # Position in y (angstrom) - crystal_size[1] * 0.5 + 2.0
-    width: 4.0                          # GB core width (angstrom)
-    outer_width: 25.0                   # Transition region width (angstrom)
+    width: 6.0                          # GB core width (angstrom)
+    outer_width: 12.0                   # Transition region width (angstrom)
     description: "Central vertical GB affecting H migration"
     
     # Event modifications (change activation energies in GB region)

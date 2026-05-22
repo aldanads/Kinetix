@@ -287,7 +287,9 @@ class GrainBoundary:
       event_modifications = gb_config.get('event_modifications',{})
       if not event_modifications:
         return
-        
+      
+      
+     
       # ========================================================================
       # CACHE CONFIGURATION (avoids repeated dict lookups)
       # ========================================================================
@@ -295,22 +297,9 @@ class GrainBoundary:
       gen_cfg = event_modifications.get('generation', {})
       rxn_cfg = event_modifications.get('reaction', {})
       
-      if mig_cfg:
-        req_mig = mig_cfg.get('region')
-        affected_mig = set(mig_cfg.get('affected_defects', []))
-        slope_m = mig_cfg.get('linear_slope', 0.0)
-        intercept_m = mig_cfg.get('linear_intercept', 0.0)
-        inner_m = mig_cfg.get('inner_boundary', 0.0)
-        outer_m = mig_cfg.get('out_boundary', 0.0)
-        
-        v_gbs = self.vertical_gbs
-        c_gbs_sq = [
-          (gb['center'][0], gb['center'][1], gb['inner_boundary']**2, gb['outer_boundary']**2)
-          for gb in self.cylindrical_gbs
-        ]
-      
+      site_pos = site.position
       # Check if site is in GB
-      #site_gb_region = self.get_site_gb_region(site.position)
+      site_gb_region = self.get_site_gb_region(site.position)
       
       # Iterate through all applicable defects
       for defect_name in applicable_defects:
@@ -318,65 +307,45 @@ class GrainBoundary:
       
         # 1. Handle generation
         if gen_cfg and defect_name in gen_cfg.get('affected_defects', []) and "E_gen_defect" in base_energies:
-          req_gen = gen_cfg.get('region')
-          region = self.get_site_gb_region(site.position)
+          required_region = gen_cfg.get('region')
           
-          if (req_gen == 'inner_boundary' and region == 'inner_boundary') or (req_gen == 'outer_boundary' and region != 'bulk'):
+          if self._region_matches(site_gb_region, required_region):
             base_energies["E_gen_defect"] -= self.get_activation_energy_GB(site.position,"generation")
 
         # 2. Handle migration    
-        if mig_cfg and defect_name in affected_mig:
+        if mig_cfg and defect_name in mig_cfg.get('affected_defects'):
           Act_E_mig = {}
                 
-          for key,vec in migration_pathways.items():
+          for key,migration_vector in migration_pathways.items():
             # Raw math destination 
-            dx = sx + vec['direction'][0] * vec['distance']
-            dy = sy + vec['direction'][1] * vec['distance']
-            dz = sz + vec['direction'][2] * vec['distance']
+            dx = sx + migration_vector['direction'][0] * migration_vector['distance']
+            dy = sy + migration_vector['direction'][1] * migration_vector['distance']
+            dz = sz + migration_vector['direction'][2] * migration_vector['distance']
+            dest_pos = (dx, dy, dz)
             
-            z_comp = vec['direction'][2]
+            z_comp = migration_vector['direction'][2]
             # Base energy selection
-            if abs(z_comp) < 1e-9: base_e = base_energies['E_mig_plane'] 
-            elif z_comp > 0: base_e = base_energies['E_mig_upward']
-            else: base_e = base_energies['E_mig_downward']
+            if abs(z_comp) < 1e-9: 
+              base_e = base_energies['E_mig_plane'] 
+            elif z_comp > 0: 
+              base_e = base_energies['E_mig_upward']
+            else: 
+              base_e = base_energies['E_mig_downward']
               
-            dist = 0.0; in_gb = False; is_inner = False
+            dest_gb_region = self.get_site_gb_region(dest_pos)
             
-            # Check Planar GBs
-            for gb in v_gbs:
-              o = gb['orientation']
-              if o == 'yz': d = abs(dx - gb['position'])
-              elif o == 'xz': d = abs(dy - gb['position'])
-              elif o == 'xy': d = abs(dz - gb['position'])
-              else: continue
-              
-              if d <= inner_m: dist = d; in_gb = True; is_inner = True; break
-              if d <= outer_m: dist = d; in_gb = True; is_inner = False; break
-              
-            # Check cylindrical GBs (if not already in planar)  
-            if not in_gb:  
-              for cx, cy, in_sq, out_sq in c_gbs_sq:
-                d_sq = (dx - cx)**2 + (dy - cy)**2
-                if d_sq <= in_sq: dist = d_sq**0.5; in_gb = True; is_inner = True; break
-                if d_sq <= out_sq: dist = d_sq**0.5; in_gb = True; is_inner = False; break
-                
-            # Apply modification if region matches
-            if in_gb:
-              if (req_mig == 'inner_boundary' and is_inner) or (req_mig == 'outer_boundary'):
-                red = slope_m * dist + intercept_m
-                Act_E_mig[key] = base_e - (red if red > 0 else 0.0)
-              else:
-                Act_E_mig[key] = base_e
+            if self._region_matches(dest_gb_region, required_region):
+              gb_reduction = self.get_activation_energy_GB(dest_pos, 'migration')
+              Act_E_mig[key] = base_e - gb_reduction
             else:
               Act_E_mig[key] = base_e
             
-            site.Act_E_dict[defect_name]['E_mig'] = Act_E_mig
+          site.Act_E_dict[defect_name]['E_mig'] = Act_E_mig
           
         # 3. Handle reactions
         if rxn_cfg:
-          req_rxn = rxn_cfg.get('region')
-          region = self.get_site_gb_region(site.position)
-          if (req_rxn == 'inner_boundary' and region == 'inner_boundary') or (req_rxn == 'outer_boundary' and region != 'bulk'):
+          required_region = rxn_cfg.get('region')
+          if self._region_matches(site_gb_region, required_region):
             affected_rxns = rxn_cfg.get('affected_reactions',[])
             for reaction_name, reaction in reactions_config.items():
               if reaction_name in affected_rxns and reaction['name'] in base_energies:
