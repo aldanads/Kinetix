@@ -33,11 +33,11 @@ If you use Kinetix in your research or adapt part of the code, please cite the f
 ### Core Framework (Published Versions)
 The core kMC framework has been validated and used in the following publications:
 **Aldana, Samuel**, and Michael Nolan. "Control of Growth Morphology of Deposited fcc Metals through Tuning Substrate–Metal Interactions." ACS Applied Materials & Interfaces (2025).
-**DOI:** [10.1021/acsami.5c18081](https://doi.org/10.1021/acsami.5c18081)
-**Code:** [github.com/aldanads/control-of-growth-morphology...](https://github.com/aldanads/Control-of-growth-morphology-of-deposited-fcc-metals-through-tuning-substrate-metal-interactions)
-**Zenodo:** [10.5281/zenodo.18898755](https://doi.org/10.5281/zenodo.18898755)
+* **DOI:** [10.1021/acsami.5c18081](https://doi.org/10.1021/acsami.5c18081)
+* **Code:** [github.com/aldanads/control-of-growth-morphology...](https://github.com/aldanads/Control-of-growth-morphology-of-deposited-fcc-metals-through-tuning-substrate-metal-interactions)
+* **Zenodo:** [10.5281/zenodo.18898755](https://doi.org/10.5281/zenodo.18898755)
 
 **Aldana, Samuel**, Cara-Lena Nies, and Michael Nolan. "Control of Cu morphology on TaN barrier and combined Ru-TaN barrier/liner substrates for nanoscale interconnects from atomistic kinetic Monte Carlo simulations." Nanoscale 17, no. 19 (2025): 12450-12464.
-**DOI:** [10.1039/D4NR04505J](https://doi.org/10.1039/D4NR04505J)
-**Code:** [github.com/aldanads/control-of-growth-morphology...](https://github.com/aldanads/Control-of-growth-morphology-of-deposited-fcc-metals-through-tuning-substrate-metal-interactions)
-**Zenodo:** [10.5281/zenodo.19151596](https://doi.org/10.5281/zenodo.19151596)
+* **DOI:** [10.1039/D4NR04505J](https://doi.org/10.1039/D4NR04505J)
+* **Code:** [github.com/aldanads/control-of-growth-morphology...](https://github.com/aldanads/Control-of-growth-morphology-of-deposited-fcc-metals-through-tuning-substrate-metal-interactions)
+* **Zenodo:** [10.5281/zenodo.19151596](https://doi.org/10.5281/zenodo.19151596)
