@@ -16,21 +16,19 @@ import time
 import platform
 
 
-def main():
-
-
-
-    for n_sim in range(1,2):
+def main(sim_id):
         
-        System_state,rng,paths,Results,simulation_parameters,Elec_controller = initialization(n_sim)
+        System_state,rng,paths,Results,simulation_parameters,Elec_controller = initialization(sim_id)
         
-        print(f'System size: {System_state.crystal_size}')
-        
+        if System_state.rank == 0:
+          print(f'System size: {System_state.crystal_size}')
+          total_start_time = time.time()
+          System_state.plot_crystal(45,45,paths['data'],0)    
+          
         System_state.add_time()
             
-        System_state.plot_crystal(45,45,paths['data'],0)    
-        j = 0
         
+        j = 0
         snapshoots_steps = simulation_parameters['snapshoots_steps']
         total_steps = simulation_parameters['total_steps']
         save_data = simulation_parameters['save_data']
@@ -241,16 +239,24 @@ def main():
           filename = 'variables'
           if save_data: save_variables(paths['program'],variables,filename)
           
+          total_end_time = time.time()
+          print(f"==================================================")
+          print(f"SUCCESS: Simulation {sim_id} completed in {total_end_time - total_start_time:.2f} seconds.")
+          print(f"==================================================")
+          
         Elec_controller.save_IV_csv(paths['results'])
         Elec_controller.plot_V_I(paths['results'])
-    
-        
 
     
         return System_state
 
 if __name__ == '__main__':
-    System_state = main()
+    
+    if len(sys.argv) > 1:
+      sim_id = int(sys.argv[1])
+    else:
+      sim_id = 0
+    System_state = main(sim_id)
 # Use cProfile to profile the main function
 #     cProfile.run('main()', 'profile_output.prof')    
 
