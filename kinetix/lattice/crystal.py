@@ -2593,19 +2593,31 @@ class Crystal_Lattice():
                     fields=["symmetry", "formula_pretty"]
                 )
                 if results:
-                    symm = results[0].symmetry
-                    formula = results[0].formula_pretty
+                    res_dict = results[0]
+                
+                    symm = res_dict.get('symmetry',{})
+                    formula = res_dict.get('formula_pretty', 'Unknown')
                     
                     crystal_data.update({
-                        "crystal_system": symm.crystal_system,
-                        "space_group": symm.symbol,
-                        "space_group_number": symm.number,
+                        "crystal_system": symm.get('crystal_system','Unknown'),
+                        "space_group": symm.get('symbol', 'Unknown'),
+                        "space_group_number": symm.get('number',0),
                     })
                     print(f"? MP data fetched for {self.id_material}: {crystal_data['space_group']} ({crystal_data['crystal_system']})")
                 else:
                     print(f"??  MP query returned no results for {self.id_material}")
+                    crystal_data.update({
+                      "crystal_system": "Unknown",
+                      "space_group": "Unknown",
+                      "space_group_number": 0,
+                    })
       except Exception as e:
             print(f"??  MP query failed: {e}")
+            crystal_data.update({
+              "crystal_system": "Unknown",
+              "space_group": "Unknown",
+              "space_group_number": 0,
+            })
             
       
       sim_id = f"{self.chemical_formula}_{self.simulation_type}_{int(self.temperature)}K_{uuid.uuid4().hex[:8]}"
