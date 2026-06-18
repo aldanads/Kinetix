@@ -73,7 +73,7 @@ def initialization(n_sim):
         if platform.system() == 'Windows': # When running in laptop
             dst = Path(r'\\FS1\Docs2\samuel.delgado\My Documents\Publications\Memristor ECM\Simulations\Tests')
         elif platform.system() == 'Linux': # HPC works on Linux
-            dst = Path(r'/home/Docs2/samuel.delgado/linuxhome/Documents/Simulators/test')
+            dst = Path(r'/sfiwork/samuel.delgado/PZT/test/')
             
         if mpi_ctx.rank == 0:
           paths,Results = save_simulation(files_copy,dst,n_sim,simulation_type) # Create folders and python files

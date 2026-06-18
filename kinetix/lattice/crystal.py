@@ -2589,8 +2589,7 @@ class Crystal_Lattice():
             with MPRester(self.api_key) as mpr:
                 # Query summary endpoint (most efficient)
                 results = mpr.materials.summary.search(
-                    material_ids=[self.id_material],
-                    fields=["symmetry", "formula_pretty"]
+                    material_ids=[self.id_material]
                 )
                 if results:
                     res_dict = results[0]
