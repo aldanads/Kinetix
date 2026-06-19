@@ -13,9 +13,11 @@ from pymatgen.core import Structure
 class MaterialDataFetcher:
   """Fetch and cache material data from Materials Project."""
   
-  def __init__(self, api_key:str):
+  def __init__(self, api_key:str, mpi_ctx):
     """Initialize with MP API key"""
     self.api_key = api_key
+    self.rank = mpi_ctx.rank
+    self.mpi_ctx = mpi_ctx
   
   def fetch_material_summary(self, mp_id: str) -> Dict[str, Any]:
     """Fetch material summary (formula, density, etc.)"""
@@ -60,7 +62,7 @@ class MaterialDataFetcher:
         mol_data = mol_envs[0]
         
         if len(mol_data.sites) >= 2:
-          bond_length = mol_data.sites[0].distance(mol.sites[1])
+          bond_length = mol_data.sites[0].distance(mol_data.sites[1])
           
       if not bond_length or not metal_valence or not chem_env_symmetry:
         print(f" Chemenv API data incomplete for {mp_id}. Using fallback bulk Structure and BVAnalyzer.")
@@ -154,10 +156,16 @@ class MaterialDataFetcher:
   def get_all_material_data(self, mp_id: str) -> Dict[str, Any]:
     """Fetch all material data from Materials Project."""
     # Reuse methods
-    summary = self.fetch_material_summary(mp_id)
-    chemenv = self.fetch_chemenv_data(mp_id)
-    dielectric = self.fetch_dielectric_data(mp_id)
+    if self.rank == 0:
+      summary = self.fetch_material_summary(mp_id)
+      chemenv = self.fetch_chemenv_data(mp_id)
+      dielectric = self.fetch_dielectric_data(mp_id)
+      data = {**summary, **chemenv, **dielectric}
+    else:
+      data = None
+      
+    data = self.mpi_ctx.bcast(data, root=0)
     
     # Merge all dictionaries into one
-    return {**summary, **chemenv, **dielectric}
+    return data
     

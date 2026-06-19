@@ -372,7 +372,7 @@ def initialization(n_sim):
         
         # 2. Fetch Material Data from Materials Project
         api_key = get_api_key()
-        fetcher = MaterialDataFetcher(api_key)
+        fetcher = MaterialDataFetcher(api_key,mpi_ctx)
         material_data = fetcher.get_all_material_data(config.material.selection.mp_id)
         
         
