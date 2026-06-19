@@ -19,7 +19,7 @@ class MaterialDataFetcher:
     self.rank = mpi_ctx.rank
     self.mpi_ctx = mpi_ctx
   
-  def fetch_material_summary(self, mp_id: str) -> Dict[str, Any]:
+  def _fetch_material_summary(self, mp_id: str) -> Dict[str, Any]:
     """Fetch material summary (formula, density, etc.)"""
     with MPRester(self.api_key) as mpr:
       summary = mpr.materials.summary.search(material_ids=[mp_id])
@@ -36,7 +36,7 @@ class MaterialDataFetcher:
         'space_group':s['symmetry']['symbol'],
       }
       
-  def fetch_chemenv_data(self, mp_id: str) -> Dict[str, Any]:
+  def _fetch_chemenv_data(self, mp_id: str) -> Dict[str, Any]:
     """Fetch chemical environment data"""  
     with MPRester(self.api_key) as mpr:
       chem_data = mpr.materials.chemenv.search(material_ids=[mp_id])
@@ -142,7 +142,7 @@ class MaterialDataFetcher:
     }
     
       
-  def fetch_dielectric_data(self, mp_id: str) -> Dict[str, Any]:
+  def _fetch_dielectric_data(self, mp_id: str) -> Dict[str, Any]:
     """Fetch dielectric properties"""
     with MPRester(self.api_key) as mpr:
       diel_data = mpr.materials.dielectric.search(material_ids=[mp_id])
@@ -157,9 +157,9 @@ class MaterialDataFetcher:
     """Fetch all material data from Materials Project."""
     # Reuse methods
     if self.rank == 0:
-      summary = self.fetch_material_summary(mp_id)
-      chemenv = self.fetch_chemenv_data(mp_id)
-      dielectric = self.fetch_dielectric_data(mp_id)
+      summary = self._fetch_material_summary(mp_id)
+      chemenv = self._fetch_chemenv_data(mp_id)
+      dielectric = self._fetch_dielectric_data(mp_id)
       data = {**summary, **chemenv, **dielectric}
     else:
       data = None
