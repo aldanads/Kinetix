@@ -21,8 +21,8 @@ defects:
     charge: 2
     site_type: "O"
     allowed_sublattices: ["O"]
-    initial_concentration_bulk: 1.0e-2
-    initial_concentration_GB: 1.0e-2
+    initial_concentration_bulk: 0.0e-2
+    initial_concentration_GB: 0.0e-2
     valid_target_species: ["O"]
     activation_energies_key: "V_O"
     enabled_events: ["reaction"]

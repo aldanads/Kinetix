@@ -15,10 +15,30 @@ import numpy as np
 import time
 import platform
 
+def get_parameters_from_sim_id(sim_id: int) -> dict:
+   """Map SIM_ID to simulation parameters."""
+   # Define parameters
+   v0_initial_concentrations = [1.0e-3, 1.0e-2, 2.0e-2, 3.0e-2,  4.0e-2,  5.0e-2]
+   temperatures = [293.0, 310.0, 323.0]
+   h_generation = [0.45,0.48,0.50, 0.52, 0.55]
+   
+   idx = sim_id
+   
+   i_vo = idx % 6
+   i_temp = (idx // 6) % 3
+   i_gen_h = (idx // 18) % 5
+   
+   return {
+     'vo_initial_concentration': v0_initial_concentrations[i_vo],
+     'temperature': temperatures[i_temp],
+     'h_generation': h_generation[i_gen_h]
+   }
+   
 
 def main(sim_id):
         
-        System_state,rng,paths,Results,simulation_parameters,Elec_controller = initialization(sim_id)
+        params = get_parameters_from_sim_id(sim_id)
+        System_state,rng,paths,Results,simulation_parameters,Elec_controller = initialization(sim_id, params)
         
         if System_state.rank == 0:
           print(f'System size: {System_state.crystal_size}')
@@ -229,9 +249,8 @@ def main(sim_id):
     
                         end_time = time.time()
                             
-                        System_state.plot_crystal(45,45,paths['data'],j)   
-                              
-    
+                        System_state.plot_crystal(45,45,paths['data'],j)        
+                  
     
         if System_state.rank == 0:
           
@@ -258,7 +277,10 @@ if __name__ == '__main__':
       sim_id = int(sys.argv[1])
     else:
       sim_id = 0
+    
     System_state = main(sim_id)
+    
+    
 # Use cProfile to profile the main function
 #     cProfile.run('main()', 'profile_output.prof')    
 
