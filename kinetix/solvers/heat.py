@@ -14,7 +14,7 @@ from pathlib import Path
 from dolfinx import fem, mesh, geometry
 from dolfinx.fem.petsc import assemble_matrix, assemble_vector
 import petsc4py.PETSc as PETSc
-
+from mpi4py import MPI
 from kinetix.solvers.base import FEMSolverBase
 
 
@@ -350,7 +350,7 @@ class HeatSolver(FEMSolverBase):
   def get_maximum_temperature(self):
     """Get maximum temperature in domain (across all MPI ranks)."""
     local_max = np.max(self.T_current.x.array)
-    global_max = self.mpi_ctx.allreduce(local_max, op=self.mpi_ctx.MPI.MAX)
+    global_max = self.mpi_ctx.allreduce(local_max, op=MPI.MAX)
     return global_max
     
   def get_average_temperature(self):
@@ -364,8 +364,8 @@ class HeatSolver(FEMSolverBase):
     local_V_int = fem.assemble_scalar(fem.form(1.0 * dx))
     
     # === Step 3: Sum across all MPI ranks ===
-    global_T_int = self.mpi_ctx.allreduce(local_T_int, op=self.mpi_ctx.MPI.SUM)
-    global_V_int = self.mpi_ctx.allreduce(local_V_int, op=self.mpi_ctx.MPI.SUM)
+    global_T_int = self.mpi_ctx.allreduce(local_T_int, op=MPI.SUM)
+    global_V_int = self.mpi_ctx.allreduce(local_V_int, op=MPI.SUM)
     
     # === Step 4: Compute volume-average ===
     return global_T_int / global_V_int if global_V_int > 0 else self.T_ambient
