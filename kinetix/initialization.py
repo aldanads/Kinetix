@@ -73,7 +73,7 @@ def initialization(n_sim):
         if platform.system() == 'Windows': # When running in laptop
             dst = Path(r'\\FS1\Docs2\samuel.delgado\My Documents\Publications\Memristor ECM\Simulations\Tests')
         elif platform.system() == 'Linux': # HPC works on Linux
-            dst = Path(r'/sfiwork/samuel.delgado/PZT/test/')
+            dst = Path(r'/home/Docs2/samuel.delgado/linuxhome/Documents/Simulators/ECM_outputs_2/')
             
         if mpi_ctx.rank == 0:
           paths,Results = save_simulation(files_copy,dst,n_sim,simulation_type) # Create folders and python files
@@ -388,7 +388,7 @@ def initialization(n_sim):
         config.material.bond_length = material_data.get('bond_length_metal_O')
         
         if config.electrical and config.electrical.current:
-          config.electrical.currrent.epsilon_r = config.material.epsilon_r
+          config.electrical.current.epsilon_r = config.material.epsilon_r
           
         
         Elec_controller = ElectricalController.from_config(config.electrical)
@@ -406,7 +406,12 @@ def initialization(n_sim):
         formula = config.material.formula
         
         defects_config = config.defects.to_dict()
-        reactions_config = config.reactions.to_dict()
+        
+        if config.reactions:
+          reactions_config = config.reactions.to_dict()
+        else:
+          reactions_config = None
+        
         gb_configurations = [grainboundary.to_dict() for grainboundary in config.grain_boundaries]                    
         crystal_features = {
           'chemical_formula': formula,

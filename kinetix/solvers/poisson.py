@@ -11,7 +11,7 @@ from pathlib import Path
 from dolfinx import fem, mesh, geometry
 from dolfinx.fem.petsc import assemble_matrix, assemble_vector
 import petsc4py.PETSc as PETSc
-
+from mpi4py import MPI
 from kinetix.solvers.base import FEMSolverBase
 
 
@@ -360,7 +360,7 @@ class PoissonSolver(FEMSolverBase):
       
     # Validate charge conservation
     local_charge = fem.assemble_scalar(fem.form(self.rho * ufl.dx)) # Local total charge for this process
-    total_charge = self.mpi_ctx.allreduce(local_charge, op=self.mpi_ctx.MPI.SUM)       
+    total_charge = self.mpi_ctx.allreduce(local_charge, op=MPI.SUM)       
     expected_charge = sum(charges)
           
     charge_error = (
@@ -622,7 +622,7 @@ class PoissonSolver(FEMSolverBase):
       # Different ranks may evaluate different points, so we need to combine results
       E_values_array = self.mpi_ctx.allreduce(
         E_values_array,
-        op=self.mpi_ctx.MPI.SUM
+        op=MPI.SUM
       )
       
       # Store in dictionary format with caching 
@@ -680,8 +680,8 @@ class PoissonSolver(FEMSolverBase):
     local_z_max = coords[:, 2].max()
     
     # Reduce to global min/max across all ranks
-    global_z_min = self.mpi_ctx.allreduce(local_z_min, op=self.mpi_ctx.MPI.MIN)
-    global_z_max = self.mpi_ctx.allreduce(local_z_max, op=self.mpi_ctx.MPI.MAX)
+    global_z_min = self.mpi_ctx.allreduce(local_z_min, op=MPI.MIN)
+    global_z_max = self.mpi_ctx.allreduce(local_z_max, op=MPI.MAX)
     
     if self.rank == 0:
         print(f"\nDomain Z-range: [{global_z_min:.6f}, {global_z_max:.6f}] angstrom")
@@ -710,9 +710,9 @@ class PoissonSolver(FEMSolverBase):
             local_count = 1
         
         # === Reduce to global statistics ===
-        global_min = self.mpi_ctx.allreduce(local_min, op=self.mpi_ctx.MPI.MIN)
-        global_max = self.mpi_ctx.allreduce(local_max, op=self.mpi_ctx.MPI.MAX)
-        global_count = self.mpi_ctx.allreduce(local_count, op=self.mpi_ctx.MPI.SUM)
+        global_min = self.mpi_ctx.allreduce(local_min, op=MPI.MIN)
+        global_max = self.mpi_ctx.allreduce(local_max, op=MPI.MAX)
+        global_count = self.mpi_ctx.allreduce(local_count, op=MPI.SUM)
         
         # === Rank 0 prints consolidated results ===
         if self.rank == 0:
@@ -776,19 +776,19 @@ class PoissonSolver(FEMSolverBase):
     # === Global statistics via MPI reduction ===
     top_min = self.mpi_ctx.allreduce(
       top_min_local if len(top_values) > 0 else 1e10,
-      op=self.mpi_ctx.MPI.MIN
+      op=MPI.MIN
     )
     top_max = self.mpi_ctx.allreduce(
       top_max_local if len(top_values) > 0 else -1e10, 
-      op=self.mpi_ctx.MPI.MAX
+      op=MPI.MAX
     )
     bottom_min = self.mpi_ctx.allreduce(
       bottom_min_local if len(bottom_values) > 0 else 1e10,
-      op=self.mpi_ctx.MPI.MIN
+      op=MPI.MIN
     )
     bottom_max = self.mpi_ctx.allreduce(
       bottom_max_local if len(bottom_values) > 0 else -1e10,
-      op=self.mpi_ctx.MPI.MAX
+      op=MPI.MAX
     )
     
     # === Print boundary results (rank 0 only) ===
@@ -821,8 +821,8 @@ class PoissonSolver(FEMSolverBase):
       interior_max_local = np.max(interior_values)
             
       # Reduce to global interior statistics
-      interior_min = self.mpi_ctx.allreduce(interior_min_local, op=self.mpi_ctx.MPI.MIN)
-      interior_max = self.mpi_ctx.allreduce(interior_max_local, op=self.mpi_ctx.MPI.MAX)
+      interior_min = self.mpi_ctx.allreduce(interior_min_local, op=MPI.MIN)
+      interior_max = self.mpi_ctx.allreduce(interior_max_local, op=MPI.MAX)
             
       if self.rank == 0:
         print(f"\nInterior domain:")

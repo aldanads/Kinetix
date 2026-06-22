@@ -1283,6 +1283,7 @@ class Crystal_Lattice():
                         site.ion_generation_interface(idx)
                         update_gen_sites.add(idx)
                         
+                        
           if len(adsorption_sites_set) == 0 and len(update_gen_sites) == 0:
             print(f"Warning: No generation sites found within {interface_tolerance_generation} angstroms of interface for {defect.get('symbol')}")
                         

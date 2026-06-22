@@ -19,7 +19,7 @@ class MPIContext:
       self.size = self.comm.size
       self.available = True
       self.is_parallel = self.size > 1
-      self.MPI = MPI
+
     except (ImportError, AttributeError):
       # Fallback to serial (MPI not available)
       self.comm = None
@@ -27,7 +27,6 @@ class MPIContext:
       self.size = 1
       self.available = False
       self.is_parallel = False
-      self.MPI = None
       
   @classmethod
   def get_instance(cls):
@@ -35,6 +34,12 @@ class MPIContext:
     if cls._instance is None:
       cls._instance = cls()
     return cls._instance
+    
+  def __reduce__(self):
+    """
+    Tells pickle to call get_instance() instead of reconstructing.
+    """
+    return (self.__class__.get_instance, ())
     
   def barrier(self):
     """ Safe barrier - only calls if MPI is available """
@@ -64,6 +69,6 @@ class MPIContext:
     result : scalar
         Reduced value (same on all ranks)
     """
-    if self.comm is not None and self.MPI is not None:
+    if self.comm is not None:
       return self.comm.allreduce(value, op=op)
     return value

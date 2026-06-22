@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """GrainBoundary class for GB physics."""
 import numpy as np
+import math
 
 class GrainBoundary:
     def __init__(self,domain_size, gb_configurations: list[dict] = None):

@@ -168,7 +168,7 @@ def main(sim_id):
             # Dolfinx only works in Linux
             if solve_Poisson and platform.system() == 'Linux':
                 from kinetix.solvers.poisson import PoissonSolver
-                
+                from mpi4py import MPI
                 # Initialize Poisson solver on all MPI ranks
                 poisson_solver = PoissonSolver(
                   System_state.poissonSolver_parameters, 
@@ -197,9 +197,9 @@ def main(sim_id):
                         V_eff, _ = Elec_controller.calculate_current(clusters) # Obtain effective voltage after voltage drop of series resistance
                         poisson_solver.set_boundary_conditions(top_value=V_eff, bottom_value=0.0,clusters = clusters)
                         
-                        run_start_time = System_state.mpi_ctx.MPI.Wtime()
+                        run_start_time = MPI.Wtime()
                         uh = poisson_solver.solve(particle_locations,charges) 
-                        run_time = System_state.mpi_ctx.MPI.Wtime() - run_start_time
+                        run_time = MPI.Wtime() - run_start_time
                         
                         if System_state.rank == 0: print(f'Run time to solve Poisson: {run_time}')
 
@@ -234,15 +234,17 @@ def main(sim_id):
     
     
         if System_state.rank == 0:
-          # Variables to save
-          variables = {'System_state' : System_state}
-          filename = 'variables'
-          if save_data: save_variables(paths['program'],variables,filename)
           
           total_end_time = time.time()
           print(f"==================================================")
           print(f"SUCCESS: Simulation {sim_id} completed in {total_end_time - total_start_time:.2f} seconds.")
           print(f"==================================================")
+          
+          # Variables to save
+          variables = {'System_state' : System_state}
+          filename = 'variables'
+          if save_data: save_variables(paths['program'],variables,filename)
+          
           
         Elec_controller.save_IV_csv(paths['results'])
         Elec_controller.plot_V_I(paths['results'])

@@ -569,6 +569,7 @@ class FEMSolverBase:
   # ======================================================================
       
   def _precompute_domain_geometry(self):
+    from mpi4py import MPI
     """ Pre-compute domain bounding box and dimensions """
     coords = self.domain.geometry.x
     local_x_min, local_x_max = coords[:,0].min(), coords[:,0].max()
@@ -576,12 +577,12 @@ class FEMSolverBase:
     local_z_min, local_z_max = coords[:,2].min(), coords[:,2].max()
     
     # Global min/max across all ranks
-    x_min = self.mpi_ctx.allreduce(local_x_min, op=self.mpi_ctx.MPI.MIN)
-    x_max = self.mpi_ctx.allreduce(local_x_max, op=self.mpi_ctx.MPI.MAX)
-    y_min = self.mpi_ctx.allreduce(local_y_min, op=self.mpi_ctx.MPI.MIN)
-    y_max = self.mpi_ctx.allreduce(local_y_max, op=self.mpi_ctx.MPI.MAX)
-    self.z_min = self.mpi_ctx.allreduce(local_z_min, op=self.mpi_ctx.MPI.MIN)
-    self.z_max = self.mpi_ctx.allreduce(local_z_max, op=self.mpi_ctx.MPI.MAX)
+    x_min = self.mpi_ctx.allreduce(local_x_min, op=MPI.MIN)
+    x_max = self.mpi_ctx.allreduce(local_x_max, op=MPI.MAX)
+    y_min = self.mpi_ctx.allreduce(local_y_min, op=MPI.MIN)
+    y_max = self.mpi_ctx.allreduce(local_y_max, op=MPI.MAX)
+    self.z_min = self.mpi_ctx.allreduce(local_z_min, op=MPI.MIN)
+    self.z_max = self.mpi_ctx.allreduce(local_z_max, op=MPI.MAX)
     
     self.Lx = x_max - x_min
     self.Ly = y_max - y_min

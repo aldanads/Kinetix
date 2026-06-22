@@ -5,19 +5,19 @@
 
 initial_voltage: 0.0
 initial_time: 0.0
-series_resistance: 200.0
+series_resistance: 1e7
 
 voltage:
   mode: "RAMP_CYCLE"
-  max_voltage: 2.6
-  min_voltage: -1.5
-  ramp_rate: 1.0
-  num_cycles: 3
-  voltage_update_time: 0.1
+  max_voltage: 1.0
+  min_voltage: -1.0
+  ramp_rate: 2.0
+  num_cycles: 1
+  voltage_update_time: 0.01
 
 current:
   model: "SCHOTTKY"
-  barrier_height: 0.53
+  barrier_height: 0.93
   temperature: 300.0 # Ambient -> Override during simulation
   area: 7.85e-9
   epsilon_r: 25 # Override if find in Materials Project

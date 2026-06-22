@@ -1,4 +1,4 @@
-# data/parameters/grain_boundaries/gb_cylindrical.yaml
+# data/parameters/grain_boundaries/gb_cylindrical_PZT_ZrPbO3.yaml
 # =============================================================================
 # Grain Boundary Configuration - Cylindrical
 # =============================================================================
@@ -10,9 +10,9 @@ description: "Cylindrical grain boundary for columnar grain structure"
 grain_boundaries:
   - type: "cylindrical"
     enabled: true
-    center: [25.0, 25.0]                # [x, y] center position (Å)
-    radius: 8.0                         # Inner radius (Å)
-    outer_radius: 15.0                  # Outer radius including transition (Å)
+    center: [25.0, 25.0]                # [x, y] center position (angstroms)
+    radius: 8.0                         # Inner radius (angstroms)
+    outer_radius: 15.0                  # Outer radius including transition (angstroms)
     description: "Central cylindrical GB"
     
     event_modifications:

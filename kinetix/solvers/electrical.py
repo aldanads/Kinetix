@@ -23,7 +23,6 @@ class ElectricalController:
         self.resistance = float('inf')
         self.series_resistance = series_resistance
         self.current_parameters = {}
-        self.current_model = kwargs.get('current_model', 'ohmic')  # 'ohmic', 'schottky', 'poole_frenkel', etc. 
         self.crystal_size = kwargs.get('crystal_size')
         self.thickness_m = self.crystal_size[2] * ANGSTROM_TO_METER
         self.voltage_mode = None
@@ -272,7 +271,7 @@ class ElectricalController:
         self.current_parameters.update(model_params)
         
         # Validate parameters based on current model
-        if self.current_model == 'schottky':
+        if self.current_parameters['model'] == 'schottky':
             required = ['barrier_height', 'temperature', 'area', 'epsilon_r']
             self._validate_parameters(required)
             
@@ -302,7 +301,7 @@ class ElectricalController:
         """Validate that required parameters are present"""
         missing = [param for param in required_params if param not in self.current_parameters]
         if missing:
-            raise ValueError(f'Missing required parameters for {self.current_model}: {missing}')
+            raise ValueError(f'Missing required parameters for {self.current_parameters["model"]}: {missing}')
     
     def calculate_current(self,clusters = None):
         """
@@ -318,7 +317,7 @@ class ElectricalController:
         else:
           gap_m, model, filament_resistance = self._resolve_conduction_state(clusters)
           
-        self.current_model = model
+        self.current_parameters['model'] = model
         
         if model == "ohmic":
           self._calculate_ohmic_current(self.voltage,filament_resistance)
