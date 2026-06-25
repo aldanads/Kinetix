@@ -109,7 +109,6 @@ class Site():
         pos_origin = grid_crystal[idx_origin].position
         
         for idx in neigh_idx:
-                    
           if self._is_mobile_site(grid_crystal[idx]):
             self.nearest_neighbors_idx.append(tuple(idx)) 
             

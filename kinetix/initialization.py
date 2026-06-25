@@ -43,20 +43,25 @@ def initialization(n_sim,params):
 # =============================================================================
 #         Simulation parameters
 #         
-# =============================================================================
-    seed = 1
+# =============================================================================  
+    # === Initialize MPI ===
+    mpi_ctx = MPIContext.get_instance()
+    
+    parameters_root = get_parameters_root()
+    preset_name = 'ECM_CeO2.yaml'
+    preset_path = parameters_root / 'presets' / preset_name
+    config = SimulationConfig.from_yaml(preset_path)
+    
+    seed = config.settings.seed_rng
     # Random seed as time
     rng = np.random.default_rng(seed) # Random Number Generator (RNG) object
     
-    # === Initialize MPI ===
-    mpi_ctx = MPIContext.get_instance()
-    save_data = True
-    lammps_file = True
+    save_data = config.settings.save_data
+    lammps_file = config.settings.lammps_output
     snapshoots_steps = int(4e1)
     total_steps = int(snapshoots_steps * 25)
     
-    simulation_types = ['deposition','annealing','electronic_device']
-    simulation_type = simulation_types[2]
+    simulation_type = config.settings.simulation_type
     
     simulation_parameters = {
       'save_data':save_data, 'snapshoots_steps':snapshoots_steps,
@@ -70,16 +75,13 @@ def initialization(n_sim,params):
         files_copy = ['run_simulation.py', 
                       'data/parameters','kinetix']
         
-        if platform.system() == 'Windows': # When running in laptop
-            dst = Path(r'\\FS1\Docs2\samuel.delgado\My Documents\Publications\Memristor ECM\Simulations\Tests')
-        elif platform.system() == 'Linux': # HPC works on Linux
-            dst = Path(r'/home/Docs2/samuel.delgado/linuxhome/Documents/Simulators/ECM_outputs_2/')
+        output_path = Path(config.settings.output_path)
             
         if mpi_ctx.rank == 0:
-          paths,Results = save_simulation(files_copy,dst,n_sim,simulation_type) # Create folders and python files
+          paths,Results = save_simulation(files_copy,output_path,n_sim,simulation_type) # Create folders and python files
         else:
           # Other ranks create empty paths structure (same keys)
-          sim_dir = dst / f'Sim_{n_sim}'
+          sim_dir = output_path / f'Sim_{n_sim}'
           paths = {
             'data': sim_dir / 'output',
             'program': sim_dir / 'program',
@@ -365,18 +367,13 @@ def initialization(n_sim,params):
         
     elif simulation_type == 'electronic_device':        
         
-        # 1. Load configuration from yaml
-        parameters_root = get_parameters_root()
-        preset_path = parameters_root / 'presets' / 'PZT_ZrTi(PbO3)2.yaml'
-        config = SimulationConfig.from_yaml(preset_path)
-        
         ### ----------------- PARAMETER SWEEP ----------------- ###
-        config.defects.defects["oxygen_vacancy"].initial_concentration_bulk = params["vo_initial_concentration"]
-        config.defects.defects["oxygen_vacancy"].initial_concentration_GB = params["vo_initial_concentration"] 
-        config.experimental.temperature = params["temperature"]
+        #config.defects.defects["oxygen_vacancy"].initial_concentration_bulk = params["vo_initial_concentration"]
+        #config.defects.defects["oxygen_vacancy"].initial_concentration_GB = params["vo_initial_concentration"] 
+        #config.experimental.temperature = params["temperature"]
     
         
-        # 2. Fetch Material Data from Materials Project
+        # 1. Fetch Material Data from Materials Project
         api_key = get_api_key()
         fetcher = MaterialDataFetcher(api_key,mpi_ctx)
         material_data = fetcher.get_all_material_data(config.material.selection.mp_id)
@@ -387,7 +384,7 @@ def initialization(n_sim,params):
         if mp_epsilon is not None:
           config.material.epsilon_r = mp_epsilon
         
-        # 3. Update config with fetched data
+        # 2. Update config with fetched data
         config.material.formula = material_data['formula']
         config.material.chem_env_symmetry = material_data.get('chem_env_symmetry')
         config.material.metal_valence = material_data.get('metal_valence')
@@ -399,7 +396,7 @@ def initialization(n_sim,params):
         
         Elec_controller = ElectricalController.from_config(config.electrical)
         
-        # 4. Experimental conditions
+        # 3. Experimental conditions
         experimental_conditions = {
           'sticking_coeff': config.experimental.sticking_coeff,
           'partial_pressure':config.experimental.partial_pressure,
@@ -407,7 +404,7 @@ def initialization(n_sim,params):
           'simulation_type':simulation_type
         }
         
-        # 5. Prepare parameters for grid initialization
+        # 4. Prepare parameters for grid initialization
         crystal_size = config.material.structure.size # (angstrom)
         formula = config.material.formula
         
@@ -437,10 +434,10 @@ def initialization(n_sim,params):
           'rng': rng
         }
         
-        # 6. Superbasin parameters
+        # 5. Superbasin parameters
         superbasin_parameters = config.superbasin.to_dict()
         
-        # 7. Poisson solver parameters
+        # 6. Poisson solver parameters
         mesh_file = f"{formula}_{int(max(crystal_size) / 10)}nm_mesh.msh"
         poissonSolver_parameters = {
           'mesh_file': mesh_file,
@@ -458,10 +455,10 @@ def initialization(n_sim,params):
           'mesh_config': config.mesh.to_dict()
         }
 
-        # 8. Activation energies
+        # 7. Activation energies
         ae_data = load_activation_energies(preset_path, config.settings)
         ### ----------------- PARAMETER SWEEP ----------------- ###
-        ae_data['PZT'][1]['activation_energies']['E_gen_defect'] = params['h_generation']
+        #ae_data['PZT'][1]['activation_energies']['E_gen_defect'] = params['h_generation']
 
         Act_E_dict = _process_activation_energies(
           defects_config,
@@ -469,7 +466,7 @@ def initialization(n_sim,params):
           config.settings.technology
         )
         
-        # 9. Initialize crystal lattice
+        # 8. Initialize crystal lattice
         filename = f'grid_{formula}_{int(max(crystal_size) / 10)}nm'
 
         System_state = initialize_grid_crystal(
@@ -485,7 +482,7 @@ def initialization(n_sim,params):
         ) 
         
         
-        # 10. Post initialization steps
+        # 9. Post initialization steps
         # Write metadata
         System_state.write_metadata(paths['data'])   
 

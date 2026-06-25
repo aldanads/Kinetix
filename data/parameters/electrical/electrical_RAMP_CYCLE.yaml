@@ -5,7 +5,7 @@
 
 initial_voltage: 0.0
 initial_time: 0.0
-series_resistance: 1e7
+series_resistance: 1.0e7
 
 voltage:
   mode: "RAMP_CYCLE"

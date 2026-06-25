@@ -111,9 +111,9 @@ class ElectricalConfig:
       current = None
     
     config = cls(
-      initial_voltage=data.get('initial_voltage'),
-      initial_time=data.get('initial_time'),
-      series_resistance=data.get('series_resistance'),
+      initial_voltage=float(data.get('initial_voltage')),
+      initial_time=float(data.get('initial_time')),
+      series_resistance=float(data.get('series_resistance')),
       voltage=voltage,
       current=current
     )

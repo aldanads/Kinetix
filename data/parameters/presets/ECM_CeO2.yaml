@@ -18,7 +18,7 @@ metadata:
 material:
   name: "CeO2"
   mp_id: "mp-20194"
-  radius_neighbors: 4.0
+  radius_neighbors: 6.0
   epsilon_r: 23.0
   
 # -----------------------------------------------------------------------------
@@ -55,7 +55,8 @@ settings:
   seed_rng: 1                           
   save_data: true                      
   lammps_output: true
-  activation_energies: "activation_energies/ECM_CeO2.json"    
+  activation_energies: "activation_energies/ECM_CeO2.json"
+  output_path: '/home/Docs2/samuel.delgado/linuxhome/Documents/Simulators/ECM_outputs_2/'
   
 # -----------------------------------------------------------------------------
 # Superbasin Acceleration

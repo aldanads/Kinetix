@@ -57,7 +57,8 @@ settings:
   seed_rng: 1                           
   save_data: true                      
   lammps_output: true
-  activation_energies: "activation_energies/PZT_ZrPbO3.json"                   
+  activation_energies: "activation_energies/PZT_ZrPbO3.json"   
+  output_path: '/home/Docs2/samuel.delgado/linuxhome/Documents/Simulators/ECM_outputs_2/'                
   
 # -----------------------------------------------------------------------------
 # Superbasin Acceleration

@@ -15,8 +15,7 @@
 #PBS -N Kinetix_simulation
 #PBS -q default
 #PBS -j oe
-#PBS -t 1-10                    # Job array for parameter sweeps
-
+#PBS -t 0-10                    # Job array for parameter sweeps
 
 # 1. Navigate to submission directory
 cd $PBS_O_WORKDIR
@@ -57,7 +56,7 @@ export DOLFINX_JIT_TIMEOUT=300
 # Job Configuration
 # =============================================================================
 
-SIM_ID=${PBS_ARRAYID:-1}
+SIM_ID=${PBS_ARRAYID}
 
 # Core counting (works with both PBS_NCPUS and PBS_NODEFILE)
 if [ -n "$PBS_NCPUS" ]; then

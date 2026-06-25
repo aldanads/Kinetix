@@ -309,7 +309,6 @@ class GrainBoundary:
         # 1. Handle generation
         if gen_cfg and defect_name in gen_cfg.get('affected_defects', []) and "E_gen_defect" in base_energies:
           required_region = gen_cfg.get('region')
-          
           if self._region_matches(site_gb_region, required_region):
             base_energies["E_gen_defect"] -= self.get_activation_energy_GB(site.position,"generation")
 

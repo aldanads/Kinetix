@@ -871,6 +871,15 @@ class Crystal_Lattice():
         
         # Get neighbors using k-d tree
         neighbor_site_indices = self._get_neighbors_for_site(site_idx, self.radius_neighbors)
+        """
+        if site.site_type == 'interstitial':
+          print(f'For site: {site.position}, chemical specie: {site.chemical_specie}')
+          for neigh_idx in neighbor_site_indices:
+            neigh = self.grid_crystal[neigh_idx]
+            if neigh.chemical_specie == 'Empty':
+              dist = np.linalg.norm(np.array(site.position) - np.array(neigh.position))
+              print(f'Neigh: {neigh.position}, chemical specie: {neigh.chemical_specie}, dsitance: {dist}')
+        """
         
         if site_idx in neighbor_site_indices:
           neighbor_site_indices.remove(site_idx) 
@@ -1261,7 +1270,7 @@ class Crystal_Lattice():
             
                             
           adsorption_sites_set = set(self.adsorption_sites)
-
+          
           for idx in support_update_sites:
                 site = self.grid_crystal[idx]
                 
@@ -1277,12 +1286,12 @@ class Crystal_Lattice():
                         site.remove_event_type(self.num_event-1)
                     
                 else:
+                      
                     if (is_interstitial_near_interface and
                         site.chemical_specie == self.affected_site):
                         self.adsorption_sites.append(idx)
                         site.ion_generation_interface(idx)
-                        update_gen_sites.add(idx)
-                        
+                        update_gen_sites.add(idx)    
                         
           if len(adsorption_sites_set) == 0 and len(update_gen_sites) == 0:
             print(f"Warning: No generation sites found within {interface_tolerance_generation} angstroms of interface for {defect.get('symbol')}")
@@ -2135,8 +2144,9 @@ class Crystal_Lattice():
         
       # Handle cluster updates for neutral metal atoms
       if migrating_charge == 0:
+        self._remove_metal_atom_from_clusters(source_idx) 
         self._add_metal_atom_to_clusters(dest_idx)
-        self._remove_metal_atom_from_clusters(source_idx)  
+         
         
     def _handle_generation_event(self, chosen_event, support_update_sites, event_update_sites):
       """ Handle defect generation events """
@@ -2151,9 +2161,12 @@ class Crystal_Lattice():
       gb_charge = self._get_gb_charge_state(defect_name, dest_pos, event_type='generation')
       
       if gb_charge is not None:
-        migrating_charge = gb_charge
+        generated_charge = gb_charge
+      else:
+        generated_charge = self.defects_config[defect_name]['charge']
+        
       
-      self._introduce_specie_site(dest_idx, support_update_sites, event_update_sites, chemical_specie, migrating_charge)
+      self._introduce_specie_site(dest_idx, support_update_sites, event_update_sites, chemical_specie, generated_charge)
       
     def _handle_redox_event(self, chosen_event, support_update_sites, event_update_sites):
       """Handle redox events with multi-species support."""
@@ -3084,7 +3097,7 @@ class Crystal_Lattice():
        ]
             
        # Reset the site's electrode flag (no longer in any cluster)
-       self.grid_crystal[site_id].in_cluster_electrode = {'bottom_layer': False, 'top_layer': False}   
+       self.grid_crystal[site_id].in_cluster_with_electrode = {'bottom_layer': False, 'top_layer': False}   
        
        
        if cluster.size < 2:
@@ -3112,7 +3125,7 @@ class Crystal_Lattice():
            for atom in comp:
              del self.atom_to_cluster[atom]
              self.grid_crystal[atom].in_cluster_with_electrode = {'bottom_layer': False, 'top_layer': False}
-             continue 
+           continue 
              
          # Create new cluster for valid fragment
          positions = [self.grid_crystal[a].position for a in comp]

@@ -18,10 +18,10 @@ grain_boundaries:
     event_modifications:
       migration:
         region: "outer_boundary"
-        affected_defects: ["hydrogen_interstitial"]
+        affected_defects: ["Ag_interstitial"]
         Act_E_diff_GB: 0.0             # eV
       
       generation:
         region: "outer_boundary"
-        affected_defects: ["hydrogen_interstitial"]
+        affected_defects: ["Ag_interstitial"]
         Act_E_diff_GB: 2.8             # eV
