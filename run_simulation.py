@@ -211,29 +211,16 @@ def main(sim_id):
                         # Every time we change the applied voltage, we should calculate Poisson
                         V_top = Elec_controller.apply_voltage(System_state.time)
                         System_state.save_electric_bias(V_top)
-                        print(f'[DEBUG][Rank {System_state.rank}] Prepare clusters...', flush=True)
                         clusters = System_state.prepare_clusters_for_bcs()
                         # We need the cluster to know what is the effective gap for calculating the Schottky emission
-                        print(f'[DEBUG][Rank {System_state.rank}] Cluster prepared...', flush=True)
                         V_eff, _ = Elec_controller.calculate_current(clusters) # Obtain effective voltage after voltage drop of series resistance
-                        
-                        System_state.mpi_ctx.barrier()
-                        if System_state.rank == 0:
-                          print(f'[DEBUG][Barrier 5] All ranks passed calculate_current, V_eff={V_eff}', flush=True)
                           
                         poisson_solver.set_boundary_conditions(top_value=V_eff, bottom_value=0.0,clusters = clusters)
                         
-                        System_state.mpi_ctx.barrier()
-                        if System_state.rank == 0:
-                          print(f'[DEBUG][Barrier 6] All ranks passed set_boundary_conditions', flush=True)
-                          
-                        print(f'[DEBUG][Rank {System_state.rank}] Solving Poisson equation...', flush=True)
+                        
                         run_start_time = MPI.Wtime()
                         uh = poisson_solver.solve(particle_locations,charges) 
                         run_time = MPI.Wtime() - run_start_time
-                        
-                        if System_state.rank == 0:
-                          print(f'[DEBUG] Poisson solve completed in {run_time:.3f}s', flush=True)
                         
                         if System_state.rank == 0: print(f'Run time to solve Poisson: {run_time}')
 

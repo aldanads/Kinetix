@@ -225,22 +225,10 @@ class PoissonSolver(FEMSolverBase):
     
     
     if clusters is not None:
-      self.mpi_ctx.barrier()
-      if self.rank == 0:
-        print(f'[DEBUG][set_boundary_conditions Barrier 5.1 - Half part of boundary conditions]', flush=True)
         
-      print(f'    [BC][Rank {self.rank}] n clusters: {len(clusters)}')
-      
-      self.mpi_ctx.barrier()
-      if self.rank == 0:
-        print(f'[DEBUG][Barrier 5.2 - Starting loop cluster]', flush=True)
-        
-      for cluster in clusters.values():
-                          
+      for cluster in clusters.values():               
         touches_bottom = cluster.attached_layer.get('bottom_layer', False)
         touches_top = cluster.attached_layer.get('top_layer', False)
-        
-        print(f'    [BC][Rank {self.rank}], Cluster of size: {cluster.size}, touches bottom: {touches_bottom}, touches top: {touches_top}', flush=True)
         
         if touches_bottom and touches_top:
           # Bridging cluster - use conductivity formulation
@@ -279,7 +267,6 @@ class PoissonSolver(FEMSolverBase):
     """  
     
     if cluster_particle_positions is None or len(cluster_particle_positions) == 0:
-      print(f'      [_create_cluster_bc][Rank {self.rank}] No positions, returning empty', flush=True)
       return []
     
     cluster_boundary_conditions = []
@@ -287,26 +274,15 @@ class PoissonSolver(FEMSolverBase):
     
     cluster_particle_positions = np.array(cluster_particle_positions, dtype=np.float64)
     
-    print(f'      [_create_cluster_bc][Rank {self.rank}] Finding DOFs near particles...', flush=True)
     # Find DOFs near cluster
     dofs_near_cluster = self._find_dofs_near_particles_vectorized(
       cluster_particle_positions, contact_radius
     )   
     
-    print(f'      [_create_cluster_bc][Rank {self.rank}] Found {len(dofs_near_cluster)} DOFs', flush=True)
-    
-    #if len(dofs_near_cluster) > 0:
-    print(f'      [_create_cluster_bc][Rank {self.rank}] Creating BC function...', flush=True)
     u_cluster = fem.Function(self.V)
     u_cluster.interpolate(lambda x: np.full_like(x[0], cluster_potential))
-    print(f'      [_create_cluster_bc][Rank {self.rank}] Creating dirichletbc...', flush=True)
     bc_cluster = fem.dirichletbc(u_cluster, dofs_near_cluster)
     cluster_boundary_conditions.append(bc_cluster)
-    print(f'      [_create_cluster_bc][Rank {self.rank}] BC created successfully', flush=True)
-    #else:
-    #  print(f'      [_create_cluster_bc][Rank {self.rank}] No DOFs found, skipping BC', flush=True)
-    
-    print(f'      [_create_cluster_bc][Rank {self.rank}] Returning {len(cluster_boundary_conditions)} BCs', flush=True)
     
     return cluster_boundary_conditions 
     
@@ -381,28 +357,16 @@ class PoissonSolver(FEMSolverBase):
         
       cell_values += gauss_values
     
-      
     # Set values (only local cells)
     with self.rho.x.petsc_vec.localForm() as local_rho:
       local_rho.setArray(cell_values[:self.W.dofmap.index_map.size_local])
       
-    local_rho_np = np.asarray(local_rho.array)
-    
-      
-    if self.rank == 0:
-        print(f'    [charge_density] Validating charge conservation...', flush=True)
     # Validate charge conservation
     local_charge = fem.assemble_scalar(fem.form(self.rho * ufl.dx)) # Local total charge for this process
-    if self.rank == 0:
-        print(f'    [charge_density] Assembled scalar...', flush=True)
     total_charge = self.mpi_ctx.allreduce(local_charge, op=MPI.SUM)
-    if self.rank == 0:
-        print(f'    [charge_density] Total charge -> ALl reduce...', flush=True)       
+    
     expected_charge = sum(charges)
     
-    if self.rank == 0:
-        print(f'    [charge_density] Total charge: {total_charge:.4e}, Expected: {expected_charge:.4e}', flush=True)
-          
     charge_error = (
       100 * abs((total_charge - expected_charge) / expected_charge) 
       if abs(expected_charge) > 0 else 0.0
@@ -429,8 +393,6 @@ class PoissonSolver(FEMSolverBase):
       self.comm.Barrier()
       self.comm.Abort(1)   
       
-    if self.rank == 0:
-        print(f'    [charge_density] Completed successfully', flush=True)     
           
     return self.rho
     
@@ -491,10 +453,7 @@ class PoissonSolver(FEMSolverBase):
     uh : Function
       Electric potential solution
     """
-    if self.mpi_ctx.rank == 0:
-        print('  [solve] Starting Poisson solve...', flush=True)
     angstrom_to_m = 1e-10
-    
     
     # === Choose formulation ===
     if self.use_conductivity:
@@ -514,13 +473,9 @@ class PoissonSolver(FEMSolverBase):
       # Standard Poisson: -e?(?f) = ?
       a_form = self.a_form
       
-      if self.mpi_ctx.rank == 0:
-            print(f'  [solve] Creating charge density for {len(charge_locations)} charges...', flush=True)
       # Create charge density
       rho = self.charge_density(charge_locations, charges, charge_err_tol)
       
-      if self.mpi_ctx.rank == 0:
-            print('  [solve] Charge density created', flush=True)
       """
       Unit analysis:
       rho = C/m^3
@@ -586,12 +541,7 @@ class PoissonSolver(FEMSolverBase):
     fem.set_bc(self.uh.x.array, self.bcs) 
     self.uh.x.scatter_forward()
     self.ksp.setInitialGuessNonzero(False)
-        
-    if self.mpi_ctx.rank == 0:
-        print('  [solve] Calling ksp.solve()...', flush=True)
     self.ksp.solve(self.b, self.uh.x.petsc_vec)
-    if self.mpi_ctx.rank == 0:
-        print('  [solve] KSP solve completed', flush=True)
     self.uh.x.scatter_forward()
 
         
@@ -606,9 +556,6 @@ class PoissonSolver(FEMSolverBase):
     """
         
     self.new_field_cache = True
-    
-    if self.mpi_ctx.rank == 0:
-        print('  [solve] Poisson solve complete', flush=True)
         
     return self.uh
     

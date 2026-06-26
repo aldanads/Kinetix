@@ -504,7 +504,7 @@ class Crystal_Lattice():
         # Loading existing grid
         if grid_crystal is not None:
           self.grid_crystal = grid_crystal  
-          self.domain_height = self.crystal_size[2]
+          self._compute_interface_flags()
           # Initialize pathways for loaded grids too 
           self._build_kdtree()
           self._initialize_migration_pathways(radius_neighbors, reset_energies=True)   
@@ -562,10 +562,13 @@ class Crystal_Lattice():
                   Act_E_dict=self._efficient_act_e_copy(self.Act_E_dict),
                   defects_config = self.defects_config,
                   reactions_config = self.reactions_config,
-                  is_active_site=True # Interstitials are always active
+                  is_active_site=True, # Interstitials are always active
                 )
                 interstitial_count += 1
-                
+          
+          # === STEP 3.5: Set interface flags ===
+          self._compute_interface_flags()
+          
           if is_root:
             print(f"Step 3 (Interstitial sites): {time.perf_counter() - start_time:.4f} seconds")    
             print(f"Total sites created: {len(self.grid_crystal)} ({len(self.structure)} host + {interstitial_count} interstitial)")
@@ -642,6 +645,22 @@ class Crystal_Lattice():
           applicable_defects.append(defect_name)
           
       return applicable_defects
+      
+    def _compute_interface_flags(self):
+      """
+      Compute interface flags for all sites based on per-site_type z-ranges
+      Called after grid is built of loaded
+      """
+      for defect_name, defect_cfg in self.defects_config.items():
+        site_type_defect = defect_cfg['site_type']
+        type_sites = [s for s in self.grid_crystal.values() if s.site_type == site_type_defect]
+        
+        z_positions = sorted(set(round(s.position[2], 4) for s in type_sites))
+        bottom_z = z_positions[0]
+        top_z = z_positions[-1]
+        
+        for site in type_sites:
+          site.set_interface_flags(bottom_z, top_z)
             
     def _generate_interstitial_sites(self,api_key=None):
       """
@@ -1253,48 +1272,40 @@ class Crystal_Lattice():
         # Oxidation reaction at the electrode-dielectric interface
         elif self.mode == 'interstitial':
         
-          # We need to introduce a tolerance to the interface, because the interstitial sites may not be in contact with the electrodes
-          interface_tolerance_generation = defect.get('interface_tolerance_generation', 2.0) 
+          
           sites_generation_layer = defect.get('sites_generation_layer')
           
           # Find interstitial sites within interface proximity
-          if sites_generation_layer == 'top_layer':
-            interface_z = self.crystal_size[2]
-          elif sites_generation_layer == 'bottom_layer':
-            interface_z = 0.0
-          else:
+          if sites_generation_layer not in ['top_layer', 'bottom_layer']:
             print(f"Warning: Unknown sites_generation_layer: {sites_generation_layer}")
-            
-          if interface_tolerance_generation <= 0.0:
-            raise ValueError("interface_tolerance_generation must be positive")
-            
                             
           adsorption_sites_set = set(self.adsorption_sites)
           
           for idx in support_update_sites:
                 site = self.grid_crystal[idx]
                 
-                # Check if this is an interstitial site near the top interface
-                is_interstitial_near_interface = (
-                  site.site_type == "interstitial" and
-                  abs(site.position[2] - interface_z) <= interface_tolerance_generation
-                )
-                
+                # Cleanup branch
                 if idx in adsorption_sites_set:
                     if (site.chemical_specie != self.affected_site):
                         self.adsorption_sites.remove(idx)
                         site.remove_event_type(self.num_event-1)
+                    continue # Already handled, move to the next site
                     
-                else:
+                if site.site_type != "interstitial":
+                  continue
+                  
+                is_at_interface = (
+                  (sites_generation_layer == 'top_layer' and site.is_at_top_interface) or
+                  (sites_generation_layer == 'bottom_layer' and site.is_at_bottom_interface)
+                )
                       
-                    if (is_interstitial_near_interface and
-                        site.chemical_specie == self.affected_site):
-                        self.adsorption_sites.append(idx)
-                        site.ion_generation_interface(idx)
-                        update_gen_sites.add(idx)    
+                if (is_at_interface and site.chemical_specie == self.affected_site):
+                  self.adsorption_sites.append(idx)
+                  site.ion_generation_interface(idx)
+                  update_gen_sites.add(idx)    
                         
           if len(adsorption_sites_set) == 0 and len(update_gen_sites) == 0:
-            print(f"Warning: No generation sites found within {interface_tolerance_generation} angstroms of interface for {defect.get('symbol')}")
+            print(f"Warning: No generation sites found for {defect.get('symbol')}")
                         
           return update_gen_sites  
        
@@ -2306,7 +2317,7 @@ class Crystal_Lattice():
             for idx in mobile_support_sites:
                 self.grid_crystal[idx].supported_by(
                   self.grid_crystal, self.wulff_facets, self.dir_edge_facets,
-                  self.domain_height,idx
+                  idx
                 )
         
         # Update generation sites

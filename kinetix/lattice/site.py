@@ -55,9 +55,10 @@ class Site():
         # Electrostatic properties
         self.ion_charge = 0
         self.in_cluster_with_electrode = {'bottom_layer': False, 'top_layer': False}
+        
+        # === Interface flags ===
         self.is_at_bottom_interface = False
         self.is_at_top_interface = False
-
         
         # Calculate applicable defects
         if is_active_site and defects_config is not None:
@@ -69,7 +70,26 @@ class Site():
               self.passivation_level = defects_config[current_defect]["passivation_level"] 
         else:
           self.applicable_defects = []   
-          
+          current_defect = None
+              
+        
+    
+    def set_interface_flags(self, bottom_z, top_z, tol = 1e-4):
+      """
+      Set interface flags based on position and domain height.
+      Called ONCE after domain_height is computed.
+        
+      Parameters:
+        domain_height (float): Maximum z-coordinate of the domain
+        interface_tolerance (float): Tolerance for interface detection [Å]
+      """     
+      
+      z = self.position[2]
+      
+      if z - bottom_z <= tol:
+        self.is_at_bottom_interface = True
+      if abs(top_z - z) < tol:
+        self.is_at_top_interface = True
 
 # =============================================================================
 #     Helper methods           
@@ -130,19 +150,15 @@ class Site():
 # =============================================================================
 #         Occupied sites supporting this node
 # =============================================================================    
-    def supported_by(self,grid_crystal,wulff_facets,dir_edge_facets,domain_height,idx_origin):
+    def supported_by(self,grid_crystal,wulff_facets,dir_edge_facets,idx_origin):
         
         # Initialize supp_by as an empty list
         self.supp_by = []
         
-        # Position close to 0 are supported by the substrate
-        tol = 1e-6
-        if self.position[2] <= tol:
-            self.supp_by.append('bottom_layer')
-            self.is_at_bottom_interface = True
-        if abs(self.position[2] - domain_height) < tol:
-            self.supp_by.append('top_layer')
-            self.is_at_top_interface = True
+        if self.is_at_bottom_interface:
+          self.supp_by.append('bottom_layer')
+        if self.is_at_top_interface:
+          self.supp_by.append('top_layer')
 
         current_defect = self._get_current_defect_name()
         if self.chemical_specie != "Empty" and self.defects_config[current_defect]["CN_matters"]:
@@ -434,8 +450,11 @@ class Site():
             
         # Migration of interstitial sites
         else:
+        
+            
             # Get current defect name for energy lookup
             current_defect = self._get_current_defect_name()
+            #print(f'Current defect: {current_defect}, Act Energy: {self.Act_E_dict[current_defect]}')
             Act_E_mig = self.Act_E_dict[current_defect]['E_mig']
             allowed_sublattices = self.defects_config[current_defect]['allowed_sublattices']
             valid_target_species = self.defects_config[current_defect]['valid_target_species']
