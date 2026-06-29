@@ -2077,7 +2077,7 @@ class Crystal_Lattice():
       
     def _is_at_top_electrode(self, site_idx):
       """ Check if site is at top electrode """
-      return np.isclose(self.grid_crystal[site_idx].position[2], self.crystal_size[2])
+      return self.grid_crystal[site_idx].is_at_bottom_interface
       
     def _get_gb_charge_state(self, defect_name, site_position, event_type='migration'):
       """
@@ -2123,9 +2123,10 @@ class Crystal_Lattice():
       """Handle migration events with multi-species support."""
       source_idx = chosen_event[-1]
       dest_idx = chosen_event[1]
+      dest_site = self.grid_crystal[dest_idx]
       
       # Check for removal at electrode
-      if (self._is_at_top_electrode(dest_idx) and self.V < 0 and
+      if (dest_site.is_at_top_interface and self.V < 0 and
           self.grid_crystal[source_idx].ion_charge != 0 and self.allow_specie_removal):
           self._remove_species_at_site(source_idx, support_update_sites, event_update_sites)
           if self.poissonSolver_parameters['solve_Poisson']:
@@ -2140,7 +2141,7 @@ class Crystal_Lattice():
       migrating_charge = source_site.ion_charge
       
       # Apply GB charge state modification
-      dest_pos = self.grid_crystal[dest_idx].position
+      dest_pos = dest_site.position
       gb_charge = self._get_gb_charge_state(defect_name, dest_pos, event_type='migration')
       
       if gb_charge is not None:
@@ -2190,7 +2191,7 @@ class Crystal_Lattice():
         self._add_metal_atom_to_clusters(site_idx)
       
       elif chosen_event[2] == 'oxidation': 
-        if self._is_at_top_electrode(site_idx) and self.V < 0:
+        if site.is_at_top_interface and self.V < 0:
           self._remove_species_at_site(site_idx, support_update_sites, event_update_sites)
         else:
           site.ion_charge += 1

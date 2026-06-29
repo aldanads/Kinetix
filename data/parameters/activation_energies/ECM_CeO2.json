@@ -11,7 +11,7 @@
                 "E_min_mig": 0.4,
                 "binding_energy_bottom_layer": -0.05,
                 "binding_energy_top_layer": -0.05,
-                "CN_clustering_energy": -0.1,
+                "CN_clustering_energy": -0.2,
                 "E_reduction": 0.6,
                 "E_reduction_min": 0.3,
                 "E_oxidation": 0.55,

@@ -235,8 +235,8 @@ class SimulationConfig:
         save_Poisson=poisson_data.get('save_Poisson', False),
         active_dipoles=_get_required(poisson_data, 'active_dipoles', yaml_path, 'poisson.active_dipoles'),
         screening_factor=poisson_data.get('screening_factor',0.01),
-        conductivity_CF=_get_required(poisson_data, 'conductivity_CF', yaml_path, 'poisson.conductivity_CF'),
-        conductivity_dielectric=_get_required(poisson_data, 'conductivity_dielectric', yaml_path, 'poisson.conductivity_dielectric')
+        conductivity_CF=float(_get_required(poisson_data, 'conductivity_CF', yaml_path, 'poisson.conductivity_CF')),
+        conductivity_dielectric=float(_get_required(poisson_data, 'conductivity_dielectric', yaml_path, 'poisson.conductivity_dielectric'))
       )
       print("Poisson solver config loaded")
     else:
