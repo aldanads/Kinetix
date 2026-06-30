@@ -48,7 +48,6 @@ class ElectricalController:
             controller = ElectricalController.from_config(config)
         """
         controller = cls(
-          initial_voltage=config.initial_voltage,
           initial_time=config.initial_time,
           series_resistance=config.series_resistance,
           crystal_size=config.crystal_size

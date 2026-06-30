@@ -11,7 +11,7 @@ grain_boundaries:
   - type: "cylindrical"
     enabled: true
     center: [25.0, 25.0]                # [x, y] center position (angstroms)
-    radius: 10.0                         # Inner radius (angstroms)
+    radius: 5.0                         # Inner radius (angstroms)
     outer_radius: 18.0                  # Outer radius including transition (angstroms)
     description: "Central cylindrical GB"
     
@@ -19,7 +19,7 @@ grain_boundaries:
       migration:
         region: "outer_boundary"
         affected_defects: ["Ag_interstitial"]
-        Act_E_diff_GB: 0.0             # eV
+        Act_E_diff_GB: 2.7             # eV
       
       generation:
         region: "outer_boundary"

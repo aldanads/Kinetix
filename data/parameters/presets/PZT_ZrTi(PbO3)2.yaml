@@ -54,7 +54,7 @@ settings:
   simulation_type: "electronic_device"      
   technology: "PZT"                     
   mode: "interstitial"                  
-  seed_rng: 1                           
+  seed_rng: null                           
   save_data: true                      
   lammps_output: true
   activation_energies: "activation_energies/PZT_ZrPbO3.json"   

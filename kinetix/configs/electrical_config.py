@@ -26,6 +26,7 @@ class CurrentModel(Enum):
 class VoltageConfig:
   """Voltage protocol configuration."""
   mode: VoltageMode = VoltageMode.RAMP_CYCLE
+  initial_voltage: float = 0.0
   max_voltage: float = 2.0
   min_voltage: float = -2.0
   ramp_rate: float = 1.0
@@ -34,7 +35,6 @@ class VoltageConfig:
   # CONSTANT / ZERO_HOLD parameters
   constant_voltage: float = 0.0
   total_time: Optional[float] = None # Optional: auto-calculated from RAMP, explicit for others
-  
   voltage_update_time: float = 0.1
   
   @classmethod
@@ -45,6 +45,7 @@ class VoltageConfig:
     
     return cls(
       mode=mode,
+      initial_voltage=data.get('initial_voltage'),
       max_voltage=data.get('max_voltage'),
       min_voltage=data.get('min_voltage'),
       ramp_rate=data.get('ramp_rate'),
@@ -83,7 +84,6 @@ class ElectricalConfig:
   Complete electrical configuration
   This is the main config object you'll pass to ElectricalController
   """
-  initial_voltage: float = 0.0
   initial_time: float = 0.0
   series_resistance: float = 0.0
   crystal_size: tuple = (50,50,50)
@@ -111,7 +111,6 @@ class ElectricalConfig:
       current = None
     
     config = cls(
-      initial_voltage=float(data.get('initial_voltage')),
       initial_time=float(data.get('initial_time')),
       series_resistance=float(data.get('series_resistance')),
       voltage=voltage,

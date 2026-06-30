@@ -48,7 +48,7 @@ def initialization(n_sim,params):
     mpi_ctx = MPIContext.get_instance()
     
     parameters_root = get_parameters_root()
-    preset_name = 'ECM_CeO2_amorphous.yaml'
+    preset_name = 'PZT_ZrTi(PbO3)2.yaml'
     preset_path = parameters_root / 'presets' / preset_name
     config = SimulationConfig.from_yaml(preset_path)
     
@@ -393,7 +393,6 @@ def initialization(n_sim,params):
         if config.electrical and config.electrical.current:
           config.electrical.current.epsilon_r = config.material.epsilon_r
           
-        
         Elec_controller = ElectricalController.from_config(config.electrical)
         
         # 3. Experimental conditions
