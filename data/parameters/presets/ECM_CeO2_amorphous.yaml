@@ -1,0 +1,110 @@
+# data/parameters/presets/ECM_CeO2.yaml
+# =============================================================================
+# ECM Simulation - CeO2 with Ag interstitial
+# =============================================================================
+# This is the MASTER configuration file that references all other configs.
+# Edit this to change simulation-wide parameters.
+# Edit referenced files to change specific components (defects, reactions, etc.)
+# =============================================================================
+
+metadata:
+  name: "ECM_CeO2"
+  description: "ECM simulation with Ag interstitial in CeO2"
+  author: "Samuel Aldana Delgado"
+
+# -----------------------------------------------------------------------------
+# Material Selection (from Materials Project)
+# -----------------------------------------------------------------------------
+material:
+  name: "CeO2"
+  mp_id: "mp-20194"
+  radius_neighbors: 6.0
+  epsilon_r: 23.0
+  
+# -----------------------------------------------------------------------------
+# Crystal Structure
+# -----------------------------------------------------------------------------
+crystal:
+  size: [50, 50, 50] # Angstroms (x, y, z)
+  miller_indices: [0, 0, 1] # Surface orientation
+  sites_generation_layer: "top_layer" # or "bottom_layer"
+  affected_site: "Empty"
+  facets_type: null
+  
+# -----------------------------------------------------------------------------
+# Experimental conditions
+# -----------------------------------------------------------------------------
+experimental:
+  temperature: 300.0  # K  
+# -----------------------------------------------------------------------------
+# Component Configuration Files
+# -----------------------------------------------------------------------------
+# These files are loaded relative to data/parameters/
+components:
+  defects: "defects/ECM_CeO2_Ag_defects_config.yaml"
+  grain_boundaries: "grain_boundaries/gb_cylindrical_ECM_CeO2_amorphous.yaml"
+  electrical: "electrical/electrical_RAMP_CYCLE.yaml"
+  
+# -----------------------------------------------------------------------------
+# Simulation Settings (ALL simulation parameters in one place)
+# -----------------------------------------------------------------------------
+settings:
+  simulation_type: "electronic_device"      
+  technology: "ECM"                     
+  mode: "interstitial"                  
+  seed_rng: 1                           
+  save_data: true                      
+  lammps_output: true
+  activation_energies: "activation_energies/ECM_CeO2_amorphous.json"
+  output_path: '/home/Docs2/samuel.delgado/linuxhome/Documents/Simulators/ECM_outputs_2/'
+  
+# -----------------------------------------------------------------------------
+# Superbasin Acceleration
+# -----------------------------------------------------------------------------
+superbasin:
+  enabled_superbasin: true
+  n_search_superbasin: 50
+  time_step_limits: 1.0e-4        # s
+  E_min: 0.5                      # eV
+  energy_step: 0.05               # eV
+  time_based_superbasin: true
+  
+# -----------------------------------------------------------------------------
+# Poisson Solver
+# -----------------------------------------------------------------------------
+poisson:
+  solve_Poisson: true 
+  save_Poisson: false
+  active_dipoles: 4
+  screening_factor: 0.01
+  conductivity_CF: 6.3e6          # S/m (conductive filament)
+  conductivity_dielectric: 1.0e-1 # S/m (dielectric)
+  
+# -----------------------------------------------------------------------------
+# Heat Solver (optional)
+# -----------------------------------------------------------------------------  
+heat: 
+  solve_heat: false
+  thermal_conductivity: 2.5       # W/m-K
+  heat_capacity: 500.0            # J/kg-K
+  density: 5000.0                 # kg/m3
+  
+# -----------------------------------------------------------------------------
+# Mesh Generation (Gmsh parameters)
+# -----------------------------------------------------------------------------
+mesh:
+  # Domain settings
+  gdim: 3                         # Spatial dimension (2 or 3)
+  gmsh_model_rank: 0              # MPI rank for Gmsh initialization
+  
+  # Global mesh sizing
+  mesh_size: 0.8                  # Anstroms - Coarse mesh size
+  bounding_box_padding: 5.0       # Angtroms - Padding around atomic structure (x, y only)
+  
+  # Charge spreading (physical parameter)
+  epsilon_gaussian_charge: 0.8    # Gaussian width for point charges
+  
+  # Adaptive refinement
+  activate_mesh_refinement: true
+  fine_mesh_size: 0.2             # Angstroms - Fine mesh size near defects
+  refinement_radius: 1.2          # Angstroms - Radius of refinement sphere around each site

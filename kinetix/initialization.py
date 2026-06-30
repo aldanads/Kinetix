@@ -48,7 +48,7 @@ def initialization(n_sim,params):
     mpi_ctx = MPIContext.get_instance()
     
     parameters_root = get_parameters_root()
-    preset_name = 'ECM_CeO2.yaml'
+    preset_name = 'ECM_CeO2_amorphous.yaml'
     preset_path = parameters_root / 'presets' / preset_name
     config = SimulationConfig.from_yaml(preset_path)
     
@@ -375,10 +375,11 @@ def initialization(n_sim,params):
         
         # 1. Fetch Material Data from Materials Project
         api_key = get_api_key()
-        fetcher = MaterialDataFetcher(api_key,mpi_ctx)
+        cache_path = parameters_root.parent / 'cache' / f"{config.material.selection.mp_id}.json"
+        fetcher = MaterialDataFetcher(api_key,mpi_ctx, cache_path=str(cache_path))
         material_data = fetcher.get_all_material_data(config.material.selection.mp_id)
         
-        
+        exit()
         # Resolve epsilon_r: override user value with MP data if exists
         mp_epsilon = material_data.get('epsilon_r')
         if mp_epsilon is not None:

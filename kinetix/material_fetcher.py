@@ -4,6 +4,7 @@ Materials Project data fetching with caching.
 Separates API concerns from simulation configuration.
 """
 from pathlib import Path
+import json
 from typing import Optional, Dict, Any, Tuple
 from pymatgen.ext.matproj import MPRester
 from pymatgen.analysis.bond_valence import BVAnalyzer
@@ -13,11 +14,29 @@ from pymatgen.core import Structure
 class MaterialDataFetcher:
   """Fetch and cache material data from Materials Project."""
   
-  def __init__(self, api_key:str, mpi_ctx):
+  def __init__(self, api_key:str, mpi_ctx, cache_path: str = None):
     """Initialize with MP API key"""
     self.api_key = api_key
     self.rank = mpi_ctx.rank
     self.mpi_ctx = mpi_ctx
+    self.cache_path = Path(cache_path) if cache_path else None
+    
+  # ------------ Helper methods --------------------
+  def _load_from_cache(self) -> Dict[str, Any]:
+    """ Load material data from local cache file """
+    if self.cache_path and self.cache_path.exists():
+      with open(self.cache_path, 'r') as f:
+        return json.load(f)
+    return None
+    
+  def _save_to_cache(self, data: Dict[str, Any]):
+    """Save material data to local cache file (rank 0 only)"""
+    if self.rank == 0 and self.cache_path:
+      self.cache_path.parent.mkdir(parents=True, exist_ok=True)
+      with open(self.cache_path, 'w') as f:
+        json.dump(data, f, indent=2)
+  # ------------------------------------------------
+    
   
   def _fetch_material_summary(self, mp_id: str) -> Dict[str, Any]:
     """Fetch material summary (formula, density, etc.)"""
@@ -155,12 +174,24 @@ class MaterialDataFetcher:
         
   def get_all_material_data(self, mp_id: str) -> Dict[str, Any]:
     """Fetch all material data from Materials Project."""
+    
+    # === Try to load from cache first (all ranks can do this) ===
+    cached_data = self._load_from_cache()
+    
+    if cached_data is not None:
+      if self.rank == 0:
+        print(f'Loaded material from cache: {self.cache_path}')
+      return cached_data
+    
     # Reuse methods
     if self.rank == 0:
       summary = self._fetch_material_summary(mp_id)
       chemenv = self._fetch_chemenv_data(mp_id)
       dielectric = self._fetch_dielectric_data(mp_id)
       data = {**summary, **chemenv, **dielectric}
+      
+      self._save_to_cache(data)
+      print(f'Saved material cache: {self.cache_path}')
     else:
       data = None
       

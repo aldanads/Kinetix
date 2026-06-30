@@ -1,0 +1,35 @@
+{
+  "ECM": [
+        {
+            "specie": "Ag",
+            "activation_energies": {
+                "E_gen_defect": 4.1,
+                "E_min_gen": 0.2,
+                "E_mig_plane": 0.7,
+                "E_mig_upward": 0.7,
+                "E_mig_downward": 0.7,
+                "E_min_mig": 0.4,
+                "binding_energy_bottom_layer": -0.05,
+                "binding_energy_top_layer": -0.05,
+                "CN_clustering_energy": -0.2,
+                "E_reduction": 0.6,
+                "E_reduction_min": 0.3,
+                "E_oxidation": 0.55,
+                "CN_redox_energy":0.1,
+                "redox_bottom_electrode":0.15,
+                "redox_top_electrode": 0.075
+            }
+        },
+        {
+            "specie": "O",
+            "activation_energies": {
+                "E_gen_defect": 0.4,
+                "E_mig_plane": 0.2,
+                "E_mig_upward": 0.3,
+                "E_mig_downward": 0.5,
+                "binding_energy_bottom_layer": -0.0,
+                "Coord_num_contribution": -0.1
+            }
+        }
+  ]
+}
