@@ -378,8 +378,7 @@ def initialization(n_sim,params):
         cache_path = parameters_root.parent / 'cache' / f"{config.material.selection.mp_id}.json"
         fetcher = MaterialDataFetcher(api_key,mpi_ctx, cache_path=str(cache_path))
         material_data = fetcher.get_all_material_data(config.material.selection.mp_id)
-        
-        exit()
+
         # Resolve epsilon_r: override user value with MP data if exists
         mp_epsilon = material_data.get('epsilon_r')
         if mp_epsilon is not None:
