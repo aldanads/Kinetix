@@ -452,14 +452,17 @@ class Crystal_Lattice():
                 Act_E_mig[key] = self.Act_E_dict[name].get('E_mig_downward')
             self.Act_E_dict[name]['E_mig'] = Act_E_mig  
           
+          for site in self.grid_crystal.values(): 
+            if self._is_active_site(site.site_type):
+              site.Act_E_dict = self._efficient_act_e_copy(self.Act_E_dict)
+            else:
+              site.Act_E_dict = {}
+          
           if reset_energies:  
             for site in self.grid_crystal.values():
               site.site_events = [] # Clear old events
               
-              if self._is_active_site(site.site_type):
-                site.Act_E_dict = self._efficient_act_e_copy(self.Act_E_dict)
-              else:
-                site.Act_E_dict = {}
+              
                 
             
     
@@ -565,7 +568,7 @@ class Crystal_Lattice():
             
           if is_root:  
             # We obtain integer idx
-            print(f'Initializing grid_crystal with {len(self.structure)} host sites')
+            print(f'Initializing grid_crystal with {len(self.structure)} host sites', flush=True)
             total_start_time = time.perf_counter()
                 
           # --- STEP 1: Build host lattice with REAL chemical species ---
@@ -587,13 +590,13 @@ class Crystal_Lattice():
             )
           
           if is_root:
-            print(f"Step 1 (Build host lattice): {time.perf_counter() - start_time:.4f} seconds")
+            print(f"Step 1 (Build host lattice): {time.perf_counter() - start_time:.4f} seconds", flush=True)
                              
           # --- STEP 2: Handle boundary sites (if needed) ---
           start_time = time.perf_counter()
           self._handle_missing_neighbors(radius_neighbors, affected_site)
           if is_root:
-            print(f"Step 2 (Boundary sites): {time.perf_counter() - start_time:.4f} seconds")    
+            print(f"Step 2 (Boundary sites): {time.perf_counter() - start_time:.4f} seconds", flush=True)    
                 
           # --- STEP 3: Add interstitial/hollow sites ---
           start_time = time.perf_counter()
@@ -618,8 +621,8 @@ class Crystal_Lattice():
           self._compute_interface_flags()
           
           if is_root:
-            print(f"Step 3 (Interstitial sites): {time.perf_counter() - start_time:.4f} seconds")    
-            print(f"Total sites created: {len(self.grid_crystal)} ({len(self.structure)} host + {interstitial_count} interstitial)")
+            print(f"Step 3 (Interstitial sites): {time.perf_counter() - start_time:.4f} seconds", flush=True)    
+            print(f"Total sites created: {len(self.grid_crystal)} ({len(self.structure)} host + {interstitial_count} interstitial)", flush=True)
                 
           # --- STEP 4: Initialize migration pathways from grid ---
           start_time = time.perf_counter()
@@ -627,17 +630,17 @@ class Crystal_Lattice():
           self._initialize_migration_pathways(radius_neighbors, reset_energies=False)
           
           if is_root:
-            print(f"Step 4 (Migration pathways): {time.perf_counter() - start_time:.4f} seconds")
+            print(f"Step 4 (Migration pathways): {time.perf_counter() - start_time:.4f} seconds", flush=True)
             
           # --- STEP 5: Neighbor analysis (uses FULL grid) ---
           start_time = time.perf_counter()
           self._sequencial_neighbors_analysis()
           if is_root:
-            print(f"Step 5 (Neighbor analysis): {time.perf_counter() - start_time:.4f} seconds") 
+            print(f"Step 5 (Neighbor analysis): {time.perf_counter() - start_time:.4f} seconds", flush=True) 
             total_time = time.perf_counter() - total_start_time
-            print(f"\n{'='*60}")
-            print(f"TOTAL INITIALIZATION TIME: {total_time:.4f} seconds")
-            print(f"{'='*60}")
+            print(f"\n{'='*60}", flush=True)
+            print(f"TOTAL INITIALIZATION TIME: {total_time:.4f} seconds", flush=True)
+            print(f"{'='*60}", flush=True)
            
         # --- STEP 6: Grain Boundaries (if applicable) ---
         start_time = time.perf_counter()
@@ -653,9 +656,9 @@ class Crystal_Lattice():
           for i, site in enumerate(sites_list):
             self.gb_model.modify_act_energy_GB(site, mig_paths, defects_cfg, reactions_cfg)
           if is_root:
-            print(f"Step 6 (Grain boundaries): {time.perf_counter() - start_time:.4f} seconds") 
+            print(f"Step 6 (Grain boundaries): {time.perf_counter() - start_time:.4f} seconds", flush=True) 
             
-        print('Finished grid initialization')    
+        print('Finished grid initialization', flush=True)    
             
         # Synchronize all ranks before starting kMC steps
         if self.mpi_ctx:
