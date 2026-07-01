@@ -38,7 +38,7 @@ from pymatgen.core import Structure, PeriodicSite
 
 
 import json
-from typing import Dict, List
+from typing import Dict, List, Any
 import os
 from pathlib import Path
 import platform
@@ -83,6 +83,7 @@ class Crystal_Lattice():
         self.reactions_config = crystal_features.get('reactions_config',{})
         self.rng = crystal_features.get('rng')
         self.chemical_formula = crystal_features.get('chemical_formula')
+        self.cache_dir = crystal_features.get('cache_dir')
              
         # --- Experimental conditions ---
         self.sticking_coefficient = experimental_conditions['sticking_coeff']
@@ -128,7 +129,6 @@ class Crystal_Lattice():
         self.lattice_model(api_key, self.mode, self.affected_site, self.miller_indices)
         grid_crystal = kwargs.get('grid_crystal', None)
         self.crystal_grid(grid_crystal,self.radius_neighbors,self.mode,self.affected_site,api_key)
-
         self.sites_occupied = [] # Sites occupy be a chemical specie
         self.adsorption_sites = [] # Sites availables for deposition or migration
         
@@ -161,13 +161,62 @@ class Crystal_Lattice():
 
         self.lammps_file = lammps_file
         
+    # ============ Helper methods: cache ========================
+    def _load_mp_cache(self, key:str) -> Dict[str, Any]:
+      """Load material data from local cache file."""
+      if self.cache_dir:
+        cache_path = self.cache_dir / f'{key}.json'
+        if cache_path.exists():
+          with open(cache_path, 'r') as f:
+            return json.load(f)
+      return None
+      
+    def _save_mp_cache(self, key:str, data: Dict[str,Any]):
+      """Save material data to local cache file (rank 0 only)."""
+      print(f'[Rank {self.rank}] -> Saving Key: {key}]', flush=True)
+      if self.rank == 0 and self.cache_dir:
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        cache_path = self.cache_dir / f'{key}.json'
+        print(f'[Rank {self.rank}] -> Writing to: {cache_path}]', flush=True)
+        with open(cache_path,'w') as f:
+          json.dump(data,f,indent=2)  
+          
+      print(f'[Rank {self.rank}] -> Finish saving Key: {key}]', flush=True)
+          
+    
+    # ===========================================================
+        
         
     def lattice_model(self, api_key, mode, affected_site=None, miller_indices=(0, 0, 1)):
         """
         Generate a PRISTINE lattice model. Defects are added later in crystal_grid.
         """
-        with MPRester(api_key) as mpr:
-          structure = mpr.get_structure_by_material_id(self.id_material)
+        
+        # === Try cache firtst ===
+        cache_key = f'structure_{self.id_material}'
+        structure_dict = self._load_mp_cache(cache_key)
+        
+        if structure_dict is None:
+          # === Cache miss: fetch from API (rank 0)
+          if self.rank == 0:
+            try:
+              with MPRester(api_key) as mpr:
+                structure = mpr.get_structure_by_material_id(self.id_material)
+              structure_dict = structure.as_dict()
+              self._save_mp_cache(cache_key, structure_dict)
+            except Exception as e:
+              print('API fetch failed: {e}')
+              structure_dict = {'error: {e}'}
+          else:
+            structure_dict = None
+            
+          # Broadcast
+          structure_dict = self.mpi_ctx.bcast(structure_dict, root=0)
+          
+          if 'error' in structure_dict:
+            raise RuntimeError(f"Failed to fetch structure: {structure_dict['error']}")
+        
+        structure = Structure.from_dict(structure_dict)
         
         # Always use pristine structure -> Defects insertion in grid_crystal  
         sga = SpacegroupAnalyzer(structure)
@@ -197,7 +246,6 @@ class Crystal_Lattice():
         self.crystal_size = self.structure.lattice.abc
         
         self._compute_basis_vectors()
-        
 
     def _apply_miller_orientation(self, structure, miller_indices):
         """
@@ -2611,31 +2659,58 @@ class Crystal_Lattice():
       
       crystal_data = {}
       
+      # === Try cache first ===
+      cache_key = f'summary_{self.id_material}'
+      summary_dict = self._load_mp_cache(cache_key)
+      
       try:
-            with MPRester(self.api_key) as mpr:
-                # Query summary endpoint (most efficient)
-                results = mpr.materials.summary.search(
-                    material_ids=[self.id_material]
-                )
-                if results:
-                    res_dict = results[0]
-                
-                    symm = res_dict.get('symmetry',{})
-                    formula = res_dict.get('formula_pretty', 'Unknown')
+            # === Cache miss: fetch from API (rank 0)
+            if summary_dict is None:
+              if self.rank == 0:
+                with MPRester(self.api_key) as mpr:
+                    # Query summary endpoint (most efficient)
+                    results = mpr.materials.summary.search(
+                        material_ids=[self.id_material]
+                    )
                     
-                    crystal_data.update({
-                        "crystal_system": symm.get('crystal_system','Unknown'),
-                        "space_group": symm.get('symbol', 'Unknown'),
-                        "space_group_number": symm.get('number',0),
-                    })
-                    print(f"? MP data fetched for {self.id_material}: {crystal_data['space_group']} ({crystal_data['crystal_system']})")
-                else:
-                    print(f"??  MP query returned no results for {self.id_material}")
-                    crystal_data.update({
-                      "crystal_system": "Unknown",
-                      "space_group": "Unknown",
-                      "space_group_number": 0,
-                    })
+                    summary_dict = results[0] if results else None
+                    
+                    #print(f'Summary dict: {summary_dict}', flush=True)
+                    if summary_dict:
+                      summary_minimal = {
+                        'formula_pretty': summary_dict.get('formula_pretty', 'Unknown'),
+                        'symmetry':{
+                          'crystal_system': summary_dict.get('symmetry', {}).get('crystal_system', 'Unknown'),
+                          'symbol': summary_dict.get('symmetry', {}).get('symbol', 'Unknown'),
+                          'number': summary_dict.get('symmetry', {}).get('number', 0)
+                        }
+                      }
+                      
+                      
+                      self._save_mp_cache(cache_key, summary_minimal)
+                      summary_dict = summary_minimal
+              else:
+                summary_dict = None
+              
+              summary_dict = self.mpi_ctx.bcast(summary_dict, root=0)
+              
+            if summary_dict:        
+              symm = summary_dict.get('symmetry',{})
+              formula = summary_dict.get('formula_pretty', 'Unknown')
+                        
+              crystal_data.update({
+                "crystal_system": symm.get('crystal_system','Unknown'),
+                "space_group": symm.get('symbol', 'Unknown'),
+                "space_group_number": symm.get('number',0),
+              })
+              print(f"? MP data fetched for {self.id_material}: {crystal_data['space_group']} ({crystal_data['crystal_system']})")
+            else:
+              print(f"??  MP query returned no results for {self.id_material}")
+              crystal_data.update({
+              "crystal_system": "Unknown",
+              "space_group": "Unknown",
+              "space_group_number": 0,
+              })
       except Exception as e:
             print(f"??  MP query failed: {e}")
             crystal_data.update({

@@ -375,6 +375,7 @@ def initialization(n_sim,params):
         
         # 1. Fetch Material Data from Materials Project
         api_key = get_api_key()
+        cache_dir = parameters_root.parent / 'cache'
         cache_path = parameters_root.parent / 'cache' / f"{config.material.selection.mp_id}.json"
         fetcher = MaterialDataFetcher(api_key,mpi_ctx, cache_path=str(cache_path))
         material_data = fetcher.get_all_material_data(config.material.selection.mp_id)
@@ -430,7 +431,8 @@ def initialization(n_sim,params):
           'reactions_config': reactions_config,
           'gb_configurations': gb_configurations,
           'technology': config.settings.technology,
-          'rng': rng
+          'rng': rng,
+          'cache_dir': cache_dir
         }
         
         # 5. Superbasin parameters
@@ -479,7 +481,6 @@ def initialization(n_sim,params):
           save_data,
           poissonSolver_parameters
         ) 
-        
         
         # 9. Post initialization steps
         # Write metadata
