@@ -402,7 +402,6 @@ class Crystal_Lattice():
       self.migration_pathways = {}
       i = 0
       
-      
       # Brute-force neighbor search (O(N2)), but only done during initialization
       for site_idx in self.grid_crystal.keys():
         site_pos = self.grid_crystal[site_idx].position
@@ -410,11 +409,13 @@ class Crystal_Lattice():
         # Get neighbors using k-d tree
         neighbor_site_indices = self._get_neighbors_for_site(site_idx, radius_neighbors)
         
+
         # Process each neighbor
         for neighbor_idx in neighbor_site_indices:
           
           if neighbor_idx == site_idx:
             continue
+          
             
           neighbor_pos = self.grid_crystal[neighbor_idx].position
           dist = np.linalg.norm(np.array(site_pos) - np.array(neighbor_pos))
@@ -431,6 +432,9 @@ class Crystal_Lattice():
             i += 1
             
       self.num_event = len(self.event_labels) + 2
+      
+      if self.rank == 0:
+        self._validate_migration_network(radius_neighbors)
       
       # Electric field-dependent barriers
       if (self.poissonSolver_parameters and
@@ -459,6 +463,103 @@ class Crystal_Lattice():
               site.site_events = [] # Clear old events
               
               
+    def _validate_migration_network(self, radius=None):
+      """
+      Validate the interstitial migration network and print key statistics.
+      
+      Args:
+          radius (float, optional): If provided, validates against expected radius
+      """     
+      # Collect migration data
+      migration_distances = []
+      neighbor_counts = []
+      interstitial_positions = []
+      
+      for site_idx, site in self.grid_crystal.items():
+        if site.site_type == 'interstitial':
+          interstitial_neighbors = 0
+          interstitial_positions.append(site.position)
+          neighbor_site_indices = self._get_neighbors_for_site(site_idx, radius)
+          
+          for neighbor_idx in neighbor_site_indices:
+          #for neighbor_idx in site.nearest_neighbors_idx:
+            neighbor = self.grid_crystal[neighbor_idx]
+            if neighbor.site_type == "interstitial":
+              dist = np.linalg.norm(
+                np.array(site.position) - np.array(neighbor.position)
+              )
+              if dist < max(self.crystal_size) * 0.8:
+                migration_distances.append(dist)
+            
+              interstitial_neighbors += 1
+              
+          neighbor_counts.append(interstitial_neighbors)
+            
+      if not migration_distances:
+        print("?  No interstitial-interstitial migration pathways found!")
+        return
+    
+      # Basic distance statistics
+      min_dist = min(migration_distances)
+      max_dist = max(migration_distances)
+      avg_dist = np.mean(migration_distances)
+      std_dist = np.std(migration_distances)
+    
+      # Neighbor statistics
+      min_neighbors = min(neighbor_counts)
+      max_neighbors = max(neighbor_counts)
+      avg_neighbors = np.mean(neighbor_counts)
+      
+      
+      print(f"\n{'='*60}")
+      print(f"INTERSTITIAL MIGRATION NETWORK VALIDATION")
+      print(f"{'='*60}")
+      print(f"Total migration pathways: {len(migration_distances)}")
+      print()
+      print(f"MIGRATION DISTANCES:")
+      print(f"  Min: {min_dist:.3f} angstroms")
+      print(f"  Max: {max_dist:.3f} angstroms")
+      print(f"  Avg: {avg_dist:.3f} +- {std_dist:.3f} angstroms")
+      print()
+      print(f"NEIGHBOR STATISTICS:")
+      print(f"  Min neighbors per site: {min_neighbors}")
+      print(f"  Max neighbors per site: {max_neighbors}")
+      print(f"  Avg neighbors per site: {avg_neighbors:.1f}")
+      print()   
+        
+      # Validation warnings
+      if radius is not None:
+        if max_dist > radius * 1.05:
+          print(f"\n?  Warning: Max distance ({max_dist:.3f}angstroms) exceeds search radius ({radius:.1f}angstroms)")
+      
+      if avg_dist > 4:
+        print(f"\n?  Warning: Average migration distance ({avg_dist:.3f}angstroms) seems high for direct hopping")
+      
+      if avg_neighbors < 4:
+        print(f"\n?  Warning: Low connectivity ({avg_neighbors:.1f} neighbors/site) may limit filament formation")
+      
+      if avg_neighbors > 15:
+        print(f"\n?  Warning: High connectivity ({avg_neighbors:.1f} neighbors/site) may include unrealistic pathways")
+          
+      if min_dist < 1.5:
+        positions = np.array(interstitial_positions)
+        from scipy.spatial.distance import pdist
+        distances = pdist(positions)
+        min_dist_inters = np.min(distances)
+         
+        if min_dist_inters < 1.5:
+          print(f"Minimum interstitial-interstitial distance: {min_dist:.3f} angstroms")
+          print("?  WARNING: Very close interstitial sites detected!")
+          # Find problematic pairs
+          from scipy.spatial.distance import cdist
+          dist_matrix = cdist(positions, positions)
+          np.fill_diagonal(dist_matrix, np.inf)
+          close_pairs = np.where(dist_matrix < 1.5)
+          
+          for i, j in zip(close_pairs[0][:5], close_pairs[1][:5]):  # Show first 5
+            print(f"   Sites {i} and {j}: {dist_matrix[i,j]:.3f} angstroms apart")
+      
+      print(f"{'='*60}")      
                 
             
     
@@ -598,7 +699,6 @@ class Crystal_Lattice():
           start_time = time.perf_counter()
           interstitial_count = 0
           if mode == "interstitial":
-            # api_key=None to all ranks to force Voronoi.  
             for pos in self._generate_interstitial_sites(api_key=None):
               idx = self.get_idx_coords(pos, self.basis_vectors)      
               if idx not in self.grid_crystal:
@@ -726,7 +826,7 @@ class Crystal_Lattice():
         raise ValueError("No interstitial species found in defects_config")
         
       # Default minimum distance from atoms, adjust if you find sites too close/far from atoms
-      MIN_DISTANCE_FROM_ATOMS = 0.3  # Å
+      MIN_DISTANCE_FROM_ATOMS = 1.0  # Å
 
       
       # =========================================================================
@@ -766,7 +866,11 @@ class Crystal_Lattice():
           interstitial_species,
           min_distance=MIN_DISTANCE_FROM_ATOMS
         )
-      #self._validate_interstitial_positions(base_positions_unit_cell, self.structure_basic)
+        
+      # Validate interstitial spacing in the unit cell
+      #self.create_ovito_xyz_file(base_positions_unit_cell)  
+      if self.rank == 0:
+        self._validate_interstitial_positions(base_positions_unit_cell, self.structure_basic)
    
       # =========================================================================
       # Replicate in supercell
@@ -817,7 +921,7 @@ class Crystal_Lattice():
       structure = self.structure_basic
       interstitial_positions = []
       # Use InterstitialGenerator
-      gen = VoronoiInterstitialGenerator(min_dist=min_distance)
+      gen = VoronoiInterstitialGenerator(min_dist=min_distance, clustering_tol=1.0)
       
       sga = SpacegroupAnalyzer(structure, symprec=0.01, angle_tolerance=5)
       symm_ops = sga.get_symmetry_operations()
@@ -848,7 +952,7 @@ class Crystal_Lattice():
       return interstitial_positions
       
     def _validate_interstitial_positions(self, positions, structure):
-      from scipy.spatial.distance import cdist
+      from scipy.spatial.distance import cdist, pdist
       
       # Get all atomic positions
       atom_positions = [site.coords for site in structure]
@@ -859,14 +963,64 @@ class Crystal_Lattice():
       distances = cdist(interstitial_positions, atom_positions)
       min_distances = np.min(distances,axis=1)
       
-      if self.rank ==0:
-        print(f'Min distance to atoms: {np.min(min_distances):.3f} angstroms', flush=True)
-        print(f'Max distance to atoms: {np.max(min_distances):.3f} angstroms', flush=True)
-        print(f'Avg distance to atoms: {np.mean(min_distances):.3f} angstroms', flush=True)
+      distances_interstitial = pdist(interstitial_positions)
+      min_dist_inters = np.min(distances_interstitial)
+      max_dist_inters = np.max(distances_interstitial)
+      avg_dist_inters = np.mean(distances_interstitial)
       
-        assert np.min(min_distances) >= 0.4
+      print(f"\n{'='*60}")
+      print(f"INTERSTITIAL SPACING VALIDATION")
+      print(f"{'='*60}")
+      print('Interstitial-atoms distances:', flush=True)
+      print(f'Min distance to atoms: {np.min(min_distances):.3f} angstroms', flush=True)
+      print(f'Max distance to atoms: {np.max(min_distances):.3f} angstroms', flush=True)
+      print(f'Avg distance to atoms: {np.mean(min_distances):.3f} angstroms', flush=True)
+      
+      assert np.min(min_distances) >= 0.4
         
-        print(f'Min distances: {min_distances}')
+      print('Interstitial-Interstitial distances:', flush=True)
+      print(f'Min Interstitial-Interstitial: {min_dist_inters:.3f} angstroms', flush=True)
+      print(f'Max Interstitial-Interstitial: {max_dist_inters:.3f} angstroms', flush=True)
+      print(f'Avg Interstitial-Interstitial: {avg_dist_inters:.3f} angstroms', flush=True)
+      print(f"\n{'='*60}")
+    
+    def create_ovito_xyz_file(self,base_positions_unit_cell, filename="interstitials.xyz"):
+      """Create XYZ file for OVITO visualization."""
+      # Get host atom positions
+      host_atoms = []
+      for site in self.structure_basic:
+          host_atoms.append({
+              'element': site.specie.symbol,
+              'x': site.coords[0],
+              'y': site.coords[1], 
+              'z': site.coords[2]
+          })
+      
+      # Get interstitial positions
+      interstitials = []
+      for pos in base_positions_unit_cell:
+          interstitials.append({
+              'element': 'Ag',  # or use your actual interstitial species like 'Ag'
+              'x': pos[0],
+              'y': pos[1],
+              'z': pos[2]
+          })
+      
+      # Write XYZ file
+      total_atoms = len(host_atoms) + len(interstitials)
+      with open(filename, 'w') as f:
+          f.write(f"{total_atoms}\n")
+          f.write("Generated by KMC simulator\n")
+          
+          # Write host atoms
+          for atom in host_atoms:
+              f.write(f"{atom['element']} {atom['x']:.6f} {atom['y']:.6f} {atom['z']:.6f}\n")
+          
+          # Write interstitials  
+          for interstitial in interstitials:
+              f.write(f"{interstitial['element']} {interstitial['x']:.6f} {interstitial['y']:.6f} {interstitial['z']:.6f}\n")
+      
+      print(f"XYZ file saved: {filename}")
     
            
     def _handle_missing_neighbors(self,radius_neighbors, affected_site):
