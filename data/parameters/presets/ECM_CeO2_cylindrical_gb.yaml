@@ -18,7 +18,7 @@ metadata:
 material:
   name: "CeO2"
   mp_id: "mp-20194"
-  radius_neighbors: 6.0
+  radius_neighbors: 4.2
   epsilon_r: 23.0
   
 # -----------------------------------------------------------------------------

@@ -48,7 +48,7 @@ def initialization(n_sim,params):
     mpi_ctx = MPIContext.get_instance()
     
     parameters_root = get_parameters_root()
-    preset_name = 'PZT_ZrTi(PbO3)2.yaml'
+    preset_name = 'ECM_CeO2_cylindrical_gb.yaml'
     preset_path = parameters_root / 'presets' / preset_name
     config = SimulationConfig.from_yaml(preset_path)
     
@@ -368,9 +368,9 @@ def initialization(n_sim,params):
     elif simulation_type == 'electronic_device':        
         
         ### ----------------- PARAMETER SWEEP ----------------- ###
-        config.defects.defects["oxygen_vacancy"].initial_concentration_bulk = params["vo_initial_concentration"]
-        config.defects.defects["oxygen_vacancy"].initial_concentration_GB = params["vo_initial_concentration"] 
-        config.experimental.temperature = params["temperature"]
+        #config.defects.defects["oxygen_vacancy"].initial_concentration_bulk = params["vo_initial_concentration"]
+        #config.defects.defects["oxygen_vacancy"].initial_concentration_GB = params["vo_initial_concentration"] 
+        #config.experimental.temperature = params["temperature"]
     
         
         # 1. Fetch Material Data from Materials Project
@@ -459,7 +459,7 @@ def initialization(n_sim,params):
         # 7. Activation energies
         ae_data = load_activation_energies(preset_path, config.settings)
         ### ----------------- PARAMETER SWEEP ----------------- ###
-        ae_data['PZT'][1]['activation_energies']['E_gen_defect'] = params['h_generation']
+        #ae_data['PZT'][1]['activation_energies']['E_gen_defect'] = params['h_generation']
 
         Act_E_dict = _process_activation_energies(
           defects_config,
@@ -491,7 +491,6 @@ def initialization(n_sim,params):
         
         # Initialize defects
         System_state.defect_gen()
-        exit()
         
 
     return System_state,rng,paths,Results, simulation_parameters,Elec_controller

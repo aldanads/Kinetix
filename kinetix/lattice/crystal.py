@@ -173,15 +173,11 @@ class Crystal_Lattice():
       
     def _save_mp_cache(self, key:str, data: Dict[str,Any]):
       """Save material data to local cache file (rank 0 only)."""
-      print(f'[Rank {self.rank}] -> Saving Key: {key}]', flush=True)
       if self.rank == 0 and self.cache_dir:
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         cache_path = self.cache_dir / f'{key}.json'
-        print(f'[Rank {self.rank}] -> Writing to: {cache_path}]', flush=True)
         with open(cache_path,'w') as f:
           json.dump(data,f,indent=2)  
-          
-      print(f'[Rank {self.rank}] -> Finish saving Key: {key}]', flush=True)
           
     
     # ===========================================================
@@ -657,6 +653,7 @@ class Crystal_Lattice():
             self.gb_model.modify_act_energy_GB(site, mig_paths, defects_cfg, reactions_cfg)
           if is_root:
             print(f"Step 6 (Grain boundaries): {time.perf_counter() - start_time:.4f} seconds", flush=True) 
+          
             
         print('Finished grid initialization', flush=True)    
             
@@ -729,7 +726,7 @@ class Crystal_Lattice():
         raise ValueError("No interstitial species found in defects_config")
         
       # Default minimum distance from atoms, adjust if you find sites too close/far from atoms
-      MIN_DISTANCE_FROM_ATOMS = 1.2  # Å
+      MIN_DISTANCE_FROM_ATOMS = 0.3  # Å
 
       
       # =========================================================================
@@ -769,9 +766,8 @@ class Crystal_Lattice():
           interstitial_species,
           min_distance=MIN_DISTANCE_FROM_ATOMS
         )
-      
-
-          
+      #self._validate_interstitial_positions(base_positions_unit_cell, self.structure_basic)
+   
       # =========================================================================
       # Replicate in supercell
       # =========================================================================
@@ -804,7 +800,7 @@ class Crystal_Lattice():
             
       return unique_positions
       
-    def _find_interstitials_voronoi(self, interstitial_species, min_distance=1.2):
+    def _find_interstitials_voronoi(self, interstitial_species, min_distance=0.3):
       """
       Find interstitial sites using using pymatgen's VoronoiInterstitialGenerator.
       Finds Voronoi vertices and filters by minimum distance
@@ -823,21 +819,54 @@ class Crystal_Lattice():
       # Use InterstitialGenerator
       gen = VoronoiInterstitialGenerator(min_dist=min_distance)
       
+      sga = SpacegroupAnalyzer(structure, symprec=0.01, angle_tolerance=5)
+      symm_ops = sga.get_symmetry_operations()
+      
       # Iterate over the generator
       for interstitial in gen.generate(structure, insert_species=[interstitial_species]):
-        # Extract cartesian coordinates from the Interstitial object
-        cart_pos = interstitial.site.coords
+        unique_frac_coords = interstitial.site.frac_coords
         
-        # Duplicate check (VoronoiGen does clustering, we add this for safety)
-        is_duplicate = any(
-          np.linalg.norm(cart_pos - existing) < 0.1
-          for existing in interstitial_positions
-        )
-        
-        if not is_duplicate:
-          interstitial_positions.append(cart_pos)
+        # Generate all symmetry-equivalent positions
+        equiv_positions = set()
+        for symm_op in symm_ops:
+          new_frac = symm_op.operate(unique_frac_coords)
+          new_frac = tuple(np.round(np.mod(new_frac,1.0), 6))
+          equiv_positions.add(new_frac)
           
+        for frac_pos in equiv_positions:
+          cart_pos = structure.lattice.get_cartesian_coords(frac_pos)
+          
+          # Duplicate check (VoronoiGen does clustering, we add this for safety)
+          is_duplicate = any(
+            np.linalg.norm(cart_pos - existing) < 0.1
+            for existing in interstitial_positions
+          )
+            
+          if not is_duplicate:
+            interstitial_positions.append(cart_pos)
+       
       return interstitial_positions
+      
+    def _validate_interstitial_positions(self, positions, structure):
+      from scipy.spatial.distance import cdist
+      
+      # Get all atomic positions
+      atom_positions = [site.coords for site in structure]
+      atom_positions = np.array(atom_positions)
+      interstitial_positions = np.array(positions)
+      
+      #Calculate minimum distances to atoms
+      distances = cdist(interstitial_positions, atom_positions)
+      min_distances = np.min(distances,axis=1)
+      
+      if self.rank ==0:
+        print(f'Min distance to atoms: {np.min(min_distances):.3f} angstroms', flush=True)
+        print(f'Max distance to atoms: {np.max(min_distances):.3f} angstroms', flush=True)
+        print(f'Avg distance to atoms: {np.mean(min_distances):.3f} angstroms', flush=True)
+      
+        assert np.min(min_distances) >= 0.4
+        
+        print(f'Min distances: {min_distances}')
     
            
     def _handle_missing_neighbors(self,radius_neighbors, affected_site):
@@ -941,15 +970,6 @@ class Crystal_Lattice():
         
         # Get neighbors using k-d tree
         neighbor_site_indices = self._get_neighbors_for_site(site_idx, self.radius_neighbors)
-        """
-        if site.site_type == 'interstitial':
-          print(f'For site: {site.position}, chemical specie: {site.chemical_specie}')
-          for neigh_idx in neighbor_site_indices:
-            neigh = self.grid_crystal[neigh_idx]
-            if neigh.chemical_specie == 'Empty':
-              dist = np.linalg.norm(np.array(site.position) - np.array(neigh.position))
-              print(f'Neigh: {neigh.position}, chemical specie: {neigh.chemical_specie}, dsitance: {dist}')
-        """
         
         if site_idx in neighbor_site_indices:
           neighbor_site_indices.remove(site_idx) 

@@ -311,7 +311,7 @@ class GrainBoundary:
           required_region = gen_cfg.get('region')
           if self._region_matches(site_gb_region, required_region):
             base_energies["E_gen_defect"] -= self.get_activation_energy_GB(site.position,"generation")
-
+            
         # 2. Handle migration    
         if mig_cfg and defect_name in mig_cfg.get('affected_defects'):
           Act_E_mig = {}
