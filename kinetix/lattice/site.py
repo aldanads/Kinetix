@@ -866,6 +866,9 @@ class Site():
                 # Apply top electrode correction
                 if self.in_cluster_with_electrode['top_layer'] or 'top_layer' in self.supp_by:
                   Act_E = max(base_energy + field_factor_top * field_contribution, min_energy)
+                  
+                  if self.in_cluster_with_electrode['top_layer'] and process == 'oxidation':
+                    print(f'Wihin electrode --> Act energy: {Act_E}, E field: {field_contribution}')
                 
                 # Apply bottom electrode correction
                 if self.in_cluster_with_electrode['bottom_layer'] or 'bottom_layer' in self.supp_by:

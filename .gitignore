@@ -10,3 +10,4 @@ activation_energies_memristors.json
 *.csv
 config.json
 .nfs*
+interstitials.xyz

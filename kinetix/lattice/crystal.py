@@ -724,7 +724,7 @@ class Crystal_Lattice():
           start_time = time.perf_counter()
           self._build_kdtree()
           self._initialize_migration_pathways(radius_neighbors, reset_energies=False)
-          
+
           if is_root:
             print(f"Step 4 (Migration pathways): {time.perf_counter() - start_time:.4f} seconds", flush=True)
             
@@ -826,7 +826,7 @@ class Crystal_Lattice():
         raise ValueError("No interstitial species found in defects_config")
         
       # Default minimum distance from atoms, adjust if you find sites too close/far from atoms
-      MIN_DISTANCE_FROM_ATOMS = 1.0  # Å
+      MIN_DISTANCE_FROM_ATOMS = 1.2  # Å
 
       
       # =========================================================================
@@ -868,7 +868,7 @@ class Crystal_Lattice():
         )
         
       # Validate interstitial spacing in the unit cell
-      #self.create_ovito_xyz_file(base_positions_unit_cell)  
+      #self.create_ovito_xyz_file(interstitial_species, base_positions_unit_cell)  
       if self.rank == 0:
         self._validate_interstitial_positions(base_positions_unit_cell, self.structure_basic)
    
@@ -921,7 +921,7 @@ class Crystal_Lattice():
       structure = self.structure_basic
       interstitial_positions = []
       # Use InterstitialGenerator
-      gen = VoronoiInterstitialGenerator(min_dist=min_distance, clustering_tol=1.0)
+      gen = VoronoiInterstitialGenerator(min_dist=min_distance, clustering_tol=1.6)
       
       sga = SpacegroupAnalyzer(structure, symprec=0.01, angle_tolerance=5)
       symm_ops = sga.get_symmetry_operations()
@@ -984,7 +984,7 @@ class Crystal_Lattice():
       print(f'Avg Interstitial-Interstitial: {avg_dist_inters:.3f} angstroms', flush=True)
       print(f"\n{'='*60}")
     
-    def create_ovito_xyz_file(self,base_positions_unit_cell, filename="interstitials.xyz"):
+    def create_ovito_xyz_file(self,interstitial_species,base_positions_unit_cell, filename="interstitials.xyz"):
       """Create XYZ file for OVITO visualization."""
       # Get host atom positions
       host_atoms = []
@@ -1000,7 +1000,7 @@ class Crystal_Lattice():
       interstitials = []
       for pos in base_positions_unit_cell:
           interstitials.append({
-              'element': 'Ag',  # or use your actual interstitial species like 'Ag'
+              'element': interstitial_species,  # or use your actual interstitial species like 'Ag'
               'x': pos[0],
               'y': pos[1],
               'z': pos[2]
