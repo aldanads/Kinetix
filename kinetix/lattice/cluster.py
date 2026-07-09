@@ -9,21 +9,30 @@ class Cluster:
       self.size = len(self.atoms_id)
       self.attached_layer = attached_layer
       self.conductivity = conductivity
+      self.interface_atoms_top = []
+      self.interface_atoms_bottom = []
       
     def update_electrode_contact(self,grid_crystal):
       """Update whether this cluster touches top/bottom electrode layers."""
       touches_bottom = False
       touches_top = False
       
+      # Clear previous interface atoms
+      self.interface_atoms_top = []
+      self.interface_atoms_bottom = []
+      self.interface_sites_top = set()    # Atom IDs (for resistance calculation)
+      self.interface_sites_bottom = set() # Atom IDs (for resistance calculation)
+      
       for site in self.atoms_id:
         site_obj = grid_crystal[site]
         if 'bottom_layer' in site_obj.supp_by:
           touches_bottom = True
+          self.interface_sites_bottom.add(site)
+          self.interface_atoms_bottom.append(site_obj.position)
         elif 'top_layer' in site_obj.supp_by:
           touches_top = True
-          
-        if touches_bottom and touches_top:
-          break
+          self.interface_sites_top.add(site)
+          self.interface_atoms_top.append(site_obj.position)
         
       self.attached_layer = {'bottom_layer': touches_bottom, 'top_layer': touches_top}
       
@@ -153,14 +162,40 @@ class Cluster:
       if self._layer_thickness_z is None or self._area_per_site is None:
         return None
         
+      # --- Identify interface layers ---
+      interface_ids = self.interface_sites_top | self.interface_sites_bottom
+        
       # --- Calculate Total Resistance ---
       total_resistance = 0.0
       layers_resistance = []
       
+      sigma_CF = float(self.conductivity['conductive_filament'])
+      
+      # Per interface conductivity (None means no contact resistance)
+      sigma_top = self.conductivity.get('interface_top')
+      sigma_bottom = self.conductivity.get('interface_bottom')
+      
+      if sigma_top is not None:
+        sigma_top = float(sigma_top)
+      if sigma_bottom is not None:
+        sigma_bottom = float(sigma_bottom)
+      
       for layer_slice in self.slice_list:
         num_atoms_in_layer = len(layer_slice)
         effective_area = num_atoms_in_layer * self._area_per_site
-        layer_resistance = self._layer_thickness_z / (effective_area * self.conductivity)
+        
+        # Check if this layer contains interface atoms
+        touches_top = bool(self.interface_sites_top.intersection(layer_slice))
+        touches_bottom = bool(self.interface_sites_bottom.intersection(layer_slice))
+        
+        if touches_bottom and sigma_bottom is not None:
+          sigma = sigma_bottom
+        elif touches_top and sigma_top is not None:
+          sigma = sigma_top
+        else:
+          sigma =  sigma_CF
+        
+        layer_resistance = self._layer_thickness_z / (effective_area * sigma)
         layers_resistance.append(layer_resistance)
         total_resistance += layer_resistance
         

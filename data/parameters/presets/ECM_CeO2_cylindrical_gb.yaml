@@ -31,6 +31,12 @@ crystal:
   affected_site: "Empty"
   facets_type: null
   
+  # Interstitial site generation parameters (Voronoi method)
+  interstitial_generation:
+    min_distance: 1.2 # Minimum distance from host atoms (angstroms)
+    clustering_tol: 1.6 # Voronoi node clustering tolerange (angstroms)
+    create_interstitial_xyz_file: True # Create a xyz file with the unit cell with the interstitial sites
+  
 # -----------------------------------------------------------------------------
 # Experimental conditions
 # -----------------------------------------------------------------------------
@@ -44,6 +50,7 @@ components:
   defects: "defects/ECM_CeO2_Ag_defects_config.yaml"
   grain_boundaries: "grain_boundaries/gb_cylindrical_ECM_CeO2.yaml"
   electrical: "electrical/electrical_RAMP_CYCLE.yaml"
+
   
 # -----------------------------------------------------------------------------
 # Simulation Settings (ALL simulation parameters in one place)
@@ -77,8 +84,15 @@ poisson:
   save_Poisson: false
   active_dipoles: 4
   screening_factor: 0.01
-  conductivity_CF: 6.3e6          # S/m (conductive filament)
-  conductivity_dielectric: 1.0e-1 # S/m (dielectric)
+  
+  conductivity:
+    conductive_filament: 6.3e2          # S/m (conductive filament)
+    dielectric: 1.0e-1 # S/m (dielectric)
+    
+    # Contact resistance at interfaces (optional)
+    # Set to null to disable, or provide a value in S/m
+    interface_top: null           # Ag-Ag (no real interface) ? disabled
+    interface_bottom: 1.0e2       # Ag-ITO (real interface) ? enabled
   
 # -----------------------------------------------------------------------------
 # Heat Solver (optional)

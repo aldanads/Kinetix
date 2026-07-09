@@ -235,7 +235,14 @@ def main(sim_id):
                         
                 
                 System_state.step_kmc(rng)
-
+                
+                """
+                for cluster in clusters.values():
+                  if cluster.attached_layer['bottom_layer'] and cluster.attached_layer['top_layer']:
+                    print('')
+                    
+                """
+                
                 if snapshoots:
                 
                     j+=1

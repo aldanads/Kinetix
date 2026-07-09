@@ -1,7 +1,7 @@
 # kinetix/configs/material_config.py
 """Material and crystal structure configuration."""
 from dataclasses import dataclass, field
-from typing import Tuple, Optional, Any
+from typing import Tuple, Optional, Any, Dict
 
 @dataclass
 class MaterialSelection:
@@ -18,6 +18,7 @@ class CrystalStructure:
   sites_generation_layer: str = 'top_layer'  # or 'bottom_layer'
   affected_site: str = ''
   facets_type: Optional[Any] = None
+  interstitial_generation: Optional[Dict] = None
   
 @dataclass
 class MaterialConfig:

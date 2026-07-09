@@ -155,6 +155,7 @@ class SimulationConfig:
         sites_generation_layer=_get_required(crystal_data, 'sites_generation_layer', yaml_path, 'crystal.sites_generation_layer'),
         affected_site=_get_required(crystal_data, 'affected_site', yaml_path, 'crystal.affected_site'),
         facets_type=crystal_data.get('facets_type'),
+        interstitial_generation=crystal_data.get('interstitial_generation')
       )
     )
     
@@ -235,8 +236,7 @@ class SimulationConfig:
         save_Poisson=poisson_data.get('save_Poisson', False),
         active_dipoles=_get_required(poisson_data, 'active_dipoles', yaml_path, 'poisson.active_dipoles'),
         screening_factor=poisson_data.get('screening_factor',0.01),
-        conductivity_CF=float(_get_required(poisson_data, 'conductivity_CF', yaml_path, 'poisson.conductivity_CF')),
-        conductivity_dielectric=float(_get_required(poisson_data, 'conductivity_dielectric', yaml_path, 'poisson.conductivity_dielectric'))
+        conductivity=poisson_data.get('conductivity')
       )
       print("Poisson solver config loaded")
     else:

@@ -48,7 +48,7 @@ def initialization(n_sim,params):
     mpi_ctx = MPIContext.get_instance()
     
     parameters_root = get_parameters_root()
-    preset_name = 'PZT_ZrTi(PbO3)2.yaml'
+    preset_name = 'ECM_CeO2_cylindrical_gb.yaml'
     preset_path = parameters_root / 'presets' / preset_name
     config = SimulationConfig.from_yaml(preset_path)
     
@@ -415,7 +415,8 @@ def initialization(n_sim,params):
         else:
           reactions_config = None
         
-        gb_configurations = [grainboundary.to_dict() for grainboundary in config.grain_boundaries]                    
+        gb_configurations = [grainboundary.to_dict() for grainboundary in config.grain_boundaries]
+        
         crystal_features = {
           'chemical_formula': formula,
           'id_material_Material_Project': config.material.selection.mp_id,
@@ -432,7 +433,8 @@ def initialization(n_sim,params):
           'gb_configurations': gb_configurations,
           'technology': config.settings.technology,
           'rng': rng,
-          'cache_dir': cache_dir
+          'cache_dir': cache_dir,
+          'interstitial_generation': config.material.structure.interstitial_generation
         }
         
         # 5. Superbasin parameters
@@ -440,6 +442,7 @@ def initialization(n_sim,params):
         
         # 6. Poisson solver parameters
         mesh_file = f"{formula}_{int(max(crystal_size) / 10)}nm_mesh.msh"
+        
         poissonSolver_parameters = {
           'mesh_file': mesh_file,
           'epsilon_r': config.material.epsilon_r,
@@ -450,11 +453,11 @@ def initialization(n_sim,params):
           'solve_Poisson': config.poisson.solve_Poisson,
           'save_Poisson': config.poisson.save_Poisson, 
           'screening_factor': config.poisson.screening_factor,
-          'conductivity_CF': config.poisson.conductivity_CF, 
-          'conductivity_dielectric':config.poisson.conductivity_dielectric,
+          'conductivity': config.poisson.conductivity,
           'defects_config':defects_config,
           'mesh_config': config.mesh.to_dict()
         }
+        
 
         # 7. Activation energies
         ae_data = load_activation_energies(preset_path, config.settings)
@@ -481,8 +484,6 @@ def initialization(n_sim,params):
           save_data,
           poissonSolver_parameters
         ) 
-        
-        exit()
         
         # 9. Post initialization steps
         # Write metadata

@@ -85,10 +85,13 @@ class PoissonSolver(FEMSolverBase):
     
     # === Track state ===
     self.use_conductivity = False
-    self.metal_atoms = None
     self._bcs_changed = True
     self._field_cache = {}
     self.new_field_cache = True
+    
+    # Conductivity assigment (populated by set_boundary_conditions)
+    self.metal_atoms = []  # Bulk filament positions
+    
   
   def _setup_poisson_specific_spaces(self):
     """Setup Poisson-specific function spaces and functions."""
@@ -224,16 +227,32 @@ class PoissonSolver(FEMSolverBase):
     self.use_conductivity = False
     
     
+    # Read contact resistance config
+    cond_cfg = self.poisson_parameters.get('conductivity',{})
+    self._has_top_contact_resistance = cond_cfg.get('interface_top', False)
+    self._has_bottom_contact_resistance = cond_cfg.get('interface_bottom', False)
+    
     if clusters is not None:
-        
       for cluster in clusters.values():               
         touches_bottom = cluster.attached_layer.get('bottom_layer', False)
         touches_top = cluster.attached_layer.get('top_layer', False)
         
         if touches_bottom and touches_top:
           # Bridging cluster - use conductivity formulation
+          # Conductivity assigment happens in conductivity_in_system
           self.use_conductivity = True
-          self.metal_atoms = cluster.atoms_positions
+          
+          # Build interface atom sets based on config
+          self.top_interface_atoms = [tuple(pos) for pos in cluster.interface_atoms_top] if self._has_top_contact_resistance else []
+          self.bottom_interface_atoms = [tuple(pos) for pos in cluster.interface_atoms_bottom] if self._has_bottom_contact_resistance else []
+          
+          self.metal_atoms = []
+          
+          for pos in cluster.atoms_positions:
+            pos_tuple = tuple(pos)
+            if pos_tuple not in self.top_interface_atoms and pos_tuple not in self.bottom_interface_atoms:
+              self.metal_atoms.append(pos)
+          
         elif touches_bottom:
           # Connected to bottom electrode
           cluster_bcs = self._create_cluster_boundary_conditions(
@@ -302,6 +321,11 @@ class PoissonSolver(FEMSolverBase):
     nearby_dofs : np.ndarray
       DOF indices within contact radius
     """
+    # Convert to numpy array (handles both lists and arrays)
+    particle_positions = np.asarray(particle_positions, dtype=np.float64)
+    if particle_positions.ndim == 1:
+        particle_positions = particle_positions.reshape(1, -1)
+        
     # Vectorized distance calculation: (n_dofs, n_particles)
     dx = self.dof_coords[:, np.newaxis, 0] - particle_positions[np.newaxis, :, 0]
     dy = self.dof_coords[:, np.newaxis, 1] - particle_positions[np.newaxis, :, 1]  
@@ -316,7 +340,10 @@ class PoissonSolver(FEMSolverBase):
     distances = np.sqrt(dx**2 + dy**2 + dz**2) # Shape: (n_dofs, n_particles)
         
     # Find DOFs within contact radius
-    nearby_dofs = np.where(np.any(distances <= contact_radius, axis=1))[0]
+    if contact_radius <= 0:
+      nearby_dofs = np.where(np.any(distances <= 1e-6, axis=1))[0]
+    else:
+      nearby_dofs = np.where(np.any(distances <= contact_radius, axis=1))[0]
       
     return nearby_dofs.astype(np.int32)
     
@@ -397,40 +424,50 @@ class PoissonSolver(FEMSolverBase):
     return self.rho
     
     
-  def conductivity_in_system(self, metal_atoms):
+  def conductivity_in_system(self):
     """
     Set conductivity field for bridging clusters.
-        
+    
     Parameters:
     -----------
-    metal_atoms : list
-      Positions of metal atoms in bridging cluster
+    clusters : dict
+      Cluster objects with atoms_positions, internal_atom_positions, attached_layer    
     """
-    sigma_metal = self.poisson_parameters.get('conductivity_CF', 1e6) # S/m
-    sigma_dielectric = self.poisson_parameters.get('conductivity_dielectric', 1e-10) # S/m
+    
+    cond_cfg = self.poisson_parameters.get('conductivity', {})
+    sigma_metal = float(self.poisson_parameters['conductivity'].get('conductive_filament')) # S/m
+    sigma_dielectric = float(self.poisson_parameters['conductivity'].get('dielectric')) # S/m
     
     # Initialize to dielectric value
     self.sigma.x.array[:] = sigma_dielectric
     
-    if not metal_atoms:
-      return
-      
-    points_array = np.asarray(metal_atoms, dtype=np.float64)
-    if points_array.ndim == 1:
-      points_array = points_array.reshape(1, -1)
     
-    # Find cells containing metal atoms
-    cell_candidates = geometry.compute_collisions_points(self.bb_tree, points_array)
-    colliding_cells = geometry.compute_colliding_cells(
-      self.domain, cell_candidates, points_array
-    )
-          
-    for i in range(len(points_array)):
-      if len(colliding_cells.links(i)) > 0:
-        cell_id = colliding_cells.links(i)[0]
-        if cell_id < len(self.sigma.x.array):
-          self.sigma.x.array[cell_id] = sigma_metal
-          
+    # Set bulk conductivity (filament interior)
+    if self.metal_atoms:
+      bulk_cells = self._find_dofs_near_particles_vectorized(self.metal_atoms, contact_radius=3.5)
+      if len(bulk_cells) > 0:
+        self.sigma.x.array[bulk_cells] = sigma_metal
+        
+    # Set interface conductivity (contact resistance)
+    if self._has_top_contact_resistance and self.top_interface_atoms:
+      sigma_top = float(cond_cfg.get('interface_top'))
+      interface_cells_top = self._find_dofs_near_particles_vectorized(
+            self.top_interface_atoms, contact_radius=5.0
+      )
+      
+      if len(interface_cells_top) > 0:
+        self.sigma.x.array[interface_cells_top] = sigma_top
+    
+    if self._has_bottom_contact_resistance and self.bottom_interface_atoms:
+      sigma_bottom = float(cond_cfg.get('interface_bottom'))
+      interface_cells_bottom = self._find_dofs_near_particles_vectorized(
+        self.bottom_interface_atoms, contact_radius=5.0
+      )
+      
+      if len(interface_cells_bottom) > 0:
+        self.sigma.x.array[interface_cells_bottom] = sigma_bottom
+      
+ 
   # ======================================================================
   # Solve
   # ======================================================================
@@ -458,7 +495,7 @@ class PoissonSolver(FEMSolverBase):
     # === Choose formulation ===
     if self.use_conductivity:
       # Conductivity formulation: -?*(s?f) = 0
-      self.conductivity_in_system(self.metal_atoms)
+      self.conductivity_in_system()
       
       a_form = fem.form(
         ufl.inner(self.sigma * ufl.grad(self.u_trial), ufl.grad(self.v_test))

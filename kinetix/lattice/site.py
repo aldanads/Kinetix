@@ -866,14 +866,18 @@ class Site():
                 # Apply top electrode correction
                 if self.in_cluster_with_electrode['top_layer'] or 'top_layer' in self.supp_by:
                   Act_E = max(base_energy + field_factor_top * field_contribution, min_energy)
-                  
-                  if self.in_cluster_with_electrode['top_layer'] and process == 'oxidation':
-                    print(f'Wihin electrode --> Act energy: {Act_E}, E field: {field_contribution}')
                 
                 # Apply bottom electrode correction
                 if self.in_cluster_with_electrode['bottom_layer'] or 'bottom_layer' in self.supp_by:
                   Act_E = max(base_energy + field_factor_bottom * field_contribution, min_energy)
                   
+                  """
+                  if 'top_layer' in self.supp_by and process == 'oxidation' and self.in_cluster_with_electrode['top_layer']:
+                    print(f'[Top] Atom at {self.position}, within bridging electrode --> Base energy: {base_energy}, Act energy: {Act_E}, Act modif (E_field): {field_factor_top * field_contribution}, E_site_field: {E_site_field}')
+                    
+                  if 'bottom_layer' in self.supp_by and process == 'oxidation' and self.in_cluster_with_electrode['top_layer']:
+                    print(f'[Bottom] Atom at {self.position}, within bridging electrode --> Base energy: {base_energy}, Act energy: {Act_E}, Act modif (E_field): {field_factor_bottom * field_contribution}, E_site_field: {E_site_field}')
+                  """
                   
               elif isinstance(event[-2], int):
                 mig_vec = migration_pathways[event[-2]]['direction']

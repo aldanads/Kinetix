@@ -3,7 +3,7 @@
 # Electrical Configuration - RAMP_CYCLE
 # =============================================================================
 
-initial_voltage: 0.0
+
 initial_time: 0.0
 series_resistance: 1.0e7
 
@@ -11,6 +11,7 @@ voltage:
   mode: "RAMP_CYCLE"
   max_voltage: 1.0
   min_voltage: -1.0
+  initial_voltage: 0
   ramp_rate: 2.0
   num_cycles: 1
   voltage_update_time: 0.01

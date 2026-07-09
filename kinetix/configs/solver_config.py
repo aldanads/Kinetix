@@ -17,8 +17,7 @@ class PoissonSolverConfig:
   solve_Poisson: bool = True
   save_Poisson: bool = False
   screening_factor: float = 0.01
-  conductivity_CF: float = 6.3e6  # S/m
-  conductivity_dielectric: float = 1e-1  # S/m
+  conductivity: Dict[str, float] = field(default_factory=dict)
   epsilon_r: float = 23.0
   defects_config: Dict[str, Any] = field(default_factory=dict)
     
@@ -35,8 +34,7 @@ class PoissonSolverConfig:
       'solve_Poisson': self.solve_Poisson,
       'save_Poisson': self.save_Poisson,
       'screening_factor': self.screening_factor,
-      'conductivity_CF': self.conductivity_CF,
-      'conductivity_dielectric': self.conductivity_dielectric,
+      'conductivity': self.conductivity,
       'defects_config': self.defects_config,
     }
 

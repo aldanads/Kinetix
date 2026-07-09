@@ -84,6 +84,7 @@ class Crystal_Lattice():
         self.rng = crystal_features.get('rng')
         self.chemical_formula = crystal_features.get('chemical_formula')
         self.cache_dir = crystal_features.get('cache_dir')
+        self.interstitial_generation = crystal_features.get('interstitial_generation')     
              
         # --- Experimental conditions ---
         self.sticking_coefficient = experimental_conditions['sticking_coeff']
@@ -116,7 +117,7 @@ class Crystal_Lattice():
         # is effectively blocked due to the redistribution of neighboring charges
         if self.poissonSolver_parameters:
           self.screening_factor = self.poissonSolver_parameters['screening_factor']
-          self.conductivity = self.poissonSolver_parameters['conductivity_CF']
+          self.conductivity = self.poissonSolver_parameters['conductivity']
 
         # Time tracking
         self.time = 0
@@ -825,8 +826,9 @@ class Crystal_Lattice():
       if interstitial_species is None:
         raise ValueError("No interstitial species found in defects_config")
         
+      
       # Default minimum distance from atoms, adjust if you find sites too close/far from atoms
-      MIN_DISTANCE_FROM_ATOMS = 1.2  # Å
+      MIN_DISTANCE_FROM_ATOMS = self.interstitial_generation['min_distance']  # Angstroms
 
       
       # =========================================================================
@@ -868,9 +870,12 @@ class Crystal_Lattice():
         )
         
       # Validate interstitial spacing in the unit cell
-      #self.create_ovito_xyz_file(interstitial_species, base_positions_unit_cell)  
       if self.rank == 0:
         self._validate_interstitial_positions(base_positions_unit_cell, self.structure_basic)
+        
+        if self.interstitial_generation['create_interstitial_xyz_file']:
+          self.create_ovito_xyz_file(interstitial_species, base_positions_unit_cell)  
+        
    
       # =========================================================================
       # Replicate in supercell
@@ -921,7 +926,8 @@ class Crystal_Lattice():
       structure = self.structure_basic
       interstitial_positions = []
       # Use InterstitialGenerator
-      gen = VoronoiInterstitialGenerator(min_dist=min_distance, clustering_tol=1.6)
+      
+      gen = VoronoiInterstitialGenerator(min_dist=min_distance, clustering_tol=self.interstitial_generation['clustering_tol'] )
       
       sga = SpacegroupAnalyzer(structure, symprec=0.01, angle_tolerance=5)
       symm_ops = sga.get_symmetry_operations()
