@@ -50,7 +50,6 @@ components:
   defects: "defects/ECM_CeO2_Ag_defects_config.yaml"
   grain_boundaries: "grain_boundaries/gb_cylindrical_ECM_CeO2.yaml"
   electrical: "electrical/electrical_RAMP_CYCLE.yaml"
-
   
 # -----------------------------------------------------------------------------
 # Simulation Settings (ALL simulation parameters in one place)
@@ -59,7 +58,7 @@ settings:
   simulation_type: "electronic_device"      
   technology: "ECM"                     
   mode: "interstitial"                  
-  seed_rng: 1                           
+  seed_rng: null                           
   save_data: true                      
   lammps_output: true
   activation_energies: "activation_energies/ECM_CeO2.json"

@@ -11,8 +11,8 @@ grain_boundaries:
   - type: "cylindrical"
     enabled: true
     center: [25.0, 25.0]                # [x, y] center position (angstroms)
-    radius: 10.0                         # Inner radius (angstroms)
-    outer_radius: 18.0                  # Outer radius including transition (angstroms)
+    radius: 8.0                         # Inner radius (angstroms)
+    outer_radius: 15.0                  # Outer radius including transition (angstroms)
     description: "Central cylindrical GB"
     
     event_modifications:

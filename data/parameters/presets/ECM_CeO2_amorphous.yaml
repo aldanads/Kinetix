@@ -1,4 +1,4 @@
-# data/parameters/presets/ECM_CeO2.yaml
+# data/parameters/presets/ECM_CeO2_amorphous.yaml
 # =============================================================================
 # ECM Simulation - CeO2 with Ag interstitial
 # =============================================================================
@@ -18,7 +18,7 @@ metadata:
 material:
   name: "CeO2"
   mp_id: "mp-20194"
-  radius_neighbors: 6.0
+  radius_neighbors: 3.9
   epsilon_r: 23.0
   
 # -----------------------------------------------------------------------------
@@ -30,6 +30,12 @@ crystal:
   sites_generation_layer: "top_layer" # or "bottom_layer"
   affected_site: "Empty"
   facets_type: null
+  
+  # Interstitial site generation parameters (Voronoi method)
+  interstitial_generation:
+    min_distance: 1.2 # Minimum distance from host atoms (angstroms)
+    clustering_tol: 1.6 # Voronoi node clustering tolerange (angstroms)
+    create_interstitial_xyz_file: True # Create a xyz file with the unit cell with the interstitial sites
   
 # -----------------------------------------------------------------------------
 # Experimental conditions
@@ -77,8 +83,15 @@ poisson:
   save_Poisson: false
   active_dipoles: 4
   screening_factor: 0.01
-  conductivity_CF: 6.3e6          # S/m (conductive filament)
-  conductivity_dielectric: 1.0e-1 # S/m (dielectric)
+  
+  conductivity:
+    conductive_filament: 6.3e2          # S/m (conductive filament)
+    dielectric: 1.0e-1 # S/m (dielectric)
+    
+    # Contact resistance at interfaces (optional)
+    # Set to null to disable, or provide a value in S/m
+    interface_top: null           # Ag-Ag (no real interface) ? disabled
+    interface_bottom: 1.0e2       # Ag-ITO (real interface) ? enabled
   
 # -----------------------------------------------------------------------------
 # Heat Solver (optional)
