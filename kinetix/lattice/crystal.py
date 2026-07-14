@@ -109,6 +109,7 @@ class Crystal_Lattice():
         
         # --- Poisson solver ---s
         self.poissonSolver_parameters = kwargs.get('poissonSolver_parameters', None)
+        self.heat_parameters = kwargs.get('heat_parameters',None)
 
         # The device is globally neutral. Charged ions + electrons/dielectric reduced
         # Example: Ag/CeO2 (Ce4+) --> Ag+ + CeO2 (Ce3+)
@@ -2581,9 +2582,9 @@ class Crystal_Lattice():
 # Update transition rates with electric field                    
 # =============================================================================
 
-    def update_transition_rates_with_electric_field(self,E_field):
+    def update_transition_rates(self, E_field=None, T_field=None):
       """
-      Update transition rates for all sites based on electric field.
+      Update transition rates for all sites based on electric field and temperature.
       
       Only rank 0 updates rates (runs kMC),
       non-root ranks skip this (they only solve Poisson/heat equations).
@@ -2593,20 +2594,36 @@ class Crystal_Lattice():
       E_field : dict
           Dictionary mapping position tuples to electric field vectors.
           Format: {(x, y, z): (Ex, Ey, Ez)} in V/m
+          If None, zero field is assumed
+      T_field : dict, optional
+          Dictionary mapping position tuples to temperature values.
+          Format: {(x, y, z): T} in Kelvin
+          If None, ambient temperature is used.
       """
       # === Only rank 0 needs to update transition rates (runs kMC) ===
       if self.rank != 0:
         return
       
+      # === Default values if fields not provided ===
+      if E_field is None:
+        E_field = {}
+      if T_field is None:
+        T_field = {}  
+      
       # === Update transitions rates for all relevant sites ===
       for site in (self.sites_occupied + self.adsorption_sites):
         # Create lookup keys from site position
-        E_field_key = tuple(np.round(self.grid_crystal[site].position, 6))
+        pos_key = tuple(np.round(self.grid_crystal[site].position, 6))
         
-        E_site_field = E_field[E_field_key]
+        # Get electric field (default: zero vector)
+        E_site_field = E_field.get(pos_key, np.array([0.0, 0.0, 0.0]))
+        
+        # Get temperature (default: ambient)
+        T_site = T_field.get(pos_key, self.temperature)
           
         self.grid_crystal[site].transition_rates(
-            E_site_field = E_field[E_field_key], 
+            E_site_field = E_site_field, 
+            T=T_site,
             migration_pathways = self.migration_pathways, 
             clusters = self.clusters, 
             atom_to_cluster = self.atom_to_cluster
@@ -2685,16 +2702,16 @@ class Crystal_Lattice():
         """
         Calculate maximum timestep based on next Poisson solve time
         """
-        next_poisson_time = self.last_poisson_time + self.timestep_limits
-        timestep_limit = next_poisson_time - self.time
+        next_field_time = self.last_field_solve_time + self.timestep_limits
+        timestep_limit = next_field_time - self.time
         
         tolerance = 1.e-12 * self.timestep_limits
         
         if timestep_limit < tolerance:
-          self.time = next_poisson_time
+          self.time = next_field_time
           timestep_limit = 0.0
         
-        return next_poisson_time - self.time
+        return next_field_time - self.time
         
     def should_continue_simulation(self,total_simulation_time):
       """
@@ -2712,12 +2729,12 @@ class Crystal_Lattice():
       """
       return self.time < total_simulation_time
       
-    def should_solve_poisson_now(self, elec_controller, tol=1e-12):
+    def should_solve_fields_now(self, elec_controller, tol=1e-12):
       """
-      Check if Poisson equation should be solved at current time.
+      Check if field solvers (Poisson, Heat) should be solved at current time.
       
-      Handles voltage update timing and tracks last Poisson solve time.
-      Only relevant on rank 0 (but safe to call on all ranks).
+      Handles voltage update timing and tracks last field solve time.
+    Only relevant on rank 0 (but safe to call on all ranks).
       
       Parameters:
       -----------
@@ -2734,19 +2751,19 @@ class Crystal_Lattice():
           True if this is a snapshot/save point
       """
       # Initialize last_poisson_time if not set
-      if not hasattr(self, 'last_poisson_time'):
-        self.last_poisson_time = -float('inf')
+      if not hasattr(self, 'last_field_solve_time'):
+        self.last_field_solve_time = -float('inf')
         
       # Calculate next scheduled solve time
-      next_solve_time = self.last_poisson_time + elec_controller.voltage_update_time
+      next_solve_time = self.last_field_solve_time + elec_controller.voltage_update_time
       
       # Check if current time has reached next solve time
       if self.time >= next_solve_time - tol:
         # Update last_poisson_time for next iteration
-        if self.last_poisson_time == -float('inf'):
-            self.last_poisson_time = self.time
+        if self.last_field_solve_time == -float('inf'):
+            self.last_field_solve_time = self.time
         else:
-            self.last_poisson_time = next_solve_time
+            self.last_field_solve_time = next_solve_time
             self.time = next_solve_time
             
         return True, True # should_solve=True, is_snapshot=True

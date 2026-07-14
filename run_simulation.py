@@ -49,7 +49,7 @@ def main(sim_id):
             
         
         j = 0
-        snapshoots_steps = simulation_parameters['snapshoots_steps']
+        snapshots_steps = simulation_parameters['snapshoots_steps']
         total_steps = simulation_parameters['total_steps']
         save_data = simulation_parameters['save_data']
         
@@ -96,7 +96,7 @@ def main(sim_id):
                     
                 # print('Superbasin E_min: ',System_state.E_min)
             
-                if i%snapshoots_steps== 0:
+                if i%snapshots_steps== 0:
                     System_state.add_time()
                     
                     j+=1
@@ -123,7 +123,7 @@ def main(sim_id):
             System_state.measurements_crystal()
             list_time_step = []
     
-            while j*snapshoots_steps < total_steps:
+            while j*snapshots_steps < total_steps:
     
                 i+=1
                 System_state,KMC_time_step, _ = KMC(System_state,rng)
@@ -155,14 +155,14 @@ def main(sim_id):
     #                     Finish search superbasin
     # =============================================================================
                 
-                if i%snapshoots_steps== 0:
+                if i%snapshots_steps== 0:
                     
                     System_state.sites_occupied = list(set(System_state.sites_occupied))
                                         
                     System_state.add_time()
                     j+=1
                     System_state.measurements_crystal()
-                    print(str(j)+"/"+str(int(total_steps/snapshoots_steps)),'| Total time: ',System_state.list_time[-1])
+                    print(str(j)+"/"+str(int(total_steps/snapshots_steps)),'| Total time: ',System_state.list_time[-1])
                     end_time = time.time()
                     if save_data:
                         Results.measurements_crystal(System_state.list_time[-1],System_state.mass_gained,System_state.fraction_sites_occupied,
@@ -182,13 +182,18 @@ def main(sim_id):
             solve_Poisson = System_state.poissonSolver_parameters['solve_Poisson']
             save_Poisson = System_state.poissonSolver_parameters['save_Poisson']
             
+            solve_heat = System_state.heat_parameters.get('solve_heat', False)
+            save_heat = System_state.heat_parameters.get('save_heat', False)
+            
             V_top = Elec_controller.apply_voltage(System_state.time)
             System_state.save_electric_bias(V_top)
        
             # Dolfinx only works in Linux
             if solve_Poisson and platform.system() == 'Linux':
                 from kinetix.solvers.poisson import PoissonSolver
+                from kinetix.solvers.heat import HeatSolver
                 from mpi4py import MPI
+                
                 # Initialize Poisson solver on all MPI ranks
                 poisson_solver = PoissonSolver(
                   System_state.poissonSolver_parameters, 
@@ -197,17 +202,29 @@ def main(sim_id):
                   mpi_ctx = System_state.mpi_ctx
                 )
                 poisson_solver.set_boundary_conditions(top_value=V_top, bottom_value=0.0)  # Set appropriate BCs
+                
+                if solve_heat:
+                  heat_solver = HeatSolver(
+                    System_state.heat_parameters,
+                    grid_crystal=System_state.grid_crystal,
+                    path_results = paths["results"],
+                    mpi_ctx=System_state.mpi_ctx
+                  )
             
+                  heat_solver.set_boundary_conditions(
+                    top_value=heat_solver.T_ambient,
+                    bottom_value=heat_solver.T_ambient
+                  )
             
             while System_state.should_continue_simulation(Elec_controller.total_simulation_time):
             
                      
                 if solve_Poisson and platform.system() == 'Linux': 
-                  should_solve_poisson_now, snapshoots = System_state.should_solve_poisson_now(Elec_controller)
+                  should_solve_fields_now, snapshots = System_state.should_solve_fields_now(Elec_controller)
                        
-                  particle_locations, charges, E_field_points = System_state.get_evaluation_points()
+                  particle_locations, charges, evaluation_points = System_state.get_evaluation_points()
                     
-                  if should_solve_poisson_now:
+                  if should_solve_fields_now:
                         # Every time we change the applied voltage, we should calculate Poisson
                         V_top = Elec_controller.apply_voltage(System_state.time)
                         System_state.save_electric_bias(V_top)
@@ -225,13 +242,51 @@ def main(sim_id):
                         if System_state.rank == 0: print(f'Run time to solve Poisson: {run_time}')
 
                         if save_Poisson:
-                          poisson_solver.save_potential(uh,System_state.time,j+1)
+                          poisson_solver.save_potential(System_state.time,j+1)
+                          
+                        if solve_heat:
+                         heat_start_time = MPI.Wtime()
+                         
+                         # Update temperature with thermal relaxation
+                         # dt = time since last heat solve
+                         dt_heat = Elec_controller.voltage_update_time
+                         
+                         T_solution = heat_solver.update_temperature(
+                           dt=dt_heat,
+                           poisson_solver=poisson_solver,
+                           recompute_steady=True
+                         )
+                         
+                         heat_run_time = MPI.Wtime() - heat_start_time
+                         
+                         
+                         Max_T = heat_solver.get_maximum_temperature()
+                         Min_T = heat_solver.get_minimum_temperature()
+                         Avg_T = heat_solver.get_average_temperature()
+                         if System_state.rank == 0: 
+                           print(f'Run time to solve Heat: {heat_run_time}', flush=True)
+                           print(f'Max temperature: {Max_T:.10f} K', flush=True)
+                           print(f'Min temperature: {Min_T:.10f} K', flush=True)
+                           print(f'Avg temperature: {Avg_T:.10f} K', flush=True)
+                         
+                         # Save temperature
+                         if save_heat:
+                           heat_solver.save_temperature(System_state.time, j+1)
+                           
+
                           
                         run_time = 0
                         
+                  # === Evaluate fields at site positions ===
+                  E_field = poisson_solver.evaluate_electric_field_at_points(evaluation_points)
                   
-                  E_field = poisson_solver.evaluate_electric_field_at_points(uh,E_field_points)                 
-                  System_state.update_transition_rates_with_electric_field(E_field)
+                  # Evaluate temperature at same points (if heat solver enabled)
+                  if solve_heat:
+                    T_field = heat_solver.evaluate_temperature_at_points(evaluation_points)
+                  else:
+                    T_field = None # Will use ambient temperature
+                                   
+                  System_state.update_transition_rates(E_field)
                         
                 
                 System_state.step_kmc(rng)
@@ -243,7 +298,7 @@ def main(sim_id):
                     
                 """
                 
-                if snapshoots:
+                if snapshots:
                 
                     j+=1
                     # Continue with serial processing on rank 0

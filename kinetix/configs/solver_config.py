@@ -42,21 +42,25 @@ class PoissonSolverConfig:
 class HeatSolverConfig:
   """Heat equation solver parameters."""
   solve_heat: bool = False
+  save_heat: bool = False
   thermal_conductivity: float = 2.5  # W/m-K
-  heat_capacity: float = 500.0  # J/kg-K
+  specific_heat: float = 500.0  # J/kg-K
   density: float = 5000.0  # kg/m³
   heat_solve_frequency: int = 100
-  ambient_temperature: float = 300.0  # K
+  tau_thermal: float = 1.0 # s
+  use_thermal_inertia: bool = True
     
   def to_dict(self) -> Dict[str, Any]:
     """Convert to dictionary"""
     return {
       'solve_heat': self.solve_heat,
+      'save_heat': self.save_heat,
       'thermal_conductivity': self.thermal_conductivity,
-      'heat_capacity': self.heat_capacity,
+      'specific_heat': self.heat_capacity,
       'density': self.density,
       'heat_solve_frequency': self.heat_solve_frequency,
-      'ambient_temperature': self.ambient_temperature,
+      'tau_thermal': self.tau_thermal,
+      'use_thermal_inertia': use_thermal_inertia
     }
 
 @dataclass

@@ -48,7 +48,6 @@ class PoissonSolver(FEMSolverBase):
       - d_metal_O : float (angstrom)
       - chem_env_symmetry : str
       - active_dipoles : float
-      - defects_config : dict
     grid_crystal : optional
       Crystal structure for mesh generation
     mpi_ctx : MPIContext, optional
@@ -56,17 +55,11 @@ class PoissonSolver(FEMSolverBase):
     **kwargs : dict
       Additional parameters:
       - epsilon_gaussian_charge : float (angstrom)
-      - activate_mesh_refinement : bool
-      - fine_mesh_size : float (angstrom)
-      - refinement_radius : float (angstrom)
+
       - path_results : str
     """  
     # === Extract Poisson-specific paramters ===
     self.epsilon_gc = kwargs.pop('epsilon_gaussian_charge', 0.8) # angstroms
-    self.active_mesh_refinement = kwargs.pop('activate_mesh_refinement', True)
-    self.fine_mesh_size = kwargs.pop('fine_mesh_size', 0.2) # angstroms
-    self.refinement_radius = kwargs.pop('refinement_radius', 1.2) # angstroms
-    self.defects_config = poisson_parameters.get('defects_config', {})
     self.epsilon_r = poisson_parameters.get('epsilon_r', 23.0)
     self.poisson_parameters = poisson_parameters
     
@@ -83,6 +76,11 @@ class PoissonSolver(FEMSolverBase):
     self._setup_poisson_forms()
     self._calculate_dipole_moment()
     
+    self._setup_time_series_output(
+      output_folder='Electric_potential_results',
+      base_filename='E_potential'
+    )
+    
     # === Track state ===
     self.use_conductivity = False
     self._bcs_changed = True
@@ -91,7 +89,8 @@ class PoissonSolver(FEMSolverBase):
     
     # Conductivity assigment (populated by set_boundary_conditions)
     self.metal_atoms = []  # Bulk filament positions
-    
+    self.top_interface_atoms = []
+    self.bottom_interface_atoms = []
   
   def _setup_poisson_specific_spaces(self):
     """Setup Poisson-specific function spaces and functions."""
@@ -231,8 +230,11 @@ class PoissonSolver(FEMSolverBase):
     cond_cfg = self.poisson_parameters.get('conductivity',{})
     self._has_top_contact_resistance = cond_cfg.get('interface_top', False)
     self._has_bottom_contact_resistance = cond_cfg.get('interface_bottom', False)
+    self.has_clusters = False
     
-    if clusters is not None:
+    if clusters is not None and len(clusters) > 0:
+      self.has_clusters = True # Flag to assgin conductivity
+      
       for cluster in clusters.values():               
         touches_bottom = cluster.attached_layer.get('bottom_layer', False)
         touches_top = cluster.attached_layer.get('top_layer', False)
@@ -492,10 +494,12 @@ class PoissonSolver(FEMSolverBase):
     """
     angstrom_to_m = 1e-10
     
+    if self.has_clusters:
+      self.conductivity_in_system()
+    
     # === Choose formulation ===
     if self.use_conductivity:
-      # Conductivity formulation: -?*(s?f) = 0
-      self.conductivity_in_system()
+      # Conductivity formulation
       
       a_form = fem.form(
         ufl.inner(self.sigma * ufl.grad(self.u_trial), ufl.grad(self.v_test))
@@ -600,7 +604,7 @@ class PoissonSolver(FEMSolverBase):
   # Electric Field Evaluation
   # ======================================================================    
     
-  def evaluate_electric_field_at_points(self, uh, points):
+  def evaluate_electric_field_at_points(self, points):
   
     """
     Evaluate electric field E = -?f at given points.
@@ -610,8 +614,6 @@ class PoissonSolver(FEMSolverBase):
     
     Parameters:
     -----------
-    uh : Function
-        Electric potential solution
     points : array-like
         Points [N, 3] where to evaluate E-field (angstroms)
     
@@ -652,7 +654,7 @@ class PoissonSolver(FEMSolverBase):
       new_points_array = np.array(new_points, dtype=np.float64)
       
       # Project E = -?f to vector function space  
-      self._project_electric_field(uh)
+      self._project_electric_field(self.uh)
         
       # Evaluate E_field at new points using base class method
       E_values_array = self.evaluate_at_points(
@@ -882,7 +884,32 @@ class PoissonSolver(FEMSolverBase):
     # === Footer (rank 0 only) ===
     if self.rank == 0:
         print("="*70 + "\n")
+  
         
+  def save_potential(self, time_value, timestep):
+    """
+    Save electric potential field (uses internal self.uh).
+    
+    Parameters:
+    -----------
+    time_value : float
+        Physical time for metadata
+    timestep : int
+        Timestep index for filename numbering
+    
+    Returns:
+    --------
+    saved_files : list
+        List of paths to saved files
+    """
+    return self.save_solution(
+      self.uh,
+      filename=self.output_base,
+      time_value=time_value,
+      timestep=timestep,
+      save_csv=self.save_csv
+    )
+    
         
         
 

@@ -93,7 +93,6 @@ class FEMSolverBase:
     self._setup_function_spaces()
     self._setup_linear_algebra()
     self._precompute_domain_geometry()
-    self._setup_time_series_output(output_folder="Electric_potential_results")
     
   # ====================================
   # Mesh management
@@ -667,7 +666,7 @@ class FEMSolverBase:
       
     return values    
     
-  def _setup_time_series_output(self,output_folder="Electric_potential_results"):
+  def _setup_time_series_output(self,output_folder="results", base_filename='output'):
     """
     Initialize time series output handling.
     Call this once at solver initialization.
@@ -676,7 +675,7 @@ class FEMSolverBase:
     results_folder.mkdir(exist_ok=True, parents=True)
       
     # Base filename for time series
-    self.output_base = results_folder / "E_potential"
+    self.output_base = results_folder / base_filename
     
     # Track timesteps for metadata  
     self.timestep_info = []

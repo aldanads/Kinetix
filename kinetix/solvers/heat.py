@@ -53,7 +53,6 @@ class HeatSolver(FEMSolverBase):
       - tau_thermal : float (s) - relaxation time constant
       - compute_tau_from_properties : bool (default: False)
       - characteristic_length : float (m) - for tau calculation
-      - defects_config : dict
     grid_crystal : optional
       Crystal structure for mesh generation
     mpi_ctx : MPIContext, optional
@@ -73,16 +72,15 @@ class HeatSolver(FEMSolverBase):
     self.use_thermal_inertia = heat_parameters.get('use_thermal_inertia', True)
         
     # Option A: Specify relaxation time directly
-    self.tau_thermal = heat_parameters.get('tau_thermal', 1e-12)  # 1 ps default
+    self.tau_thermal = heat_parameters.get('tau_thermal', None)  # 1 ps default
         
     # Option B: Compute from material properties and geometry
-    if heat_parameters.get('compute_tau_from_properties', False):
+    if self.tau_thermal is None:
       L = heat_parameters.get('characteristic_length', 50e-10)  # m (default: 50 Å)
       self.tau_thermal = (self.rho_default * self.cp_default * L**2) / self.kappa_default
       if mpi_ctx is None or mpi_ctx.rank == 0:
         print(f"Computed thermal relaxation time: t = {self.tau_thermal:.2e} s = {self.tau_thermal*1e12:.2f} ps")
         
-    self.defects_config = heat_parameters.get('defects_config', {})
         
     # === Initialize base class ===
     super().__init__(
@@ -95,6 +93,11 @@ class HeatSolver(FEMSolverBase):
     # === Heat-specific initialization ===
     self._setup_thermal_spaces()
     self._setup_thermal_forms()
+    
+    self._setup_time_series_output(
+      output_folder='Temperature_results',
+      base_filename='Temperature'
+    )
         
     # === Initialize temperature field ===
     self.T_current = fem.Function(self.V, dtype=np.float64)
@@ -174,6 +177,9 @@ class HeatSolver(FEMSolverBase):
       
     # Joule heating: Q = s|E|^2 [W/m^3]
     Q_joule = sigma.x.array * E_squared
+    
+    print(f'E filed: {E_values}')
+    print(f'Sigma: {sigma.x.array}')
     
     # Set heat source (only local cells)
     local_size = self.W.dofmap.index_map.size_local
@@ -353,6 +359,12 @@ class HeatSolver(FEMSolverBase):
     global_max = self.mpi_ctx.allreduce(local_max, op=MPI.MAX)
     return global_max
     
+  def get_minimum_temperature(self):
+    """Get maximum temperature in domain (across all MPI ranks)."""
+    local_min = np.min(self.T_current.x.array)
+    global_min = self.mpi_ctx.allreduce(local_min, op=MPI.MIN)
+    return global_min
+    
   def get_average_temperature(self):
     """Get volume-averaged temperature."""
     
@@ -384,4 +396,93 @@ class HeatSolver(FEMSolverBase):
       
     self.T_current.x.array[:] = T_value
     self.T_steady_cache = None
-
+    
+  def evaluate_temperature_at_points(self, points):
+    """
+    Evaluate temperature field T at given points.
+    
+    Implements caching to avoid recomputing for same points.
+    
+    Parameters:
+    -----------
+    points : array-like
+        Points [N, 3] where to evaluate temperature (angstroms)
+    
+    Returns:
+    --------
+    T_values : dict
+        Dictionary {(x,y,z): T} in Kelvin
+    """
+    # Initialize cache on first call
+    if not hasattr(self, '_T_field_cache'):
+      self._T_field_cache = {}
+      
+    points_array = np.asarray(points, dtype=np.float64)
+    if points_array.ndim == 1:
+      points_array = points_array.reshape(1, -1)
+      
+    # === Separate cached and new points ===
+    cached_points = []
+    new_points = []
+    
+    for point in points_array:
+      point_key = tuple(np.round(point, 6))
+      if point_key in self._T_field_cache:
+        cached_points.append(point_key)
+      else:
+        new_points.append(point)
+        
+    # === Initialize result dictionary ===
+    T_values_global = {}
+    
+    # === Add cached value ===
+    for point_key in cached_points:
+      T_values_global[point_key] = self._T_field_cache[point_key]
+      
+    # === Compute new values ===
+    if new_points:
+      new_points_array = np.array(new_points, dtype=np.float64)
+      
+      # Evaluate T_current at new points using base class method
+      T_values_array = self.evaluate_at_points(
+        self.T_current,
+        new_points_array,
+      )
+      
+      # === MPI reduction: sum across ranks ===
+      T_values_array = self.mpi_ctx.allreduce(
+        T_values_array,
+        op=MPI.SUM
+      )
+      
+      for i, point in enumerate(new_points):
+        point_key = tuple(np.round(point, 6))
+        T_values_global[point_key] = T_values_array[i]
+        self._T_field_cache[point_key] = T_values_array[i]
+        
+    return T_values_global    
+        
+    
+  def save_temperature(self, time_value, timestep):
+    """
+    Save temperature field (uses internal self.T_current).
+    
+    Parameters:
+    -----------
+    time_value : float
+        Physical time for metadata
+    timestep : int
+        Timestep index for filename numbering
+    
+    Returns:
+    --------
+    saved_files : list
+        List of paths to saved files
+    """
+    return self.save_solution(
+      self.T_current,
+      filename=self.output_base,
+      time_value=time_value,
+      timestep=timestep,
+      save_csv=self.save_csv
+    )

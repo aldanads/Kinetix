@@ -80,7 +80,7 @@ superbasin:
 # -----------------------------------------------------------------------------
 poisson:
   solve_Poisson: true 
-  save_Poisson: false
+  save_Poisson: False
   active_dipoles: 4
   screening_factor: 0.01
   
@@ -97,10 +97,14 @@ poisson:
 # Heat Solver (optional)
 # -----------------------------------------------------------------------------  
 heat: 
-  solve_heat: false
+  solve_heat: True
+  save_heat: False
   thermal_conductivity: 2.5       # W/m-K
-  heat_capacity: 500.0            # J/kg-K
+  specific_heat: 500.0            # J/kg-K
   density: 5000.0                 # kg/m3
+  tau_thermal: null            # s -> Set to null to calculate through properties
+  use_thermal_inertia: True
+  
   
 # -----------------------------------------------------------------------------
 # Mesh Generation (Gmsh parameters)

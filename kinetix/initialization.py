@@ -48,7 +48,7 @@ def initialization(n_sim,params):
     mpi_ctx = MPIContext.get_instance()
     
     parameters_root = get_parameters_root()
-    preset_name = 'ECM_CeO2_amorphous.yaml'
+    preset_name = 'ECM_CeO2_cylindrical_gb.yaml'
     preset_path = parameters_root / 'presets' / preset_name
     config = SimulationConfig.from_yaml(preset_path)
     
@@ -459,6 +459,21 @@ def initialization(n_sim,params):
         }
         
 
+        heat_parameters = {
+          'solve_heat': config.heat.solve_heat,
+          'save_heat': config.heat.save_heat,
+          'thermal_conductivity': config.heat.thermal_conductivity,
+          'specific_heat': config.heat.specific_heat,
+          'density': config.heat.density,    
+          'T_ambient': config.experimental.temperature,
+          'characteristic_length': crystal_size[2] / 2.0 * 1e-10,
+          'tau_thermal': config.heat.tau_thermal,
+          'use_thermal_inertia':config.heat.use_thermal_inertia,
+          'mesh_config': config.mesh.to_dict(),
+          'mesh_file': mesh_file,
+          'defects_config': defects_config,
+        }
+
         # 7. Activation energies
         ae_data = load_activation_energies(preset_path, config.settings)
         ### ----------------- PARAMETER SWEEP ----------------- ###
@@ -482,7 +497,8 @@ def initialization(n_sim,params):
           lammps_file,
           superbasin_parameters,
           save_data,
-          poissonSolver_parameters
+          poissonSolver_parameters,
+          heat_parameters
         ) 
         
         # 9. Post initialization steps
@@ -510,7 +526,8 @@ def initialize_grid_crystal(
   lammps_file,
   superbasin_parameters,
   save_data, 
-  poissonSolver_parameters = None
+  poissonSolver_parameters = None,
+  heat_parameters = None
 ):
         """
         Initialize or load a crystal lattice state for kMC simulation.
@@ -555,6 +572,9 @@ def initialize_grid_crystal(
             
         if grid_crystal is not None:
           crystal_kwargs['grid_crystal'] = grid_crystal
+        
+        if heat_parameters is not None:
+          crystal_kwargs['heat_parameters'] = heat_parameters
             
         # Instantiate system (loads or creates grid internally)
         System_state = Crystal_Lattice(

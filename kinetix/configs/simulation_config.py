@@ -249,11 +249,16 @@ class SimulationConfig:
     if heat_data:
       config.heat = HeatSolverConfig(
         solve_heat=_get_required(heat_data,'solve_heat', yaml_path, 'heat.solve_heat'),
+        save_heat=_get_required(heat_data,'save_heat', yaml_path, 'heat.save_heat'),
         thermal_conductivity=_get_required(heat_data,'thermal_conductivity',yaml_path, 'heat.thermal_conductivity'),
-        heat_capacity=_get_required(heat_data,'heat_capacity',yaml_path, 'heat.heat_capacity'),
+        specific_heat=_get_required(heat_data,'specific_heat',yaml_path, 'heat.specific_heat'),
         density=_get_required(heat_data,'density',yaml_path, 'heat.density'),
-      
+        tau_thermal=heat_data.get('tau_thermal'),
+        use_thermal_inertia=_get_required(heat_data,'use_thermal_inertia',yaml_path, 'heat.use_thermal_inertia')
       )
+      print("Heat solver config loaded")
+    else:
+      print("Heat solver: Not configured")
       
     # =========================================================================
     # Load Heat Solver Configuration (OPTIONAL)
