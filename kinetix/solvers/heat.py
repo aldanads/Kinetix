@@ -63,7 +63,8 @@ class HeatSolver(FEMSolverBase):
       - path_results : str
     """
     # === Extract heat-specific parameters ===
-    self.kappa_default = heat_parameters.get('thermal_conductivity', 2.0)  # W/m/K
+    self.kappa_default = heat_parameters.get('thermal_conductivity').get('kappa_dielectric',2.0)  # W/m/K
+    self.kappa_metal = heat_parameters.get('thermal_conductivity').get('kappa_metal') # W/m/K
     self.rho_default = heat_parameters.get('density', 9700.0)  # kg/m³
     self.cp_default = heat_parameters.get('specific_heat', 450.0)  # J/kg/K
     self.T_ambient = heat_parameters.get('ambient_temperature', 300.0)  # K
@@ -121,10 +122,6 @@ class HeatSolver(FEMSolverBase):
     self.kappa = fem.Function(self.W, dtype=np.float64)
     self.kappa.x.array[:] = self.kappa_default
         
-    # Pre-allocate volumetric heat capacity field (?c_p)
-    self.rho_cp = fem.Function(self.W, dtype=np.float64)
-    self.rho_cp.x.array[:] = self.rho_default * self.cp_default
-        
     # Pre-allocate heat source field
     self.Q = fem.Function(self.W, dtype=np.float64)
     self.Q.x.array[:] = 0.0
@@ -135,15 +132,16 @@ class HeatSolver(FEMSolverBase):
   def _setup_thermal_forms(self):
     """Setup bilinear and linear forms for steady-state heat equation."""
     angstrom_to_m = 1e-10
+    angstrom_to_m3 = 1e-30
         
-    # Bilinear form: ???T·?v dx
+    # Bilinear form: 
     self.a_form = fem.form(
       ufl.inner(self.kappa * ufl.grad(self.u_trial), ufl.grad(self.v_test))
       * angstrom_to_m * ufl.dx
     )
         
-    # Linear form: ?Q·v dx
-    self.L_form = fem.form(self.Q * self.v_test * ufl.dx)
+    # Linear form: int(Q·v dx)
+    self.L_form = fem.form(self.Q * self.v_test * angstrom_to_m3 * ufl.dx)
         
     # Setup matrix in base class
     self._setup_matrix(self.a_form)
@@ -152,6 +150,38 @@ class HeatSolver(FEMSolverBase):
   # ======================================================================
   # Material Properties
   # ======================================================================
+  def update_thermal_properties(self, poisson_solver):
+    """
+    Update thermal conductivity field based on cluster positions.
+    
+    Metal clusters -> high thermal conductivity (heat flows easily)
+    Oxide regions -> low thermal conductivity (thermal insulator)
+    
+    Parameters:
+    -----------
+    clusters : dict, optional
+        Cluster objects with atoms_positions attribute.
+        If None, entire domain gets oxide thermal conductivity.
+    """
+    # Oxide thermal conductivity everywhere
+    self.kappa.x.array[:] = self.kappa_default
+    
+    if hasattr(poisson_solver, 'metal_cells') and len(poisson_solver.metal_cells) > 0:
+      self.kappa.x.array[poisson_solver.metal_cells] = self.kappa_metal 
+    
+    if hasattr(poisson_solver, 'interface_cells_top') and len(poisson_solver.interface_cells_top) > 0:
+      self.kappa.x.array[poisson_solver.interface_cells_top] = self.kappa_metal   
+      
+    if hasattr(poisson_solver, 'intercace_cells_bottom') and len(poisson_solver.intercace_cells_bottom) > 0:
+      self.kappa.x.array[poisson_solver.intercace_cells_bottom] = self.kappa_metal    
+      
+    self._bcs_changed = True
+    
+    if self.rank == 0:
+      print(f"  [Thermal] kappa updated: {len(poisson_solver.metal_cells)} metal cells "
+        f"(kappa={self.kappa_metal} W/m-K), "
+        f"{len(self.kappa.x.array) - len(poisson_solver.metal_cells)} oxide cells "
+        f"(kappa={self.kappa_default} W/m-K)")
       
   def set_joule_heating(self, poisson_solver):
     """
@@ -167,24 +197,32 @@ class HeatSolver(FEMSolverBase):
     
     # === Ensure E-field is computed  (should already be computed in Poisson solver)
     if not hasattr(poisson_solver, 'E_field') or poisson_solver.E_field is None:
-      poisson_solver._project_electric_field(poisson_solver.uh)
+      poisson_solver._project_electric_field(poisson_solver.uh) # (V/angstroms)
     
     # === Compute E-field at cell midpoints from potential gradient ===
     # Evaluate |E|^2 at midpoints 
     # Note: self.cell_midpoints has shape (N_cells, 3)
     E_values = self.evaluate_at_points(poisson_solver.E_field, self.cell_midpoints)
+    
+    E_values = E_values * 1e10
+    
     E_squared = np.sum(E_values ** 2, axis=1)
       
     # Joule heating: Q = s|E|^2 [W/m^3]
     Q_joule = sigma.x.array * E_squared
     
-    print(f'E filed: {E_values}')
-    print(f'Sigma: {sigma.x.array}')
-    
     # Set heat source (only local cells)
     local_size = self.W.dofmap.index_map.size_local
     with self.Q.x.petsc_vec.localForm() as local_Q:
       local_Q.array[:] = Q_joule[:local_size]   
+      
+    # === Diagnostics ===
+    if self.rank == 0:
+        print(f"    Max |E|: {np.max(np.linalg.norm(E_values, axis=1)):.2e} V/m")
+        print(f"    Max s: {np.max(sigma.x.array):.2e} S/m")
+        print(f"    Max Q: {np.max(Q_joule):.2e} W/m3")
+        print(f"    Mean Q: {np.mean(Q_joule):.2e} W/m3")
+        print(f"    Cells with Q > 0: {np.sum(Q_joule > 1e-10)}")
     
   # ======================================================================
   # Boundary Conditions
@@ -267,6 +305,9 @@ class HeatSolver(FEMSolverBase):
     """
     # === Compute Joule heating if Poisson solver provided ===
     if poisson_solver is not None:
+      # 1. Update thermal conductivity (reuses Poisson's cell indices)
+      self.update_thermal_properties(poisson_solver)
+      # 2. Compute Joule heating
       self.set_joule_heating(poisson_solver)
     
     # === Reasemble matrix if BCs changed ===

@@ -43,7 +43,7 @@ class HeatSolverConfig:
   """Heat equation solver parameters."""
   solve_heat: bool = False
   save_heat: bool = False
-  thermal_conductivity: float = 2.5  # W/m-K
+  thermal_conductivity: Dict[str, float] = field(default_factory=dict)  # W/m-K
   specific_heat: float = 500.0  # J/kg-K
   density: float = 5000.0  # kg/m³
   heat_solve_frequency: int = 100

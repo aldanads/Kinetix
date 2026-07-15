@@ -230,11 +230,8 @@ class PoissonSolver(FEMSolverBase):
     cond_cfg = self.poisson_parameters.get('conductivity',{})
     self._has_top_contact_resistance = cond_cfg.get('interface_top', False)
     self._has_bottom_contact_resistance = cond_cfg.get('interface_bottom', False)
-    self.has_clusters = False
     
     if clusters is not None and len(clusters) > 0:
-      self.has_clusters = True # Flag to assgin conductivity
-      
       for cluster in clusters.values():               
         touches_bottom = cluster.attached_layer.get('bottom_layer', False)
         touches_top = cluster.attached_layer.get('top_layer', False)
@@ -443,31 +440,36 @@ class PoissonSolver(FEMSolverBase):
     # Initialize to dielectric value
     self.sigma.x.array[:] = sigma_dielectric
     
+    # Initialize cell index storage (for Heat solver)
+    self.metal_cells = np.array([], dtype=np.int32)
+    self.interface_cells_top = np.array([], dtype=np.int32)
+    self.intercace_cells_bottom = np.array([], dtype=np.int32)
+    
     
     # Set bulk conductivity (filament interior)
     if self.metal_atoms:
-      bulk_cells = self._find_dofs_near_particles_vectorized(self.metal_atoms, contact_radius=3.5)
-      if len(bulk_cells) > 0:
-        self.sigma.x.array[bulk_cells] = sigma_metal
+      self.metal_cells = self._find_dofs_near_particles_vectorized(self.metal_atoms, contact_radius=3.5)
+      if len(self.metal_cells) > 0:
+        self.sigma.x.array[self.metal_cells] = sigma_metal
         
     # Set interface conductivity (contact resistance)
     if self._has_top_contact_resistance and self.top_interface_atoms:
       sigma_top = float(cond_cfg.get('interface_top'))
-      interface_cells_top = self._find_dofs_near_particles_vectorized(
+      self.interface_cells_top = self._find_dofs_near_particles_vectorized(
             self.top_interface_atoms, contact_radius=5.0
       )
       
-      if len(interface_cells_top) > 0:
-        self.sigma.x.array[interface_cells_top] = sigma_top
+      if len(self.interface_cells_top) > 0:
+        self.sigma.x.array[self.interface_cells_top] = sigma_top
     
     if self._has_bottom_contact_resistance and self.bottom_interface_atoms:
       sigma_bottom = float(cond_cfg.get('interface_bottom'))
-      interface_cells_bottom = self._find_dofs_near_particles_vectorized(
+      self.intercace_cells_bottom = self._find_dofs_near_particles_vectorized(
         self.bottom_interface_atoms, contact_radius=5.0
       )
       
-      if len(interface_cells_bottom) > 0:
-        self.sigma.x.array[interface_cells_bottom] = sigma_bottom
+      if len(self.intercace_cells_bottom) > 0:
+        self.sigma.x.array[self.intercace_cells_bottom] = sigma_bottom
       
  
   # ======================================================================
@@ -494,8 +496,7 @@ class PoissonSolver(FEMSolverBase):
     """
     angstrom_to_m = 1e-10
     
-    if self.has_clusters:
-      self.conductivity_in_system()
+    self.conductivity_in_system()
     
     # === Choose formulation ===
     if self.use_conductivity:
@@ -654,7 +655,7 @@ class PoissonSolver(FEMSolverBase):
       new_points_array = np.array(new_points, dtype=np.float64)
       
       # Project E = -?f to vector function space  
-      self._project_electric_field(self.uh)
+      self._project_electric_field()
         
       # Evaluate E_field at new points using base class method
       E_values_array = self.evaluate_at_points(
@@ -680,7 +681,7 @@ class PoissonSolver(FEMSolverBase):
           
     return E_values_global
       
-  def _project_electric_field(self, uh):
+  def _project_electric_field(self):
     """
     Project E = -?f to vector function space.
     
@@ -694,7 +695,7 @@ class PoissonSolver(FEMSolverBase):
     """
       
     # Compute gradient expression: E = -?f
-    E_expr = -ufl.grad(uh)
+    E_expr = -ufl.grad(self.uh)
     
     # Create expression for interpolation
     expr = fem.Expression(
