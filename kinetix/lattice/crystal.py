@@ -821,7 +821,7 @@ class Crystal_Lattice():
       interstitial_species = None
       for name, cfg in self.defects_config.items():
         if cfg.get('site_type') == 'interstitial':
-          interstitial_species = cfg['symbol']
+          interstitial_species = cfg.get("base_element", cfg["symbol"].split("_")[0])
           break
           
       if interstitial_species is None:
@@ -1007,7 +1007,7 @@ class Crystal_Lattice():
       interstitials = []
       for pos in base_positions_unit_cell:
           interstitials.append({
-              'element': interstitial_species,  # or use your actual interstitial species like 'Ag'
+              'element': interstitial_species + "_i",  # or use your actual interstitial species like 'Ag'
               'x': pos[0],
               'y': pos[1],
               'z': pos[2]
@@ -2458,7 +2458,10 @@ class Crystal_Lattice():
           origin_site = self.grid_crystal[source_idx]
           target_idx = self._find_empty_neighbor(origin_site,product)
           if target_idx is None:
-            continue
+            # This should never happen if registration logic is correct. 
+            # Raising an error: YAML/Logic mismatches?.
+            raise ValueError(f"Reaction {reaction_name_chosen} failed: No valid neighbor found during execution. YAML/Logic mismatches?")
+            
         else:
           target_idx = sites_involved[site_index]
         

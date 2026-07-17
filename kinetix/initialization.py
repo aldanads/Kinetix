@@ -48,7 +48,7 @@ def initialization(n_sim,params):
     mpi_ctx = MPIContext.get_instance()
     
     parameters_root = get_parameters_root()
-    preset_name = 'ECM_CeO2_cylindrical_gb.yaml'
+    preset_name = 'VCM_HfO2_cylindrical_gb.yaml'
     preset_path = parameters_root / 'presets' / preset_name
     config = SimulationConfig.from_yaml(preset_path)
     
@@ -500,6 +500,8 @@ def initialization(n_sim,params):
           poissonSolver_parameters,
           heat_parameters
         ) 
+        
+        exit()
         
         # 9. Post initialization steps
         # Write metadata

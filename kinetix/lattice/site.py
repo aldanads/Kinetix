@@ -193,14 +193,20 @@ class Site():
            
         # Convert supp_by to a tuple
         self.supp_by = tuple(self.supp_by)
-        self.calculate_site_energy()
         
-        # Check for redox-capable defects
+        # Check for redox-capable defects and clustering
         has_redox = False
+        has_clustering = False
         if current_defect in self.Act_E_dict:
           defect_energies = self.Act_E_dict[current_defect]
           if 'E_reduction' in defect_energies or 'E_oxidation' in defect_energies:
             has_redox = True
+            
+          if 'CN_clustering_energy' in defect_energies:
+            has_clustering = True
+            
+        if has_clustering:
+          self.calculate_site_energy()
         
         if has_redox:
           self.calculate_CN_contribution_redox_energy()
@@ -527,7 +533,7 @@ class Site():
             # For example: H + H -> H2
             self._handle_bimolecular_neighbor_reaction(grid_crystal,site,reaction)
             
-          elif reaction['type'] == "bimolecular_capture":
+          elif reaction['type'] in ["bimolecular_capture", "bimolecular_anihilation"]:
             # Example: H + V_O -> V_OH (H hops into a neighbor V_O)
             # Triggered from the H site, targeting the V_O neighbor
             self._handle_bimolecular_capture_reaction(grid_crystal,site,reaction)
@@ -635,10 +641,11 @@ class Site():
         if self._site_matches_reactant(neighbor,partner_requirements):
           # Check passivation level of the trap
           neighbor_defect = neighbor._get_current_defect_name()
-          max_passivation = self.defects_config[neighbor_defect]["max_passivation_level"]
           
-          if neighbor.passivation_level >= max_passivation:
-            continue # Trap is full
+          if neighbor_defect is not None and "max_passivation_level" in self.defects_config[neighbor_defect]:
+            max_passivation = self.defects_config[neighbor_defect]["max_passivation_level"]
+            if neighbor.passivation_level >= max_passivation:
+              continue # Trap is full
             
           if isinstance(Act_E,dict):
             passivation_key = str(neighbor.passivation_level)
@@ -654,22 +661,65 @@ class Site():
             
     def _handle_unimolecular_reaction(self,site,idx_origin,reaction):
       """
-      Handle reactions that happen on a single site (e.g., V_OH -> V_O + H).
+        Handle unimolecular reactions where a single site transforms and 
+        potentially emits a species to a neighboring site.
+        
+        Works for both:
+        - unimolecular_escape (e.g., V_OH -> V_O + H)
+        - unimolecular_generation (e.g., O_lattice -> V_O + O_i)
       """
       reactants = reaction["reactants"]
+      products = reaction["products"]
       
-      min_passivation = reactants[0]['min_passivation']
-      if site.passivation_level < min_passivation:
+      # 1. Check if current site matches the primary reactant
+      if not self._site_matches_reactant(site, reactants[0]):
         return
       
+      # 2. Check passivation constraint (if applicable)
+      min_passivation = reactants[0].get('min_passivation',0)
+      current_passivation = getattr(site, 'passivation_level', 0)
+      if current_passivation < min_passivation:
+        return
+        
+      # 3. Get activation energy
       current_defect = self._get_current_defect_name()
-      Act_E = self.Act_E_dict[current_defect][reaction['name']]
       
+      Act_E = self.Act_E_dict[current_defect][reaction['name']]
       if isinstance(Act_E, dict):
         passivation_key = str(site.passivation_level)
         Act_E_value = Act_E[passivation_key]
       else:
         Act_E_value = Act_E
+        
+      # 4. Neighbor validation: Ensure there is at least one valid destination
+      neighbor_product = next((prod for prod in products if prod.get("site_index") == "neighbor"), None)
+      
+      if neighbor_product is not None:
+        product_symbol = neighbor_product.get("symbol")
+        
+        # Get valid_target_species
+        product_defect_cfg =self._defect_by_name(product_symbol)
+        valid_targets = product_defect_cfg['valid_target_species']
+        valid_sublattice = neighbor_product['sublattice']
+        
+        valid_neighbor_found = False
+        for neighbor_idx in site.nearest_neighbors_idx:
+          neighbor = grid_crystal[neighbor_idx]
+          
+          # Sublattice check
+          if valid_sublattice and neighbor.site_type != valid_sublattice:
+            continue
+          
+          # Chemical check using valid_target_species (e.g., must be "Empty)
+          if neighbor.chemical_specie not in valid_targets:
+            continue
+          
+          # It passes the checks
+          valid_neighbor_found = True
+          break # At least one valid destination 
+        
+        if not valid_neighbor_found:
+          return # No physically valid destination available  
         
       self.site_events.append([
         idx_origin,
@@ -870,14 +920,6 @@ class Site():
                 # Apply bottom electrode correction
                 if self.in_cluster_with_electrode['bottom_layer'] or 'bottom_layer' in self.supp_by:
                   Act_E = max(base_energy + field_factor_bottom * field_contribution, min_energy)
-                  
-                  """
-                  if 'top_layer' in self.supp_by and process == 'oxidation' and self.in_cluster_with_electrode['top_layer']:
-                    print(f'[Top] Atom at {self.position}, within bridging electrode --> Base energy: {base_energy}, Act energy: {Act_E}, Act modif (E_field): {field_factor_top * field_contribution}, E_site_field: {E_site_field}')
-                    
-                  if 'bottom_layer' in self.supp_by and process == 'oxidation' and self.in_cluster_with_electrode['top_layer']:
-                    print(f'[Bottom] Atom at {self.position}, within bridging electrode --> Base energy: {base_energy}, Act energy: {Act_E}, Act modif (E_field): {field_factor_bottom * field_contribution}, E_site_field: {E_site_field}')
-                  """
                   
               elif isinstance(event[-2], int):
                 mig_vec = migration_pathways[event[-2]]['direction']

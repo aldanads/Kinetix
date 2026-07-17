@@ -1,0 +1,53 @@
+# data/parameters/reactions/VCM_HfO2_reactions.yaml
+# =============================================================================
+# Reaction Configurations - H2 Formation and Oxygen Vacancy Passivation with H
+# =============================================================================
+
+
+metadata:
+  name: "VCM_HfO2_reactions"
+  description: "Frenkel pair generation and oxygen vacancy/interstitial recombination"
+  compatible_technologies: ["VCM_HfO2"]
+
+reactions:
+  # -------------------------------------------------------------------------
+  # Recombination: O_i + V_O -> O_lattice (Annihilation)
+  # -------------------------------------------------------------------------
+  recombination:
+    name: "O_i + V_O -> O_lattice"
+    type: "bimolecular_annihilation"
+    enabled: true
+    
+    reactants:
+      - symbol: "O_i"
+        sublattice: "interstitial"
+      - symbol: "V_O"
+        sublattice: "O"
+    
+    products:
+      - symbol: "Empty"
+        sublattice: "interstitial"
+        site_index: 0 # The O-i site
+      - symbol: "O" # Becomes O lattice
+        sublattice: "O"
+        site_index: 1 # The V_O site
+
+  # -------------------------------------------------------------------------
+  # Frenkel Pair Generation: O_lattice -> V_O + O_i
+  # -------------------------------------------------------------------------
+  frenkel_generation:
+    name: "O_lattice -> V_O + O_i"
+    type: "unimolecular_generation"
+    enabled: true
+    
+    reactants:
+      - symbol: "O"
+        sublattice: "O"
+    
+    products:
+      - symbol: "V_O"
+        sublattice: "O"
+        site_index: 0
+      - symbol: "O_i"
+        sublattice: "interstitial"
+        site_index: "neighbor"

@@ -176,12 +176,6 @@ class HeatSolver(FEMSolverBase):
       self.kappa.x.array[poisson_solver.intercace_cells_bottom] = self.kappa_metal    
       
     self._bcs_changed = True
-    
-    if self.rank == 0:
-      print(f"  [Thermal] kappa updated: {len(poisson_solver.metal_cells)} metal cells "
-        f"(kappa={self.kappa_metal} W/m-K), "
-        f"{len(self.kappa.x.array) - len(poisson_solver.metal_cells)} oxide cells "
-        f"(kappa={self.kappa_default} W/m-K)")
       
   def set_joule_heating(self, poisson_solver):
     """
@@ -215,14 +209,6 @@ class HeatSolver(FEMSolverBase):
     local_size = self.W.dofmap.index_map.size_local
     with self.Q.x.petsc_vec.localForm() as local_Q:
       local_Q.array[:] = Q_joule[:local_size]   
-      
-    # === Diagnostics ===
-    if self.rank == 0:
-        print(f"    Max |E|: {np.max(np.linalg.norm(E_values, axis=1)):.2e} V/m")
-        print(f"    Max s: {np.max(sigma.x.array):.2e} S/m")
-        print(f"    Max Q: {np.max(Q_joule):.2e} W/m3")
-        print(f"    Mean Q: {np.mean(Q_joule):.2e} W/m3")
-        print(f"    Cells with Q > 0: {np.sum(Q_joule > 1e-10)}")
     
   # ======================================================================
   # Boundary Conditions

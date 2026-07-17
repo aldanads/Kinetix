@@ -259,14 +259,9 @@ def main(sim_id):
                          
                          heat_run_time = MPI.Wtime() - heat_start_time
                          
-                         
-                         Max_T = heat_solver.get_maximum_temperature()
-                         Min_T = heat_solver.get_minimum_temperature()
                          Avg_T = heat_solver.get_average_temperature()
                          if System_state.rank == 0: 
                            print(f'Run time to solve Heat: {heat_run_time}', flush=True)
-                           print(f'Max temperature: {Max_T:.10f} K', flush=True)
-                           print(f'Min temperature: {Min_T:.10f} K', flush=True)
                            print(f'Avg temperature: {Avg_T:.10f} K', flush=True)
                          
                          # Save temperature

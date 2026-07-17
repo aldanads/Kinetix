@@ -152,7 +152,7 @@ class SimulationConfig:
       structure=CrystalStructure(
         size=tuple(_get_required(crystal_data, 'size', yaml_path, 'crystal.size')),
         miller_indices=tuple(_get_required(crystal_data, 'miller_indices', yaml_path, 'crystal.miller_indices')),
-        sites_generation_layer=_get_required(crystal_data, 'sites_generation_layer', yaml_path, 'crystal.sites_generation_layer'),
+        sites_generation_layer=crystal_data.get('sites_generation_layer'),
         affected_site=_get_required(crystal_data, 'affected_site', yaml_path, 'crystal.affected_site'),
         facets_type=crystal_data.get('facets_type'),
         interstitial_generation=crystal_data.get('interstitial_generation')
