@@ -61,7 +61,7 @@ reactions:
   # -------------------------------------------------------------------------
   V_O_depassivation:
     name: "V_OH -> V_O + H"
-    type: "unimolecular_escape"
+    type: "unimolecular_generation"
     enabled: true
     
     reactants:

@@ -119,6 +119,11 @@ class Site():
       """ Check if site can host mobile defects """
       return any(site.site_type in cfg.get("allowed_sublattices",[])
                  for cfg in self.defects_config.values())
+                 
+    def _defect_by_name(self, product_symbol):
+      for defect_name, cfg in self.defects_config.items():
+        if product_symbol == cfg['symbol']:
+          return cfg
       
 # =============================================================================
 #     We only consider the neighbors within the lattice domain            
@@ -356,6 +361,7 @@ class Site():
           self.available_oxidation(idx_origin)
       if 'reaction' in enabled_events:
           self.available_reactions(grid_crystal,idx_origin)
+          
     
 
     # Calculate posible migration sites
@@ -538,9 +544,9 @@ class Site():
             # Triggered from the H site, targeting the V_O neighbor
             self._handle_bimolecular_capture_reaction(grid_crystal,site,reaction)
             
-          elif reaction['type'] == "unimolecular_escape":
+          elif reaction['type'] == "unimolecular_generation":
             # Example: V_OH -> V_O + H (Depassivation)
-            self._handle_unimolecular_reaction(site,idx_origin,reaction)
+            self._handle_unimolecular_reaction(grid_crystal,site,idx_origin,reaction)
             
             
     def _site_can_participate(self,site,reaction):
@@ -659,7 +665,7 @@ class Site():
             Act_E_value
           ])     
             
-    def _handle_unimolecular_reaction(self,site,idx_origin,reaction):
+    def _handle_unimolecular_reaction(self,grid_crystal,site,idx_origin,reaction):
       """
         Handle unimolecular reactions where a single site transforms and 
         potentially emits a species to a neighboring site.
