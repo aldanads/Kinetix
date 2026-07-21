@@ -501,8 +501,6 @@ def initialization(n_sim,params):
           heat_parameters
         ) 
         
-        exit()
-        
         # 9. Post initialization steps
         # Write metadata
         System_state.write_metadata(paths['data'])   

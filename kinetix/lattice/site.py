@@ -124,6 +124,21 @@ class Site():
       for defect_name, cfg in self.defects_config.items():
         if product_symbol == cfg['symbol']:
           return cfg
+          
+    def _get_reaction_config(self, reaction_name):
+      """
+      Find the reaction configuration by name.
+      
+      Parameters:
+          reaction_name (str): Name of the reaction
+          
+      Returns:
+          dict or None: Reaction configuration if found
+      """
+      for rxn_key, rxn_cfg in self.reactions_config.items():
+        if rxn_cfg.get('name') == reaction_name:
+          return rxn_cfg
+      return None
       
 # =============================================================================
 #     We only consider the neighbors within the lattice domain            
@@ -893,13 +908,14 @@ class Site():
           
             if relevant_field:
               Act_E = event[-1]
+              event_type = event[-2]
               
-              if event[-2] == 'generation' and is_gen_field_dependent:
+              if event_type == 'generation' and is_gen_field_dependent:
                 Act_E = max(event[-1] - 0.5 * round(np.dot(E_site_field,[0,0,-1]) * 1e-10,3), self.Act_E_dict[current_defect]['E_min_gen'])
                             
-              elif event[-2] in ('reduction', 'oxidation'):
+              elif event_type in ('reduction', 'oxidation'):
                 base_energy = event[-1]
-                process = event[-2]
+                process = event_type
                 field_factor_top = -0.5 # Field opposes reduction at top
                 field_factor_bottom = +0.5 # Field assists reduction at bottom
                 
@@ -927,15 +943,29 @@ class Site():
                 if self.in_cluster_with_electrode['bottom_layer'] or 'bottom_layer' in self.supp_by:
                   Act_E = max(base_energy + field_factor_bottom * field_contribution, min_energy)
                   
-              elif isinstance(event[-2], int):
-                mig_vec = migration_pathways[event[-2]]['direction']
+              elif isinstance(event_type, int):
+                mig_vec = migration_pathways[event_type]['direction']
                 Act_E = max(event[-1] - self.ion_charge * round(np.dot(E_site_field,mig_vec) * 1e-10,3),self.Act_E_dict[current_defect]['E_min_mig'])
                 
-              elif any(event[-2] == reaction['name'] for reaction in self.reactions_config.values()): # Reactions
-                Act_E = event[-1]
+              elif any(event_type == reaction['name'] for reaction in self.reactions_config.values()): # Reactions
+                # Check if this reaction is field-dependent
+                reaction_cfg = self._get_reaction_config(event_type)
+                if reaction_cfg and reaction_cfg.get('field_dependent', False):
+                  coupling = reaction_cfg.get('field_coupling', 1.0)
+                  E_min_key = f"E_min_{event_type}"
+                  E_min = self.Act_E_dict[current_defect].get(E_min_key, 0.0)
+                  
+                  field_magnitude = np.linalg.norm(E_site_field) * 1e-10
+                  field_correction = coupling * round(field_magnitude, 3)
+                  
+                  Act_E = max(event[-1] - field_correction, E_min)
+                  
+                else:
+                  Act_E = event[-1]
                 
             else:
               Act_E = event[-1]
+              
               
             # Fallback: Act. energy should be >= 0
             Act_E = max(Act_E,0)

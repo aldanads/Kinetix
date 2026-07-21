@@ -10,9 +10,9 @@ description: "Cylindrical grain boundary for columnar grain structure"
 grain_boundaries:
   - type: "cylindrical"
     enabled: true
-    center: [25.0, 25.0]                # [x, y] center position (angstroms)
+    center: [10.0, 10.0]                # [x, y] center position (angstroms)
     radius: 5.0                         # Inner radius (angstroms)
-    outer_radius: 25.0                  # Outer radius including transition (angstroms)
+    outer_radius: 5.0                  # Outer radius including transition (angstroms)
     description: "Central cylindrical GB"
     
     event_modifications:

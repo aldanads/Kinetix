@@ -39,6 +39,8 @@ reactions:
     name: "lattice_O -> V_O + O_i"
     type: "unimolecular_generation"
     enabled: true
+    field_dependent: true
+    field_coupling: 1.0 # Coefficient affecting the electric field
     
     reactants:
       - symbol: "O"

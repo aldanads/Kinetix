@@ -14,5 +14,6 @@ defects:
     sites_generation_layer: "top_layer"
     field_dependent_generation: True
     CN_matters: true
+    electrode_scavenging: true
     description: "Mobile cation from active electrode"
           

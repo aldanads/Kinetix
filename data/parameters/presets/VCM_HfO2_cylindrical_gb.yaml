@@ -1,4 +1,4 @@
-# data/parameters/presets/ECM_CeO2_cylindrical_gb.yaml
+# data/parameters/presets/VCM_HfO2_cylindrical_gb.yaml
 # =============================================================================
 # VCM Simulation - HfO2 with O_vac and O interstitial
 # =============================================================================
@@ -126,5 +126,5 @@ mesh:
   
   # Adaptive refinement
   activate_mesh_refinement: true
-  fine_mesh_size: 0.6             # Angstroms - Fine mesh size near defects
-  refinement_radius: 2.4          # Angstroms - Radius of refinement sphere around each site
+  fine_mesh_size: 0.5             # Angstroms - Fine mesh size near defects
+  refinement_radius: 2.0          # Angstroms - Radius of refinement sphere around each site

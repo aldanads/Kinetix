@@ -163,7 +163,7 @@ class PoissonSolver(FEMSolverBase):
     )
     
     self.bond_polarization_factor = ((2 + self.epsilon_r) / 3) * dipole_moment
-    
+
   # ======================================================================
   # Boundary Conditions
   # ======================================================================
@@ -350,7 +350,7 @@ class PoissonSolver(FEMSolverBase):
   # Physics: Charge Density & Conductivity
   # ======================================================================
   
-  def charge_density(self, charge_locations, charges, tolerance=3):
+  def charge_density(self, charge_locations, charges, tolerance=3, abs_tolerance=1e-21):
     """
     Create DG0 Function representing charge density with Gaussian smearing.
         
@@ -362,6 +362,8 @@ class PoissonSolver(FEMSolverBase):
       Charge values [N] in Coulombs
     tolerance : float, optional
       Tolerance in % for charge conservation (default: 3)
+    abs_tolerance : float, optional
+      Absolute tolerance in Coulombs for near-zero charges (default: 1e-21 C)
         
     Returns:
     --------
@@ -393,18 +395,32 @@ class PoissonSolver(FEMSolverBase):
     
     expected_charge = sum(charges)
     
-    charge_error = (
-      100 * abs((total_charge - expected_charge) / expected_charge) 
-      if abs(expected_charge) > 0 else 0.0
-    )
-        
-    if charge_error > tolerance:
+    if abs(expected_charge) < abs_tolerance:
+      # Expected charge is essentially zero -> Use absolute error
+      charge_error = abs(total_charge - expected_charge)
+      error_type = 'absolute'
+      is_error =charge_error > abs_tolerance
+      error_msg_detail = (
+        f"- Total charge: {total_charge:.4e} C\n"
+        f"- Expected: {expected_charge:.4e} C\n"
+        f"- Relative error: {charge_error:.2f}% (tolerance: {abs_tolerance:.4e} C)\n"
+      
+      )
+    else:
+      charge_error = 100 * abs((total_charge - expected_charge) / expected_charge)
+      error_type = "relative"
+      is_error = charge_error > tolerance
+      error_msg_detail = (
+        f"- Total charge: {total_charge:.4e} C\n"
+        f"- Expected: {expected_charge:.4e} C\n"
+        f"- Relative error: {charge_error:.2f}% (tolerance: {tolerance}%)\n"
+      )
+          
+    if is_error:
       if self.rank == 0:
         error_msg = (
-          f"\nCHARGE CONSERVATION ERROR:\n"
-          f"- Total charge: {total_charge:.4e} C\n"
-          f"- Expected:     {expected_charge:.4e} C\n"
-          f"- Error:        {charge_error:.2f}% of expected charge\n\n"
+          f"\nCHARGE CONSERVATION ERROR ({error_type}):\n"
+          f"{error_msg_detail}\n"
           f"SOLUTIONS:\n"
           f"1. Increase epsilon (standard deviation) to control how widely the charge is spread with the Gaussian distribution (current: {self.epsilon_gc:.2f}):\n"
           f"   - Larger epsilon: charge spreads out over more cells (reduces singularities but may lose accuracy)\n"

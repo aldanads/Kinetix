@@ -53,6 +53,8 @@ class ReactionConfig:
   reactants: List[ReactionSpecies]
   products: List[ReactionSpecies]
   enabled: bool = True
+  field_dependent: bool = True
+  field_coupling: float = 1.0
   
   @classmethod
   def from_dict(cls, name: str, data: Dict[str, Any]) -> 'ReactionConfig':
@@ -65,7 +67,9 @@ class ReactionConfig:
       type=data['type'],
       reactants=reactants,
       products=products,
-      enabled=data['enabled']
+      enabled=data['enabled'],
+      field_dependent=data.get('field_dependent'),
+      field_coupling=data.get('field_coupling')
     )
     
   def to_dict(self) -> Dict[str, Any]:
@@ -76,6 +80,8 @@ class ReactionConfig:
       'reactants': [r.to_dict() for r in self.reactants],
       'products': [p.to_dict() for p in self.products],
       'enabled': self.enabled,
+      'field_dependent': self.field_dependent,
+      'field_coupling': self.field_coupling
     }
 
 @dataclass

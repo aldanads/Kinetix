@@ -6,7 +6,7 @@
                 "E_mig_plane": 3.2,
                 "E_mig_upward": 3.2,
                 "E_mig_downward": 3.2,
-                "E_min_mig": 0.2,
+                "E_min_mig": 0.5,
                 "binding_energy_bottom_layer": -0.0,
                 "binding_energy_top_layer": -0.0,
                 "CN_clustering_energy": -0.0,
@@ -16,7 +16,8 @@
         {
             "specie": "lattice_O",
             "activation_energies": {
-                "lattice_O -> V_O + O_i": 3.0
+                "lattice_O -> V_O + O_i": 4.5,
+                "E_min_lattice_O -> V_O + O_i": 0.5
             }
         },
         {

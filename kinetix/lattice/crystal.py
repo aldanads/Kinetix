@@ -2364,10 +2364,13 @@ class Crystal_Lattice():
       source_idx = chosen_event[-1]
       dest_idx = chosen_event[1]
       dest_site = self.grid_crystal[dest_idx]
+      source_site = self.grid_crystal[source_idx]
       
       # Check for removal at electrode
-      if (dest_site.is_at_top_interface and self.V < 0 and
-          self.grid_crystal[source_idx].ion_charge != 0 and self.allow_specie_removal):
+      if (self.allow_specie_removal and 
+          dest_site.is_at_top_interface and
+          self._should_scavenge(source_site)):
+          
           self._remove_species_at_site(source_idx, support_update_sites, event_update_sites)
           if self.poissonSolver_parameters['solve_Poisson']:
             event_update_sites.update(self._get_mobile_sites(self.active_event_sites))
@@ -2398,6 +2401,25 @@ class Crystal_Lattice():
       if migrating_charge == 0:
         self._remove_metal_atom_from_clusters(source_idx) 
         self._add_metal_atom_to_clusters(dest_idx)
+        
+    def _should_scavenge(self, site):
+      """
+      Check if a defect should be scavenged at the top electrode.
+      
+      Scavenging occurs when:
+      1. The defect has electrode_scavenging enabled in its config
+      2. The ion is electrostatically driven toward the electrode (q*V < 0)
+      """
+      defect_name = site._get_current_defect_name()
+      if defect_name not in self.defects_config:
+        return False
+        
+      # If the key doesn't exist of is False, no scavenging
+      if not self.defects_config[defect_name].get('electrode_scavenging'):
+        return False
+        
+      # Electrostatic driving force
+      return (site.ion_charge * self.V) < 0
          
         
     def _handle_generation_event(self, chosen_event, support_update_sites, event_update_sites):
@@ -2578,9 +2600,6 @@ class Crystal_Lattice():
                   self.grid_crystal,idx,self.facets_type
                 )
                 self.grid_crystal[idx].transition_rates()
-                
-                print(f'Site events: {self.grid_crystal[idx].site_events}')
-        
 
         # Update generation site rates
         if not (self.poissonSolver_parameters['solve_Poisson'] and platform.system() == 'Linux'):
@@ -2888,7 +2907,7 @@ class Crystal_Lattice():
                     
                     summary_dict = results[0] if results else None
                     
-                    #print(f'Summary dict: {summary_dict}', flush=True)
+                    
                     if summary_dict:
                       summary_minimal = {
                         'formula_pretty': summary_dict.get('formula_pretty', 'Unknown'),
@@ -3062,7 +3081,7 @@ class Crystal_Lattice():
     def _collect_atom_data(self,include_charge: bool) -> List[Dict]:
       """Optimized data collection (separated from I/O for performance)."""
       atoms = []
-        
+      
       for idx in self.active_event_sites:
         site = self.grid_crystal[idx]
         species_key = self._get_species_key(site)

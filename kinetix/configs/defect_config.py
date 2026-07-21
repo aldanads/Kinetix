@@ -33,6 +33,7 @@ class DefectConfig:
   sites_generation_layer: Optional[str] = None
   interface_tolerance_generation: Optional[float] = 0.0
   field_dependent_generation: bool = False
+  electrode_scavenging: bool = False
   description: str = ""
     
   # Passivation (for vacancies) - OPTIONAL: only for defects that can be passivated
@@ -56,6 +57,7 @@ class DefectConfig:
       'sites_generation_layer': self.sites_generation_layer,
       'interface_tolerance_generation': self.interface_tolerance_generation,
       'field_dependent_generation': self.field_dependent_generation,
+      'electrode_scavenging': self.electrode_scavenging,
       'description': self.description,
     }
     
@@ -84,6 +86,7 @@ class DefectConfig:
       sites_generation_layer=data.get('sites_generation_layer'),
       interface_tolerance_generation=data.get('interface_tolerance_generation'),
       field_dependent_generation=data.get('field_dependent_generation'),
+      electrode_scavenging=data.get('electrode_scavenging'),
       description=data.get('description', ''),
       passivation_level=data.get('passivation_level'),
       max_passivation_level=data.get('max_passivation_level'),
