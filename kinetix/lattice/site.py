@@ -554,7 +554,7 @@ class Site():
             # For example: H + H -> H2
             self._handle_bimolecular_neighbor_reaction(grid_crystal,site,reaction)
             
-          elif reaction['type'] in ["bimolecular_capture", "bimolecular_anihilation"]:
+          elif reaction['type'] in ["bimolecular_capture", "bimolecular_annihilation"]:
             # Example: H + V_O -> V_OH (H hops into a neighbor V_O)
             # Triggered from the H site, targeting the V_O neighbor
             self._handle_bimolecular_capture_reaction(grid_crystal,site,reaction)
@@ -636,6 +636,7 @@ class Site():
       current_defect = self._get_current_defect_name()
       
       # Check if this defect drives the reaction
+      
       if reaction['name'] not in self.Act_E_dict[current_defect]:
         return
       
@@ -679,6 +680,7 @@ class Site():
             reaction['name'],
             Act_E_value
           ])     
+          
             
     def _handle_unimolecular_reaction(self,grid_crystal,site,idx_origin,reaction):
       """
@@ -761,10 +763,10 @@ class Site():
         E_gen = self.Act_E_dict[current_defect]['E_gen_defect']
         self.site_events.append([idx_origin, 'generation', E_gen])
         
-    def remove_event_type(self,num_event):
+    def remove_event_type(self,event_label):
         
         for i, event in enumerate(self.site_events):
-            if event[2] == num_event:
+            if event[2] == event_label:
                 del self.site_events[i]
                 break
             
@@ -911,8 +913,9 @@ class Site():
               event_type = event[-2]
               
               if event_type == 'generation' and is_gen_field_dependent:
-                Act_E = max(event[-1] - 0.5 * round(np.dot(E_site_field,[0,0,-1]) * 1e-10,3), self.Act_E_dict[current_defect]['E_min_gen'])
-                            
+                defect_charge = self.defects_config[current_defect]["charge"]
+                Act_E = max(event[-1] - 0.5 * defect_charge *  round(np.dot(E_site_field,[0,0,-1]) * 1e-10,3), self.Act_E_dict[current_defect]['E_min_gen'])
+                
               elif event_type in ('reduction', 'oxidation'):
                 base_energy = event[-1]
                 process = event_type

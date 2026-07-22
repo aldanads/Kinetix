@@ -14,6 +14,7 @@ defects:
     sites_generation_layer: "top_layer"
     field_dependent_generation: True
     CN_matters: true
-    electrode_scavenging: true
+    electrode_scavenging:
+      mass_conservation: False  # The electrode works as a reservoir of Ag ions
     description: "Mobile cation from active electrode"
           

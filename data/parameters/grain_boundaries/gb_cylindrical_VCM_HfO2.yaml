@@ -19,9 +19,9 @@ grain_boundaries:
       migration:
         region: "outer_boundary"
         affected_defects: ["oxygen_interstitial"]
-        Act_E_diff_GB: 2.7             # eV
+        Act_E_diff_GB: 0.2             # eV
       
       reaction:
         region: "outer_boundary"
         affected_reactions: ["frenkel_generation"]
-        Act_E_diff_GB: 2.8             # eV
+        Act_E_diff_GB: 2.6             # eV

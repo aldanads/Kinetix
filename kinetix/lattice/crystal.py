@@ -80,6 +80,8 @@ class Crystal_Lattice():
           stype for cfg in self.defects_config.values()
           for stype in cfg.get("allowed_sublattices", [])
         }
+        self.scavenged_ions = {}
+          
         self.reactions_config = crystal_features.get('reactions_config',{})
         self.rng = crystal_features.get('rng')
         self.chemical_formula = crystal_features.get('chemical_formula')
@@ -1480,14 +1482,11 @@ class Crystal_Lattice():
         }
 
         
-    def available_generation_sites(self, support_update_sites = set(), defect=None):
+    def available_generation_sites(self, support_update_sites = set(), defect_name=None, defect=None):
         
         update_gen_sites = set()
         # Generation of vacancy in the bulk
         if self.mode == 'vacancy': return
-
-
-                
                     
         # Normal deposition process: gas-substrate interface
         elif self.mode == 'regular':
@@ -1500,19 +1499,17 @@ class Crystal_Lattice():
                 if idx in generation_sites_set:
                     if ((self.sites_generation_layer not in site.supp_by and len(site.supp_by) < 3) or (site.chemical_specie != self.affected_site)):
                         self.generation_sites.remove(idx)
-                        site.remove_event_type(self.num_event-1)
+                        site.remove_event_type('generation')
                     
                 else:
                     if (self.sites_generation_layer in site.supp_by or len(site.supp_by) > 2) and site.chemical_specie == self.affected_site:
                         self.generation_sites.append(idx)
-                        site.deposition_event(self.TR_gen,idx,self.num_event-1,self.Act_E_gen)
+                        site.deposition_event(self.TR_gen,idx,'generation',self.Act_E_gen)
            
            
                         
         # Oxidation reaction at the electrode-dielectric interface
-        elif self.mode == 'interstitial':
-        
-          
+        elif self.mode == 'interstitial':  
           sites_generation_layer = defect.get('sites_generation_layer')
           
           # Find interstitial sites within interface proximity
@@ -1521,6 +1518,15 @@ class Crystal_Lattice():
                             
           generation_sites_set = set(self.generation_sites)
           
+          can_generate = self._should_generate_at_electrode(defect_name)
+          
+          if not can_generate:
+            for idx in list(generation_sites_set):
+              site = self.grid_crystal[idx]
+              self.generation_sites.remove(idx)
+              site.remove_event_type
+            return update_gen_sites
+          
           for idx in support_update_sites:
                 site = self.grid_crystal[idx]
                 
@@ -1528,7 +1534,7 @@ class Crystal_Lattice():
                 if idx in generation_sites_set:
                     if (site.chemical_specie != self.affected_site):
                         self.generation_sites.remove(idx)
-                        site.remove_event_type(self.num_event-1)
+                        site.remove_event_type('generation')
                     continue # Already handled, move to the next site
                     
                 if site.site_type != "interstitial":
@@ -1544,10 +1550,39 @@ class Crystal_Lattice():
                   site.ion_generation_interface(idx)
                   update_gen_sites.add(idx)    
                         
-          if len(generation_sites_set) == 0 and len(update_gen_sites) == 0:
-            print(f"Warning: No generation sites found for {defect.get('symbol')}")
-                        
+          #if len(generation_sites_set) == 0 and len(update_gen_sites) == 0:
+          #  print(f"Warning: No generation sites found for {defect.get('symbol')}")
+                   
           return update_gen_sites  
+          
+    def _should_generate_at_electrode(self, defect_name):
+      """
+      Check if a defect should be generated at the electrode.
+      
+      Parameters:
+      -----------
+      defect_name : str
+          Name of the defect
+      electrode : str
+          Electrode name ('top' or 'bottom')
+      
+      Returns:
+      --------
+      bool : True if defect should be generated
+      """
+      
+      if defect_name not in self.defects_config:
+        return False
+        
+      defect_cfg = self.defects_config[defect_name]
+        
+      # Check mass conservation
+      if defect_cfg.get('electrode_scavenging').get('mass_conservation'):
+        if self.scavenged_ions.get(defect_name, 0) <= 0:
+          return False # No ions available to inject
+      
+      return True
+    
        
     
     # ====================================================================
@@ -2367,9 +2402,13 @@ class Crystal_Lattice():
       source_site = self.grid_crystal[source_idx]
       
       # Check for removal at electrode
-      if (self.allow_specie_removal and 
-          dest_site.is_at_top_interface and
-          self._should_scavenge(source_site)):
+      if (self.allow_specie_removal and dest_site.is_at_top_interface):
+          should_scavenge, use_mass_conservation = self._should_scavenge(source_site)
+          
+          if should_scavenge:
+            if use_mass_conservation:
+              defect_name = source_site._get_current_defect_name()
+              self.scavenged_ions[defect_name] = self.scavenged_ions.get(defect_name,0) + 1
           
           self._remove_species_at_site(source_idx, support_update_sites, event_update_sites)
           if self.poissonSolver_parameters['solve_Poisson']:
@@ -2409,17 +2448,34 @@ class Crystal_Lattice():
       Scavenging occurs when:
       1. The defect has electrode_scavenging enabled in its config
       2. The ion is electrostatically driven toward the electrode (q*V < 0)
+      
+      Returns:
+      --------
+      tuple : (should_scavenge: bool, use_mass_conservation: bool)
+          - should_scavenge: True if the ion is driven toward the electrode (q*V < 0)
+          - use_mass_conservation: True if the scavenged count should be tracked
       """
       defect_name = site._get_current_defect_name()
       if defect_name not in self.defects_config:
-        return False
+        return False, False
         
       # If the key doesn't exist of is False, no scavenging
-      if not self.defects_config[defect_name].get('electrode_scavenging'):
-        return False
+      scavenging_cfg = self.defects_config[defect_name].get('electrode_scavenging') 
+      if not scavenging_cfg:
+        return False, False
+      
+      # Determine if using mass conservation
+      # Dict form: {mass_conservation: true/false}
+      # Bool form: True (no mass conservation)
+      if isinstance(scavenging_cfg, dict):
+        use_mass_conservation = scavenging_cfg.get('mass_conservation', False)
+      else:
+        use_mass_conservation = False
         
       # Electrostatic driving force
-      return (site.ion_charge * self.V) < 0
+      should_scavenge = (site.ion_charge * self.V) < 0
+      
+      return should_scavenge, use_mass_conservation
          
         
     def _handle_generation_event(self, chosen_event, support_update_sites, event_update_sites):
@@ -2438,7 +2494,9 @@ class Crystal_Lattice():
         generated_charge = gb_charge
       else:
         generated_charge = self.defects_config[defect_name]['charge']
-        
+      
+      if self.defects_config[defect_name].get('electrode_scavenging').get('mass_conservation'):
+        self.scavenged_ions[defect_name] -= 1
       
       self._introduce_specie_site(dest_idx, support_update_sites, event_update_sites, chemical_specie, generated_charge)
       
@@ -2589,7 +2647,7 @@ class Crystal_Lattice():
         # Update generation sites
         for defect_name, defect in self.defects_config.items():
           if 'generation' in defect['enabled_events']:         
-            generation_sites = self.available_generation_sites(support_update_sites,defect)
+            generation_sites = self.available_generation_sites(support_update_sites,defect_name, defect)
 
         # Update event pathways for mobile sites
         if event_update_sites: 

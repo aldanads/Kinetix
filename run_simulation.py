@@ -237,9 +237,7 @@ def main(sim_id):
                         
                         run_start_time = MPI.Wtime()
                         uh = poisson_solver.solve(particle_locations,charges) 
-                        run_time = MPI.Wtime() - run_start_time
-                        
-                        if System_state.rank == 0: print(f'Run time to solve Poisson: {run_time}')
+                        poisson_run_time = MPI.Wtime() - run_start_time
 
                         if save_Poisson:
                           poisson_solver.save_potential(System_state.time,j+1)
@@ -258,11 +256,7 @@ def main(sim_id):
                          )
                          
                          heat_run_time = MPI.Wtime() - heat_start_time
-                         
                          Avg_T = heat_solver.get_average_temperature()
-                         if System_state.rank == 0: 
-                           print(f'Run time to solve Heat: {heat_run_time}', flush=True)
-                           print(f'Avg temperature: {Avg_T:.10f} K', flush=True)
                          
                          # Save temperature
                          if save_heat:
@@ -303,6 +297,10 @@ def main(sim_id):
                         # System_state.measurements_crystal()
                         print(str(j)+"/"+str(int(Elec_controller.total_simulation_time/Elec_controller.voltage_update_time)),'| Total time: ',System_state.list_time[-1],'| Voltage: ',V_top)
                         print(f'Events at step {j}: {System_state.events_tracking}')
+                        print(f'Scavenged ions: {System_state.scavenged_ions}')
+                        print(f'Run time to solve Poisson: {poisson_run_time}')
+                        print(f'Run time to solve Heat: {heat_run_time}')
+                        print(f'Avg temperature: {Avg_T:.10f} K')
                         if Elec_controller.current_enabled:
                           print(f"Current: {Elec_controller.measurements['current'][-1]}")
     

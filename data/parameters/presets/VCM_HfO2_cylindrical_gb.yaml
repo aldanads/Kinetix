@@ -86,7 +86,7 @@ poisson:
   screening_factor: 0.01
   
   conductivity:
-    conductive_filament: 6.3e6          # S/m (conductive filament)
+    conductive_filament: 1e5          # S/m (conductive filament)
     dielectric: 1.0e-1 # S/m (dielectric)
     
     # Contact resistance at interfaces (optional)
@@ -101,9 +101,9 @@ heat:
   solve_heat: True
   save_heat: False
   thermal_conductivity:     
-    kappa_dielectric: 2.5 # W/m-K
-    kappa_metal: 300 # W/m-K
-  specific_heat: 500.0            # J/kg-K
+    kappa_dielectric: 1.1 # W/m-K
+    kappa_metal: 23 # W/m-K
+  specific_heat: 144.0            # J/kg-K
   density: 5000.0                 # kg/m3
   tau_thermal: null            # s -> Set to null to calculate through properties
   use_thermal_inertia: True

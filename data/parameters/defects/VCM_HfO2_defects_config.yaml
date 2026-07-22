@@ -10,12 +10,13 @@ defects:
     initial_concentration_GB: 0
     valid_target_species: ["Empty"]
     activation_energies_key: "O_i"
-    enabled_events: ["migration", "reaction"]
+    enabled_events: ["migration", "reaction", "generation"]
     interface_tolerance_generation: null
-    sites_generation_layer: null
-    field_dependent_generation: False
+    sites_generation_layer: "top_layer"
+    field_dependent_generation: True
     CN_matters: true
-    electrode_scavenging: true
+    electrode_scavenging:
+      mass_conservation: true # Control the amount of O_i scavenged and injected
     description: "Oxygen defect in interstitial"
     
   lattice_oxygen:
