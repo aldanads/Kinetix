@@ -281,7 +281,7 @@ def main(sim_id):
                   else:
                     T_field = None # Will use ambient temperature
                                    
-                  System_state.update_transition_rates(E_field)
+                  System_state.update_transition_rates(E_field,T_field)
                         
                 
                 System_state.step_kmc(rng)

@@ -11,3 +11,4 @@ activation_energies_memristors.json
 config.json
 .nfs*
 interstitials.xyz
+*.prof
