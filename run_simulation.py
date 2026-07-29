@@ -237,7 +237,9 @@ def main(sim_id):
                         
                         run_start_time = MPI.Wtime()
                         uh = poisson_solver.solve(particle_locations,charges) 
-                        poisson_run_time = MPI.Wtime() - run_start_time
+                        run_time = MPI.Wtime() - run_start_time
+                        
+                        if System_state.rank == 0: print(f'Run time to solve Poisson: {run_time}')
 
                         if save_Poisson:
                           poisson_solver.save_potential(System_state.time,j+1)
@@ -256,7 +258,11 @@ def main(sim_id):
                          )
                          
                          heat_run_time = MPI.Wtime() - heat_start_time
+                         
                          Avg_T = heat_solver.get_average_temperature()
+                         if System_state.rank == 0: 
+                           print(f'Run time to solve Heat: {heat_run_time}', flush=True)
+                           print(f'Avg temperature: {Avg_T:.10f} K', flush=True)
                          
                          # Save temperature
                          if save_heat:
@@ -298,9 +304,6 @@ def main(sim_id):
                         print(str(j)+"/"+str(int(Elec_controller.total_simulation_time/Elec_controller.voltage_update_time)),'| Total time: ',System_state.list_time[-1],'| Voltage: ',V_top)
                         print(f'Events at step {j}: {System_state.events_tracking}')
                         print(f'Scavenged ions: {System_state.scavenged_ions}')
-                        print(f'Run time to solve Poisson: {poisson_run_time}')
-                        print(f'Run time to solve Heat: {heat_run_time}')
-                        print(f'Avg temperature: {Avg_T:.10f} K')
                         if Elec_controller.current_enabled:
                           print(f"Current: {Elec_controller.measurements['current'][-1]}")
     
@@ -329,12 +332,41 @@ def main(sim_id):
 
 if __name__ == '__main__':
     
-    if len(sys.argv) > 1:
-      sim_id = int(sys.argv[1])
+    # Preserve your original sim_id logic
+    if len(sys.argv) > 1 and not sys.argv[1].startswith('--'):
+        # Positional argument (HPC/PBS mode): python script.py 42
+        sim_id = int(sys.argv[1])
+        profile_mode = False
+    elif len(sys.argv) >= 3 and sys.argv[1] == '--profile':
+        # Profiling mode: python script.py --profile [42]
+        profile_mode = True
+        sim_id = int(sys.argv[2]) if len(sys.argv) > 2 else 0
+    elif len(sys.argv) == 2 and sys.argv[1] == '--profile':
+        # Profiling with default sim_id: python script.py --profile
+        profile_mode = True
+        sim_id = 0
     else:
-      sim_id = 0
+        # No arguments: local fallback
+        sim_id = 0
+        profile_mode = False
     
-    System_state = main(sim_id)
+    if profile_mode:
+        import pstats
+        profiler = cProfile.Profile()
+        profiler.enable()
+        System_state = main(sim_id)
+        profiler.disable()
+        
+        profiler.dump_stats('kmc_profile.prof')
+        stats = pstats.Stats(profiler)
+        stats.sort_stats('cumulative')
+        print("\n" + "="*60)
+        print("PROFILING RESULTS (top 15 functions by cumulative time)")
+        print("="*60)
+        stats.print_stats(15)
+        print("Full profile saved to 'kmc_profile.prof'")
+    else:
+        System_state = main(sim_id)
     
     
 # Use cProfile to profile the main function

@@ -350,7 +350,7 @@ class PoissonSolver(FEMSolverBase):
   # Physics: Charge Density & Conductivity
   # ======================================================================
   
-  def charge_density(self, charge_locations, charges, tolerance=3, abs_tolerance=1e-21):
+  def charge_density(self, charge_locations, charges, tolerance, abs_tolerance=1e-21):
     """
     Create DG0 Function representing charge density with Gaussian smearing.
         
@@ -492,7 +492,7 @@ class PoissonSolver(FEMSolverBase):
   # Solve
   # ======================================================================
   
-  def solve(self, charge_locations, charges, charge_err_tol=3):
+  def solve(self, charge_locations, charges, charge_err_tol=10):
     """
     Solve Poisson equation.
           

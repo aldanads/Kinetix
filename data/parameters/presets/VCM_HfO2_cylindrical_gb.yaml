@@ -25,7 +25,7 @@ material:
 # Crystal Structure
 # -----------------------------------------------------------------------------
 crystal:
-  size: [20, 20, 20] # Angstroms (x, y, z)
+  size: [50, 50, 50] # Angstroms (x, y, z)
   miller_indices: [0, 0, 1] # Surface orientation
   sites_generation_layer: null #"top_layer" or "bottom_layer"
   affected_site: "Empty"
@@ -92,7 +92,7 @@ poisson:
     # Contact resistance at interfaces (optional)
     # Set to null to disable, or provide a value in S/m
     interface_top: null           # Ag-Ag (no real interface) ? disabled
-    interface_bottom: 1.0e2       # Ag-ITO (real interface) ? enabled
+    interface_bottom: null       # Ag-ITO (real interface) ? enabled
   
 # -----------------------------------------------------------------------------
 # Heat Solver (optional)
@@ -118,7 +118,7 @@ mesh:
   gmsh_model_rank: 0              # MPI rank for Gmsh initialization
   
   # Global mesh sizing
-  mesh_size: 0.8                  # Anstroms - Coarse mesh size
+  mesh_size: 1.6                  # Anstroms - Coarse mesh size
   bounding_box_padding: 5.0       # Angtroms - Padding around atomic structure (x, y only)
   
   # Charge spreading (physical parameter)
@@ -126,5 +126,5 @@ mesh:
   
   # Adaptive refinement
   activate_mesh_refinement: true
-  fine_mesh_size: 0.5             # Angstroms - Fine mesh size near defects
-  refinement_radius: 2.0          # Angstroms - Radius of refinement sphere around each site
+  fine_mesh_size: 0.2             # Angstroms - Fine mesh size near defects
+  refinement_radius: 1.0          # Angstroms - Radius of refinement sphere around each site
