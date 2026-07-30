@@ -914,7 +914,7 @@ class Site():
               
               if event_type == 'generation' and is_gen_field_dependent:
                 defect_charge = self.defects_config[current_defect]["charge"]
-                Act_E = max(event[-1] - 0.5 * defect_charge *  round(np.dot(E_site_field,[0,0,-1]) * 1e-10,3), self.Act_E_dict[current_defect]['E_min_gen'])
+                Act_E = max(event[-1] - 0.5 * defect_charge *  np.dot(E_site_field,[0,0,-1]) * 1e-10, self.Act_E_dict[current_defect]['E_min_gen'])
                 
               elif event_type in ('reduction', 'oxidation'):
                 base_energy = event[-1]
@@ -933,22 +933,20 @@ class Site():
                 field_proj = np.dot(E_site_field, [0,0,1]) * 1e-10
                 if process == 'oxidation':
                   field_proj *= -1
-                  
-                field_contribution = round(field_proj,3)
                 
                 Act_E = base_energy
                 
                 # Apply top electrode correction
                 if self.in_cluster_with_electrode['top_layer'] or 'top_layer' in self.supp_by:
-                  Act_E = max(base_energy + field_factor_top * field_contribution, min_energy)
+                  Act_E = max(base_energy + field_factor_top * field_proj, min_energy)
                 
                 # Apply bottom electrode correction
                 if self.in_cluster_with_electrode['bottom_layer'] or 'bottom_layer' in self.supp_by:
-                  Act_E = max(base_energy + field_factor_bottom * field_contribution, min_energy)
+                  Act_E = max(base_energy + field_factor_bottom * field_proj, min_energy)
                   
               elif isinstance(event_type, int):
                 mig_vec = migration_pathways[event_type]['direction']
-                Act_E = max(event[-1] - self.ion_charge * round(np.dot(E_site_field,mig_vec) * 1e-10,3),self.Act_E_dict[current_defect]['E_min_mig'])
+                Act_E = max(event[-1] - self.ion_charge * np.dot(E_site_field,mig_vec) * 1e-10 ,self.Act_E_dict[current_defect]['E_min_mig'])
                 
               elif any(event_type == reaction['name'] for reaction in self.reactions_config.values()): # Reactions
                 # Check if this reaction is field-dependent
@@ -959,7 +957,7 @@ class Site():
                   E_min = self.Act_E_dict[current_defect].get(E_min_key, 0.0)
                   
                   field_magnitude = np.linalg.norm(E_site_field) * 1e-10
-                  field_correction = coupling * round(field_magnitude, 3)
+                  field_correction = coupling * field_magnitude
                   
                   Act_E = max(event[-1] - field_correction, E_min)
                   
@@ -973,12 +971,13 @@ class Site():
             # Fallback: Act. energy should be >= 0
             Act_E = max(Act_E,0)
             
-            if Act_E in self.cache_TR:
-                tr_value = self.cache_TR[Act_E]
+            Act_E_key = round(Act_E, 3)
+            if Act_E_key in self.cache_TR:
+                tr_value = self.cache_TR[Act_E_key]
 
             else:
                 tr_value = Site.NU0 * np.exp(-Act_E / (Site.KB * T))
-                self.cache_TR[Act_E] = tr_value
+                self.cache_TR[Act_E_key] = tr_value
                 
             # Use the length of event to determine the appropriate action
             if len(event) == 3:

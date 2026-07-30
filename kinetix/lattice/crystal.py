@@ -109,7 +109,9 @@ class Crystal_Lattice():
         self.time_based_superbasin = superbasin_parameters['time_based_superbasin']
         self.allow_specie_removal = True # We need this variable to desactivate specie removal during superbasin creation
         
-        # --- Poisson solver ---s
+        # --- Poisson solver ---
+        self._fields_changed = False
+        self._dirty_sites = set()
         self.poissonSolver_parameters = kwargs.get('poissonSolver_parameters', None)
         self.heat_parameters = kwargs.get('heat_parameters',None)
 
@@ -121,6 +123,7 @@ class Crystal_Lattice():
         if self.poissonSolver_parameters:
           self.screening_factor = self.poissonSolver_parameters['screening_factor']
           self.conductivity = self.poissonSolver_parameters['conductivity']
+          
 
         # Time tracking
         self.time = 0
@@ -169,7 +172,18 @@ class Crystal_Lattice():
               event_update_sites.add(site_idx)
               self.active_event_sites.append(site_idx)    
 
-        self.update_sites(support_update_sites,event_update_sites)
+        self.update_sites_topology(support_update_sites,event_update_sites)
+        
+        all_initial_sites = (
+          support_update_sites |
+          event_update_sites |
+          set(self.generation_sites)
+        )
+        self._dirty_sites.update(all_initial_sites)
+        
+        if self.simulation_type == 'electronic_device':
+          self._fields_changed=True
+        self._update_rates_lazily()
         
         self.lammps_file = lammps_file
         
@@ -1263,7 +1277,7 @@ class Crystal_Lattice():
           Locations of charged particles [N, 3] in angstrom
       charges : np.ndarray or None
           Charge values [N] in Coulombs
-      E_field_points : np.ndarray or None
+      evaluation_points : np.ndarray or None
           Combined points for E-field evaluation [M, 3] in angstrom
           (particles + generation sites)
       """
@@ -1273,12 +1287,12 @@ class Crystal_Lattice():
         gen_site_locations = self._extract_generation_site_location()
                     
         if len(particle_locations) > 0 : # In case there is no particles
-          E_field_points = np.concatenate([particle_locations,gen_site_locations],axis = 0)
+          evaluation_points = np.concatenate([particle_locations,gen_site_locations],axis = 0)
         else:
-          E_field_points = gen_site_locations
+          evaluation_points = gen_site_locations
         
         # Package for broadcasting
-        payload = (particle_locations, charges, E_field_points)
+        payload = (particle_locations, charges, evaluation_points)
       else:
         payload = None
         
@@ -1286,8 +1300,8 @@ class Crystal_Lattice():
       payload = self.mpi_ctx.bcast(payload, root=0)
       
       # === Step 3: Unpack and return ===
-      particle_locations, charges, E_field_points = payload
-      return particle_locations, charges, E_field_points
+      particle_locations, charges, evaluation_points = payload
+      return particle_locations, charges, evaluation_points
         
     def _extract_particles_charges(self):
         """
@@ -1775,7 +1789,15 @@ class Crystal_Lattice():
                   self._introduce_specie_site(idx,sites_needing_support_update, sites_needing_event_update,chemical_specie,ion_charge)
 
           # Update sites availables, the support to each site and available migrations
-          self.update_sites(sites_needing_support_update, sites_needing_event_update)
+          self.update_sites_topology(sites_needing_support_update, sites_needing_event_update)
+          
+          all_affected_sites = (
+            sites_needing_support_update |
+            sites_needing_event_update |
+            set(self.generation_sites)
+          )
+          
+          self._dirty_sites.update(all_affected_sites)
               
     def deposition_specie(self,t,test = 0):  
 
@@ -2177,6 +2199,8 @@ class Crystal_Lattice():
       chosen_event : tuple or None
           Event details if an event occurred, None otherwise
       """
+      if self._fields_changed or self._dirty_sites:
+        self._update_rates_lazily()
       
       grid_crystal = self.grid_crystal
       superbasin_dict = self.superbasin_dict
@@ -2340,7 +2364,13 @@ class Crystal_Lattice():
             sites_needing_event_update
           )
         
-        self.update_sites(sites_needing_support_update, sites_needing_event_update)
+        self.update_sites_topology(sites_needing_support_update, sites_needing_event_update)
+        all_affected_sites = (
+          sites_needing_support_update |
+          sites_needing_event_update |
+          set(self.generation_sites)
+        )
+        self._dirty_sites.update(all_affected_sites)
      
     def _is_active_site(self, site_type: str) -> bool:
       """ Check if a site type can host defects or participate in kMC events"""
@@ -2630,7 +2660,7 @@ class Crystal_Lattice():
 # Update sites: supporting particles, available generation sites and possible events                      
 # =============================================================================
     
-    def update_sites(self,support_update_sites, event_update_sites):
+    def update_sites_topology(self,support_update_sites, event_update_sites):
         """ Update the sites """    
         
         # Update support relationship only for relevant sites
@@ -2645,9 +2675,11 @@ class Crystal_Lattice():
                 )
         
         # Update generation sites
+        self.generation_sites = [] # Reset
         for defect_name, defect in self.defects_config.items():
           if 'generation' in defect['enabled_events']:         
             generation_sites = self.available_generation_sites(support_update_sites,defect_name, defect)
+            self.generation_sites.extend(generation_sites)
 
         # Update event pathways for mobile sites
         if event_update_sites: 
@@ -2657,24 +2689,16 @@ class Crystal_Lattice():
                 self.grid_crystal[idx].available_pathways(
                   self.grid_crystal,idx,self.facets_type
                 )
-                self.grid_crystal[idx].transition_rates()
-
-        # Update generation site rates
-        if not (self.poissonSolver_parameters['solve_Poisson'] and platform.system() == 'Linux'):
-        # We need Linux to solve Poisson equation
-        # If we don't solve the Poisson equation, we are not updating TR of generation sites 
-        # We only detect generation sites with available_generation_sites 
-            for site_idx in generation_sites:
-              self.grid_crystal[site_idx].transition_rates()  
+                
                 
                 
 # =============================================================================
 # Update transition rates with electric field                    
 # =============================================================================
 
-    def update_transition_rates(self, E_field=None, T_field=None):
+    def _update_rates_lazily(self):
       """
-      Update transition rates for all sites based on electric field and temperature.
+      Update transition rates based on electric field and temperature.
       
       Only rank 0 updates rates (runs kMC),
       non-root ranks skip this (they only solve Poisson/heat equations).
@@ -2694,30 +2718,55 @@ class Crystal_Lattice():
       if self.rank != 0:
         return
       
-      # === Default values if fields not provided ===
-      if E_field is None:
-        E_field = {}
-      if T_field is None:
-        T_field = {}  
+      if self._fields_changed: 
+        # All active + generation sites need update
+        sites_to_update = set(self.active_event_sites) | set(self.generation_sites)
+        self._fields_changed = False
+      else:
+        sites_to_update = self._dirty_sites
+        
+      if not sites_to_update:
+       return  # Nothing to update
+        
+      if hasattr(self, '_poisson_solver') and self._poisson_solver is not None:
+        # Get positions of sites needing updates
+        evaluation_points = [
+          self.grid_crystal[site_idx].position
+          for site_idx in sites_to_update
+        ]
+      
+        E_field_dict = self._poisson_solver.evaluate_electric_field_at_points(evaluation_points)
+        
+        # Evaluate T-field if needed
+        if hasattr(self, '_heat_solver') and self._heat_solver is not None:
+          T_field_dict = self._heat_solver.evaluate_temperature_at_points(evaluation_points)
+        else:
+          T_field_dict = {}
+      else:
+        # No Poisson: use zero field and ambient temperature
+        E_field_dict = {}
+        T_field_dict = {}
+      
       
       # === Update transitions rates for all relevant sites ===
-      for site in (self.active_event_sites + self.generation_sites):
+      for site_idx in sites_to_update:
         # Create lookup keys from site position
-        pos_key = tuple(np.round(self.grid_crystal[site].position, 6))
+        pos_key = tuple(np.round(self.grid_crystal[site_idx].position, 6))
         
         # Get electric field (default: zero vector)
-        E_site_field = E_field.get(pos_key, np.array([0.0, 0.0, 0.0]))
+        E_site = E_field_dict.get(pos_key, np.array([0.0, 0.0, 0.0]))
         
         # Get temperature (default: ambient)
-        T_site = T_field.get(pos_key, self.temperature)
+        T_site = T_field_dict.get(pos_key, self.temperature)
           
-        self.grid_crystal[site].transition_rates(
-            E_site_field = E_site_field, 
+        self.grid_crystal[site_idx].transition_rates(
+            E_site_field=E_site, 
             T=T_site,
             migration_pathways = self.migration_pathways, 
             clusters = self.clusters, 
             atom_to_cluster = self.atom_to_cluster
-          )   
+          )
+      self._dirty_sites.clear()   
     
 # =============================================================================
 #             Introduce particle

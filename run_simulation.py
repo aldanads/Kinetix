@@ -5,10 +5,6 @@ Created on Mon Jan 15 15:12:23 2024
 @author: samuel.delgado
 """
 
-
-
-
-import cProfile
 import sys
 from kinetix.initialization import initialization,save_variables
 import numpy as np
@@ -201,6 +197,8 @@ def main(sim_id):
                   path_results = paths["results"],
                   mpi_ctx = System_state.mpi_ctx
                 )
+                System_state._poisson_solver = poisson_solver
+                
                 poisson_solver.set_boundary_conditions(top_value=V_top, bottom_value=0.0)  # Set appropriate BCs
                 
                 if solve_heat:
@@ -210,6 +208,7 @@ def main(sim_id):
                     path_results = paths["results"],
                     mpi_ctx=System_state.mpi_ctx
                   )
+                  System_state._heat_solver = heat_solver
             
                   heat_solver.set_boundary_conditions(
                     top_value=heat_solver.T_ambient,
@@ -270,18 +269,8 @@ def main(sim_id):
                            
 
                           
-                        run_time = 0
-                        
-                  # === Evaluate fields at site positions ===
-                  E_field = poisson_solver.evaluate_electric_field_at_points(evaluation_points)
-                  
-                  # Evaluate temperature at same points (if heat solver enabled)
-                  if solve_heat:
-                    T_field = heat_solver.evaluate_temperature_at_points(evaluation_points)
-                  else:
-                    T_field = None # Will use ambient temperature
-                                   
-                  System_state.update_transition_rates(E_field,T_field)
+                        run_time = 0     
+                        System_state._fields_changed = True
                         
                 
                 System_state.step_kmc(rng)
@@ -331,6 +320,7 @@ def main(sim_id):
         return System_state
 
 if __name__ == '__main__':
+    import atexit
     
     # Preserve your original sim_id logic
     if len(sys.argv) > 1 and not sys.argv[1].startswith('--'):
@@ -352,12 +342,18 @@ if __name__ == '__main__':
     
     if profile_mode:
         import pstats
+        import cProfile
+        
         profiler = cProfile.Profile()
         profiler.enable()
-        System_state = main(sim_id)
-        profiler.disable()
         
-        profiler.dump_stats('kmc_profile.prof')
+        atexit.register(lambda: profiler.dump_stats('kmc_profile.prof'))
+        
+        try:
+          System_state = main(sim_id)
+        finally:
+          profiler.disable()
+        
         stats = pstats.Stats(profiler)
         stats.sort_stats('cumulative')
         print("\n" + "="*60)
