@@ -267,12 +267,9 @@ def main(sim_id):
                          if save_heat:
                            heat_solver.save_temperature(System_state.time, j+1)
                            
-
-                          
                         run_time = 0     
                         System_state._fields_changed = True
-                        
-                
+                              
                 System_state.step_kmc(rng)
                 
                 """
@@ -308,9 +305,17 @@ def main(sim_id):
           print(f"==================================================")
           
           # Variables to save
-          variables = {'System_state' : System_state}
-          filename = 'variables'
-          if save_data: save_variables(paths['program'],variables,filename)
+          
+          if save_data: 
+          
+            if hasattr(System_state, '_poisson_solver'):
+              del System_state._poisson_solver
+            if hasattr(System_state, '_heat_solver'):
+              del System_state._heat_solver
+              
+            variables = {'System_state' : System_state}
+            filename = 'variables'
+            save_variables(paths['program'],variables,filename)
           
           
         Elec_controller.save_IV_csv(paths['results'])

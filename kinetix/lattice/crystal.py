@@ -183,7 +183,7 @@ class Crystal_Lattice():
         
         if self.simulation_type == 'electronic_device':
           self._fields_changed=True
-        self._update_rates_lazily()
+        #self._update_rates_lazily()
         
         self.lammps_file = lammps_file
         
@@ -2156,10 +2156,13 @@ class Crystal_Lattice():
       --------
       Update the system
       """
+      
+      E_field_dict, T_field_dict = self._evaluate_fields_for_kmc()
+      
       # === Step 1: Rank 0 executes kMC, others prepare to receive ===
       if self.rank == 0:
         # Execute kMC step (modifies self internally)
-        kmc_time_step, chosen_event = self._kmc_step(rng)
+        kmc_time_step, chosen_event = self._kmc_step(rng, E_field_dict, T_field_dict)
         
         if chosen_event is not None:
           self.events_tracking[chosen_event[2]] += 1
@@ -2180,7 +2183,7 @@ class Crystal_Lattice():
       self.time = payload
     
     
-    def _kmc_step(self, rng):
+    def _kmc_step(self, rng, E_field_dict, T_field_dict):
       """
       Internal kMC step logic (rank 0 only).
       
@@ -2200,7 +2203,7 @@ class Crystal_Lattice():
           Event details if an event occurred, None otherwise
       """
       if self._fields_changed or self._dirty_sites:
-        self._update_rates_lazily()
+        self._update_rates_lazily(E_field_dict, T_field_dict)
       
       grid_crystal = self.grid_crystal
       superbasin_dict = self.superbasin_dict
@@ -2269,6 +2272,57 @@ class Crystal_Lattice():
         # No event within timestep limit
         self.track_time(timestep_limit)
         return timestep_limit, None
+        
+    def _evaluate_fields_for_kmc(self):
+      """
+      Evaluate electric and temperature fields for KMC rate updates.
+      
+      Returns:
+          tuple: (E_field_dict, T_field_dict) on rank 0, (None, None) on other ranks
+      """
+      if not (hasattr(self, '_poisson_solver') and self._poisson_solver is not None):
+        if self.rank == 0:
+          return {}, {}
+        else: 
+          None, None
+        
+      # Step 1: Rank 0 determines evaluation points
+      evaluation_points = None
+      if self.rank == 0:
+        if self._fields_changed:
+          sites_to_update = set(self.active_event_sites) | set(self.generation_sites)
+        else:
+          sites_to_update = self._dirty_sites
+          
+        if sites_to_update:
+          evaluation_points = np.array([
+            self.grid_crystal[site_idx].position
+            for site_idx in sites_to_update
+          ], dtype=np.float64)
+        else:
+          evaluation_points = np.empty((0,3), dtype=np.float64)
+      
+      # Step 2: Broadcast evaluation points to all ranks
+      evaluation_points = self.mpi_ctx.bcast(evaluation_points, root=0)
+      
+      # Step 3: All ranks participate in field evaluation
+      if len(evaluation_points) > 0:
+        E_field_dict = self._poisson_solver.evaluate_electric_field_at_points(evaluation_points)
+        
+        if hasattr(self, '_heat_solver') and self._heat_solver is not None:
+          T_field_dict = self._heat_solver.evaluate_temperature_at_points(evaluation_points)
+        else:
+          T_field_dict = {}
+      else:
+        E_field_dict = {}
+        T_field_dict = {}
+        
+      # Step 4: Only rank 0 returns the results
+      if self.rank == 0:
+        return E_field_dict, T_field_dict
+      else: 
+        return None, None
+      
         
         
     def _search_superbasin(self,kmc_time_step):
@@ -2696,7 +2750,7 @@ class Crystal_Lattice():
 # Update transition rates with electric field                    
 # =============================================================================
 
-    def _update_rates_lazily(self):
+    def _update_rates_lazily(self, E_field_dict, T_field_dict):
       """
       Update transition rates based on electric field and temperature.
       
@@ -2728,25 +2782,6 @@ class Crystal_Lattice():
       if not sites_to_update:
        return  # Nothing to update
         
-      if hasattr(self, '_poisson_solver') and self._poisson_solver is not None:
-        # Get positions of sites needing updates
-        evaluation_points = [
-          self.grid_crystal[site_idx].position
-          for site_idx in sites_to_update
-        ]
-      
-        E_field_dict = self._poisson_solver.evaluate_electric_field_at_points(evaluation_points)
-        
-        # Evaluate T-field if needed
-        if hasattr(self, '_heat_solver') and self._heat_solver is not None:
-          T_field_dict = self._heat_solver.evaluate_temperature_at_points(evaluation_points)
-        else:
-          T_field_dict = {}
-      else:
-        # No Poisson: use zero field and ambient temperature
-        E_field_dict = {}
-        T_field_dict = {}
-      
       
       # === Update transitions rates for all relevant sites ===
       for site_idx in sites_to_update:
