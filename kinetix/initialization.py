@@ -48,7 +48,7 @@ def initialization(n_sim,params):
     mpi_ctx = MPIContext.get_instance()
     
     parameters_root = get_parameters_root()
-    preset_name = 'VCM_HfO2_cylindrical_gb.yaml'
+    preset_name = 'PZT_ZrTi(PbO3)2.yaml'
     preset_path = parameters_root / 'presets' / preset_name
     config = SimulationConfig.from_yaml(preset_path)
     
@@ -507,9 +507,10 @@ def initialization(n_sim,params):
 
         Elec_controller.crystal_size = System_state.crystal_size #  The crystal_size after the generation of the lattice may differ from the parameter provided in a NN points separation
         System_state.timestep_limits = Elec_controller.voltage_update_time  
-        
+
         # Initialize defects
         System_state.defect_gen()
+        
         
 
     return System_state,rng,paths,Results, simulation_parameters,Elec_controller

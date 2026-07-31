@@ -187,6 +187,8 @@ class Crystal_Lattice():
         
         self.lammps_file = lammps_file
         
+       
+        
     # ============ Helper methods: cache ========================
     def _load_mp_cache(self, key:str) -> Dict[str, Any]:
       """Load material data from local cache file."""
@@ -781,7 +783,7 @@ class Crystal_Lattice():
             print(f"Step 6 (Grain boundaries): {time.perf_counter() - start_time:.4f} seconds", flush=True) 
           
             
-        print('Finished grid initialization', flush=True)    
+        print('Finished grid initialization', flush=True)  
             
         # Synchronize all ranks before starting kMC steps
         if self.mpi_ctx:
@@ -835,6 +837,7 @@ class Crystal_Lattice():
         
         for site in type_sites:
           site.set_interface_flags(bottom_z, top_z)
+
             
     def _generate_interstitial_sites(self,api_key=None):
       """
@@ -1566,7 +1569,7 @@ class Crystal_Lattice():
                         
           #if len(generation_sites_set) == 0 and len(update_gen_sites) == 0:
           #  print(f"Warning: No generation sites found for {defect.get('symbol')}")
-                   
+ 
           return update_gen_sites  
           
     def _should_generate_at_electrode(self, defect_name):
@@ -1589,9 +1592,14 @@ class Crystal_Lattice():
         return False
         
       defect_cfg = self.defects_config[defect_name]
+      
+      electrode_scavenging = defect_cfg.get('electrode_scavenging')
+      
+      if electrode_scavenging is None:
+        return True
         
       # Check mass conservation
-      if defect_cfg.get('electrode_scavenging').get('mass_conservation'):
+      if electrode_scavenging.get('mass_conservation'):
         if self.scavenged_ions.get(defect_name, 0) <= 0:
           return False # No ions available to inject
       
@@ -2229,6 +2237,7 @@ class Crystal_Lattice():
             (item[0], item[1], item[2], idx)
             for item in superbasin_dict[idx].site_events_absorbing
           ])
+          
       
       # Handle case: No events possible
       if not TR_catalog:
@@ -2579,8 +2588,10 @@ class Crystal_Lattice():
       else:
         generated_charge = self.defects_config[defect_name]['charge']
       
-      if self.defects_config[defect_name].get('electrode_scavenging').get('mass_conservation'):
-        self.scavenged_ions[defect_name] -= 1
+      electrode_scavenging = self.defects_config[defect_name].get('electrode_scavenging')
+      if electrode_scavenging:
+        if electrode_scavenging.get('mass_conservation'):
+          self.scavenged_ions[defect_name] -= 1
       
       self._introduce_specie_site(dest_idx, support_update_sites, event_update_sites, chemical_specie, generated_charge)
       
@@ -2729,7 +2740,7 @@ class Crystal_Lattice():
                 )
         
         # Update generation sites
-        self.generation_sites = [] # Reset
+        #self.generation_sites = [] # Reset
         for defect_name, defect in self.defects_config.items():
           if 'generation' in defect['enabled_events']:         
             generation_sites = self.available_generation_sites(support_update_sites,defect_name, defect)

@@ -39,4 +39,4 @@ grain_boundaries:
       reaction:
         region: "inner_boundary"
         affected_reactions: ["H2_formation"]
-        Act_E_diff_GB: 3.25             # eV (barrier modification)
+        Act_E_diff_GB: 3.31             # eV (barrier modification)

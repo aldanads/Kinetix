@@ -183,7 +183,7 @@ def main(sim_id):
             
             V_top = Elec_controller.apply_voltage(System_state.time)
             System_state.save_electric_bias(V_top)
-       
+            
             # Dolfinx only works in Linux
             if solve_Poisson and platform.system() == 'Linux':
                 from kinetix.solvers.poisson import PoissonSolver
@@ -214,6 +214,8 @@ def main(sim_id):
                     top_value=heat_solver.T_ambient,
                     bottom_value=heat_solver.T_ambient
                   )
+                  
+            
             
             while System_state.should_continue_simulation(Elec_controller.total_simulation_time):
             
