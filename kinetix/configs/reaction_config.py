@@ -55,6 +55,7 @@ class ReactionConfig:
   enabled: bool = True
   field_dependent: bool = True
   field_coupling: float = 1.0
+  sites_removal_layer: str = "bottom_layer"
   
   @classmethod
   def from_dict(cls, name: str, data: Dict[str, Any]) -> 'ReactionConfig':
@@ -69,7 +70,8 @@ class ReactionConfig:
       products=products,
       enabled=data['enabled'],
       field_dependent=data.get('field_dependent'),
-      field_coupling=data.get('field_coupling')
+      field_coupling=data.get('field_coupling'),
+      sites_removal_layer=data.get('sites_removal_layer')
     )
     
   def to_dict(self) -> Dict[str, Any]:
@@ -81,7 +83,8 @@ class ReactionConfig:
       'products': [p.to_dict() for p in self.products],
       'enabled': self.enabled,
       'field_dependent': self.field_dependent,
-      'field_coupling': self.field_coupling
+      'field_coupling': self.field_coupling,
+      'sites_removal_layer': self.sites_removal_layer
     }
 
 @dataclass

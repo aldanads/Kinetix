@@ -26,6 +26,12 @@ grain_boundaries:
           inner_boundary: 0             # H becomes neutral in GB core
           outer_boundary: 1             # H remains charged in transition
           bulk: 1                       # H remains charged in bulk
+          
+      migration:
+        region: "outer_boundary"        # 'inner_boundary', 'outer_boundary', or 'bulk'
+        affected_defects: ["oxygen_vacancy"]
+        Act_E_diff_GB: 0.27             # eV (barrier modification)
+        
       
       generation:
         region: 'inner_boundary'

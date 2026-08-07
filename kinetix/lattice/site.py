@@ -181,23 +181,31 @@ class Site():
           self.supp_by.append('top_layer')
 
         current_defect = self._get_current_defect_name()
-        if self.chemical_specie != "Empty" and self.defects_config[current_defect]["CN_matters"]:
+        if (self.chemical_specie != "Empty" and 
+            self.defects_config[current_defect]['symbol'] == self.chemical_specie and
+            self.defects_config[current_defect]["CN_matters"]):
           # Go over the nearest neighbors
           for idx in self.nearest_neighbors_idx:
             neighbor = grid_crystal[idx]
             # Select the occupied sites that support this node
             if (neighbor.chemical_specie == self.chemical_specie and idx != idx_origin):
               self.supp_by.append(idx)
-        
         # Calculate destination coordination for empty sites          
-        elif self.chemical_specie == "Empty" and self.applicable_defects:
+        elif self.applicable_defects:
           self.destination_CN = {}
           for defect_name in self.applicable_defects:
             defect_config = self.defects_config.get(defect_name)
+            
+            # Continue if CN is not relevant
             if not defect_config or not defect_config.get("CN_matters", False):
               continue
             
+            # Continue if it doesn't have activation energies
             if defect_name not in self.Act_E_dict:
+              continue
+            
+            # Continue if this is not a valid target for migration
+            if self.chemical_specie not in defect_config.get("valid_target_species", []):
               continue
               
             defect_specie = defect_config["symbol"]
@@ -208,7 +216,6 @@ class Site():
               if (neighbor.chemical_specie == defect_specie and idx != idx_origin):
                 cn_count += 1
             self.destination_CN[defect_name] = cn_count 
-            
               
            
         # Convert supp_by to a tuple
@@ -540,6 +547,7 @@ class Site():
         """
         site = grid_crystal[idx_origin]
         current_specie = site.chemical_specie
+    
         
         for reaction_name, reaction in self.reactions_config.items():
           if not reaction.get("enabled", False):
@@ -559,8 +567,10 @@ class Site():
             # Triggered from the H site, targeting the V_O neighbor
             self._handle_bimolecular_capture_reaction(grid_crystal,site,reaction)
             
-          elif reaction['type'] == "unimolecular_generation":
-            # Example: V_OH -> V_O + H (Depassivation)
+          elif reaction['type'] == "unimolecular_reaction":
+            # Example: 
+            #  V_OH -> V_O + H (Depassivation)
+            #  H -> Empty (atom removal)
             self._handle_unimolecular_reaction(grid_crystal,site,idx_origin,reaction)
             
             
@@ -687,9 +697,10 @@ class Site():
         Handle unimolecular reactions where a single site transforms and 
         potentially emits a species to a neighboring site.
         
-        Works for both:
-        - unimolecular_escape (e.g., V_OH -> V_O + H)
-        - unimolecular_generation (e.g., O_lattice -> V_O + O_i)
+        Works for:
+        - unimolecular escape (e.g., V_OH -> V_O + H)
+        - unimolecular generation (e.g., O_lattice -> V_O + O_i)
+        - unimolecular removal (H -> Empty)
       """
       reactants = reaction["reactants"]
       products = reaction["products"]
@@ -697,52 +708,63 @@ class Site():
       # 1. Check if current site matches the primary reactant
       if not self._site_matches_reactant(site, reactants[0]):
         return
+        
+      # 2. Check location constraint for removal reaction
+      removal_layer = reaction.get("sites_removal_layer")
+      if removal_layer:
+        if removal_layer == "bottom_layer" and not site.is_at_bottom_interface:
+          return
+        if removal_layer == "top_layer" and not site.is_at_top_interface:
+          return
       
-      # 2. Check passivation constraint (if applicable)
+      # 3. Check passivation constraint (if applicable)
       min_passivation = reactants[0].get('min_passivation',0)
       current_passivation = getattr(site, 'passivation_level', 0)
       if current_passivation < min_passivation:
         return
         
-      # 3. Get activation energy
+      # 4. Get activation energy
       current_defect = self._get_current_defect_name()
-      
       Act_E = self.Act_E_dict[current_defect][reaction['name']]
+      
       if isinstance(Act_E, dict):
         passivation_key = str(site.passivation_level)
         Act_E_value = Act_E[passivation_key]
       else:
         Act_E_value = Act_E
         
-      # 4. Neighbor validation: Ensure there is at least one valid destination
-      neighbor_product = next((prod for prod in products if prod.get("site_index") == "neighbor"), None)
+      is_removal = all(prod.get("symbol") == 'Empty' for prod in products)
       
-      if neighbor_product is not None:
-        product_symbol = neighbor_product.get("symbol")
+      if not is_removal:
+        # 5. Neighbor validation: Ensure there is at least one valid destination
+        neighbor_product = next((prod for prod in products if prod.get("site_index") == "neighbor"), None)
         
-        # Get valid_target_species
-        product_defect_cfg =self._defect_by_name(product_symbol)
-        valid_targets = product_defect_cfg['valid_target_species']
-        valid_sublattice = neighbor_product['sublattice']
-        
-        valid_neighbor_found = False
-        for neighbor_idx in site.nearest_neighbors_idx:
-          neighbor = grid_crystal[neighbor_idx]
+        if neighbor_product is not None:
+          product_symbol = neighbor_product.get("symbol")
           
-          # Sublattice check
-          if valid_sublattice and neighbor.site_type != valid_sublattice:
-            continue
+          # Get valid_target_species
+          product_defect_cfg =self._defect_by_name(product_symbol)
+          valid_targets = product_defect_cfg['valid_target_species']
+          valid_sublattice = neighbor_product['sublattice']
           
-          # Chemical check using valid_target_species (e.g., must be "Empty)
-          if neighbor.chemical_specie not in valid_targets:
-            continue
+          valid_neighbor_found = False
+          for neighbor_idx in site.nearest_neighbors_idx:
+            neighbor = grid_crystal[neighbor_idx]
+            
+            # Sublattice check
+            if valid_sublattice and neighbor.site_type != valid_sublattice:
+              continue
+            
+            # Chemical check using valid_target_species (e.g., must be "Empty)
+            if neighbor.chemical_specie not in valid_targets:
+              continue
+            
+            # It passes the checks
+            valid_neighbor_found = True
+            break # At least one valid destination 
           
-          # It passes the checks
-          valid_neighbor_found = True
-          break # At least one valid destination 
-        
-        if not valid_neighbor_found:
-          return # No physically valid destination available  
+          if not valid_neighbor_found:
+            return # No physically valid destination available  
         
       self.site_events.append([
         idx_origin,

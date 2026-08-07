@@ -2628,7 +2628,6 @@ class Crystal_Lattice():
         if reaction['name'] == reaction_name_chosen:
           products = reaction['products']
           
-          
       # Track sites that need kMC update
       for i, product in enumerate(products):
         # Determine which site this product applies to
@@ -2754,7 +2753,6 @@ class Crystal_Lattice():
                 self.grid_crystal[idx].available_pathways(
                   self.grid_crystal,idx,self.facets_type
                 )
-                
                 
                 
 # =============================================================================

@@ -61,7 +61,7 @@ reactions:
   # -------------------------------------------------------------------------
   V_O_depassivation:
     name: "V_OH -> V_O + H"
-    type: "unimolecular_generation"
+    type: "unimolecular_reaction"
     enabled: true
     
     reactants:
@@ -77,3 +77,17 @@ reactions:
       - symbol: "H"
         sublattice: "interstitial"
         site_index: "neighbor"
+        
+  H_removal:
+    name: "H -> Empty"
+    type: "unimolecular_reaction"
+    enabled: True
+    sites_removal_layer: "bottom_layer"
+    
+    reactants:
+      - symbol: "H"
+        sublattice: "interstitial"
+        
+    products:
+      - symbol: "Empty"
+        sublattice: "interstitial"

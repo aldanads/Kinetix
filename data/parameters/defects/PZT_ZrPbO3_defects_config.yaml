@@ -18,18 +18,18 @@ defects:
 
   oxygen_vacancy:
     symbol: "V_O"
-    charge: 2
+    charge: 0
     site_type: "O"
     allowed_sublattices: ["O"]
-    initial_concentration_bulk: 0.0e-2
-    initial_concentration_GB: 0.0e-2
+    initial_concentration_bulk: 0.5e-2
+    initial_concentration_GB: 3.0e-2
     valid_target_species: ["O"]
     activation_energies_key: "V_O"
-    enabled_events: ["reaction"]
-    CN_matters: false
+    enabled_events: ["migration", "reaction"]
+    CN_matters: true
     passivation_level: 0
     max_passivation_level: 3
-    charge_per_passivation: -1
+    charge_per_passivation: +1
     description: "Intrinsic vacancy in oxide lattice"
 
   hydrogen_gas:
