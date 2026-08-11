@@ -40,6 +40,7 @@ class SimulationSettings:
   lammps_output: bool = True
   activation_energies: str = "" # Path relative too data/parameters
   output_path: str = ""
+  load_state: Dict[str, Any] = field(default_factory=dict)
 
 @dataclass
 class SimulationConfig:
@@ -93,7 +94,8 @@ class SimulationConfig:
         'snapshoots_steps': self.settings.snapshoots_steps,
         'total_steps': self.settings.total_steps,
         'activation_energies': self.activation_energies,
-        'output_path': self.output_path
+        'output_path': self.output_path,
+        'load_state': self.load_state
       },
       'defects_config': self.defects.to_dict(),
       'reactions_config': self.reactions.to_dict(),
@@ -289,6 +291,7 @@ class SimulationConfig:
       lammps_output=settings_data.get('lammps_output', True),
       activation_energies=settings_data.get('activation_energies'),
       output_path=settings_data.get('output_path'),
+      load_state=settings_data.get('load_state')
     )
     
     # =========================================================================

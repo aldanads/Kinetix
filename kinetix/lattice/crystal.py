@@ -436,19 +436,19 @@ class Crystal_Lattice():
         
         # Get neighbors using k-d tree
         neighbor_site_indices = self._get_neighbors_for_site(site_idx, radius_neighbors)
-        
 
         # Process each neighbor
         for neighbor_idx in neighbor_site_indices:
-          
           if neighbor_idx == site_idx:
             continue
-          
             
           neighbor_pos = self.grid_crystal[neighbor_idx].position
-          dist = np.linalg.norm(np.array(site_pos) - np.array(neighbor_pos))
+          
+          vector = self._minimum_image_vector(np.array(neighbor_pos) - np.array(site_pos))
+          dist = np.linalg.norm(vector)
+          if dist < 1e-10:
+            continue
           # Create migration key
-          vector = np.array(neighbor_pos) - np.array(site_pos)
           migration_vector_key = tuple(np.round(vector, decimals=6))
           
           if migration_vector_key not in self.event_labels:
@@ -489,6 +489,20 @@ class Crystal_Lattice():
           if reset_energies:  
             for site in self.grid_crystal.values():
               site.site_events = [] # Clear old events
+              
+    def _minimum_image_vector(self, vec):
+      """
+      Apply minimum-image convention for lateral PBC (x, y only).
+      z is an open boundary (electrodes), so it is NOT wrapped.
+      """
+      vec = np.array(vec, dtype=float)
+      for dim in range(2): # x and y only
+        L = self.crystal_size[dim]
+        if vec[dim] > L/2:
+          vec[dim] -= L
+        elif vec[dim] < -L/2:
+          vec[dim] += L
+      return vec
               
               
     def _validate_migration_network(self, radius=None):
@@ -610,10 +624,6 @@ class Crystal_Lattice():
       # 2. Query k-d tree for each image position
       for query_pos in query_positions:
         neighbor_array_indices = self._kdtree.query_ball_point(query_pos,radius)
-        if any(site_pos[dim] < radius or site_pos[dim] > self.crystal_size[dim] - radius for dim in range(2)):
-          for neighbor_indice in neighbor_array_indices:
-            neighbor_idx = self._kdtree_indices[neighbor_indice]
- 
         #Convert to site indices
         for i in neighbor_array_indices:
           neighbor_idx = self._kdtree_indices[i]
@@ -668,6 +678,81 @@ class Crystal_Lattice():
                 
       return query_positions      
             
+    def diagnose_steep_down(self, site_idx, radius_neighbors):
+      site = self.grid_crystal[site_idx]
+      pos = np.array(site.position)
+      print(f"\n=== Site {site_idx} at {site.position} ===")
+  
+      # Find ALL sites within radius (raw KDTree, no PBC filtering)
+      neighbor_indices = self._get_neighbors_for_site(site_idx, radius_neighbors)
+  
+      steep_up, steep_down, shallow = [], [], []
+      for n_idx in neighbor_indices:
+          if n_idx == site_idx:
+              continue
+          npos = np.array(self.grid_crystal[n_idx].position)
+          vec = npos - pos
+          # Apply minimum-image on x,y
+          for d in range(2):
+              L = self.crystal_size[d]
+              if vec[d] >  L/2: vec[d] -= L
+              if vec[d] < -L/2: vec[d] += L
+          dist = np.linalg.norm(vec)
+          if dist < 1e-10:
+            continue
+          unit = vec / dist
+          z = unit[2]
+          if z >  0.5: steep_up.append((n_idx, unit, dist))
+          elif z < -0.5: steep_down.append((n_idx, unit, dist))
+          else: shallow.append((n_idx, unit, dist))
+  
+      print(f"Steep UP neighbors   (z>+0.5): {len(steep_up)}")
+      for idx,u,d in steep_up:   print(f"   idx={idx} dir={np.round(u,3)} dist={d:.3f} specie={self.grid_crystal[idx].chemical_specie}")
+      print(f"Steep DOWN neighbors (z<-0.5): {len(steep_down)}")
+      for idx,u,d in steep_down: print(f"   idx={idx} dir={np.round(u,3)} dist={d:.3f} specie={self.grid_crystal[idx].chemical_specie}")
+      print(f"Shallow neighbors: {len(shallow)}")
+      
+    def diagnose_interstitial_presence(self, site_idx, radius_neighbors, z_window=3.0):
+      """Check whether interstitial sites exist above/below the corner site,
+      using the KDTree for efficient spatial filtering."""
+      site = self.grid_crystal[site_idx]
+      pos = np.array(site.position)
+      print(f"\n=== Interstitial inventory near {site_idx} at {np.round(pos,3)} ===")
+      print(f"radius_neighbors = {radius_neighbors}")
+  
+      # Use KDTree to get candidates within radius (efficient)
+      candidate_indices = self._kdtree.query_ball_point(pos, radius_neighbors)
+  
+      above, below = [], []
+      for i in candidate_indices:
+          idx = self._kdtree_indices[i]
+          if idx == site_idx:
+              continue
+          s = self.grid_crystal[idx]
+          if s.site_type != 'interstitial':
+              continue
+  
+          vec = np.array(s.position) - pos
+          # Minimum-image wrap on x,y
+          for d in range(2):
+              L = self.crystal_size[d]
+              if vec[d] >  L/2: vec[d] -= L
+              if vec[d] < -L/2: vec[d] += L
+  
+          dz = vec[2]
+          lat = np.linalg.norm(vec[:2])
+  
+          if 0 < dz < z_window:
+              above.append((idx, lat, dz, s.chemical_specie))
+          elif -z_window < dz < 0:
+              below.append((idx, lat, dz, s.chemical_specie))
+  
+      print(f"Interstitial sites ABOVE (0 < dz < {z_window}): {len(above)}")
+      for idx, lat, dz, sp in sorted(above, key=lambda x: x[2]):
+          print(f"   idx={idx} lat_dist={lat:.3f} dz=+{dz:.3f} specie={sp}")
+      print(f"Interstitial sites BELOW (-{z_window} < dz < 0): {len(below)}")
+      for idx, lat, dz, sp in sorted(below, key=lambda x: -x[2]):
+          print(f"   idx={idx} lat_dist={lat:.3f} dz={dz:.3f} specie={sp}")
               
           
             
@@ -2278,6 +2363,7 @@ class Crystal_Lattice():
         
         return time_step, chosen_event
       else:
+        print(f'No event within time step. Time step: {time_step}, time step limit: {timestep_limit}', flush=True)
         # No event within timestep limit
         self.track_time(timestep_limit)
         return timestep_limit, None

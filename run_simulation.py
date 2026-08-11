@@ -289,11 +289,11 @@ def main(sim_id):
                         System_state.add_time()
     
                         # System_state.measurements_crystal()
-                        print(str(j)+"/"+str(int(Elec_controller.total_simulation_time/Elec_controller.voltage_update_time)),'| Total time: ',System_state.list_time[-1],'| Voltage: ',V_top)
-                        print(f'Events at step {j}: {System_state.events_tracking}')
-                        print(f'Scavenged ions: {System_state.scavenged_ions}')
+                        print(str(j)+"/"+str(int(Elec_controller.total_simulation_time/Elec_controller.voltage_update_time)),'| Total time: ',System_state.list_time[-1],'| Voltage: ',V_top, flush=True)
+                        print(f'Events at step {j}: {System_state.events_tracking}', flush=True)
+                        print(f'Scavenged ions: {System_state.scavenged_ions}', flush=True)
                         if Elec_controller.current_enabled:
-                          print(f"Current: {Elec_controller.measurements['current'][-1]}")
+                          print(f"Current: {Elec_controller.measurements['current'][-1]}", flush=True)
     
                         end_time = time.time()
                         System_state.plot_crystal(45,45,paths['data'],j)        

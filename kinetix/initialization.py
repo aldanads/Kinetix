@@ -48,7 +48,7 @@ def initialization(n_sim,params):
     mpi_ctx = MPIContext.get_instance()
     
     parameters_root = get_parameters_root()
-    preset_name = 'PZT_ZrTi(PbO3)2.yaml'
+    preset_name = 'PZT_ZrTi(PbO3)2_annealing.yaml'
     preset_path = parameters_root / 'presets' / preset_name
     config = SimulationConfig.from_yaml(preset_path)
     
@@ -473,7 +473,7 @@ def initialization(n_sim,params):
           'mesh_file': mesh_file,
           'defects_config': defects_config,
         }
-
+        
         # 7. Activation energies
         ae_data = load_activation_energies(preset_path, config.settings)
         ### ----------------- PARAMETER SWEEP ----------------- ###
@@ -487,7 +487,7 @@ def initialization(n_sim,params):
         
         # 8. Initialize crystal lattice
         filename = f'grid_{formula}_{int(max(crystal_size) / 10)}nm'
-
+        
         System_state = initialize_grid_crystal(
           filename,
           mpi_ctx,
@@ -501,6 +501,17 @@ def initialization(n_sim,params):
           heat_parameters
         ) 
         
+        from kinetix.utils.state_loader import load_state_from_dump
+        dump_path = config.settings.load_state['dump_path']
+        reset_time = config.settings.load_state['reset_time']
+        load_state_from_dump(System_state, dump_path)
+        
+        System_state.time = 0.0
+        System_state.list_time = [0.0]
+
+        
+
+        
         # 9. Post initialization steps
         # Write metadata
         System_state.write_metadata(paths['data'])   
@@ -509,7 +520,7 @@ def initialization(n_sim,params):
         System_state.timestep_limits = Elec_controller.voltage_update_time  
 
         # Initialize defects
-        System_state.defect_gen()
+        #System_state.defect_gen()
         
         
 
