@@ -28,7 +28,7 @@ defects:
     enabled_events: ["migration", "reaction"]
     CN_matters: true
     passivation_level: 0
-    max_passivation_level: 3
+    max_passivation_level: 1
     charge_per_passivation: +1
     description: "Intrinsic vacancy in oxide lattice"
 

@@ -48,7 +48,7 @@ def initialization(n_sim,params):
     mpi_ctx = MPIContext.get_instance()
     
     parameters_root = get_parameters_root()
-    preset_name = 'PZT_ZrTi(PbO3)2_annealing.yaml'
+    preset_name = 'PZT_ZrTi(PbO3)2.yaml'
     preset_path = parameters_root / 'presets' / preset_name
     config = SimulationConfig.from_yaml(preset_path)
     
@@ -94,13 +94,6 @@ def initialization(n_sim,params):
     else:
         paths = {'data': ''}
         Results = []
-        
-
-    
-
-
-
-
 
     if simulation_type == 'deposition':         
 # =============================================================================
@@ -326,43 +319,7 @@ def initialization(n_sim,params):
             System_state.deposition_specie(0,rng,test[test_selected])
             System_state.track_time(0) 
             System_state.add_time()
-            
-    elif simulation_type == 'annealing':
         
-        script_directory = Path(__file__).parent
-        filename = script_directory / 'variables_AsDeposited.pkl'
-        
-        # Open the file in binary mode
-        with open(filename, 'rb') as file:
-          
-            # Call load method to deserialze
-            myvar = pickle.load(file)
-            
-        System_state = myvar['System_state']
-        
-        temp = [723] #(K)
-    
-        System_state.temperature = temp[n_sim]
-        System_state.experiment = simulation_type
-        P_limits = 1
-        System_state.TR_gen = 0;
-        System_state.Act_E_gen = 0
-        System_state.limit_kmc_timestep(P_limits)
-        System_state.time = 0
-        System_state.list_time = []
-        System_state.E_min = 0.0
-        System_state.E_min_lim_superbasin = 0.25
-        #System_state.n_search_superbasin = 25
-        #System_state.time_step_limits = 1e-10
-        #System_state.domain_height = System_state.crystal_size[2]
-        #System_state.sites_generation_layer = 'bottom_layer'
-        #System_state.facets_type = [(1,1,1),(1,0,0)]
-        
-        
-        for site in System_state.adsorption_sites:
-            if System_state.grid_crystal[site].site_events:
-                System_state.grid_crystal[site].site_events[0][0] = System_state.TR_gen
-                System_state.grid_crystal[site].site_events[0][-1] = System_state.Act_E_gen
 
         
     elif simulation_type == 'electronic_device':        
@@ -501,17 +458,24 @@ def initialization(n_sim,params):
           heat_parameters
         ) 
         
-        from kinetix.utils.state_loader import load_state_from_dump
-        dump_path = config.settings.load_state['dump_path']
-        reset_time = config.settings.load_state['reset_time']
-        load_state_from_dump(System_state, dump_path)
+        # Load state for annealing simulation
+        load_state_config = getattr(config.settings, 'load_state', None)
         
-        System_state.time = 0.0
-        System_state.list_time = [0.0]
+        if load_state_config:
+          from kinetix.utils.state_loader import load_state_from_dump
+          dump_path = load_state_config['dump_path']
+          reset_time = load_state_config.get('reset_time', True)
+          
+          load_state_from_dump(System_state, dump_path)
+        
+          if reset_time:
+            System_state.time = 0.0
+            System_state.list_time = [0.0]
+          
+        else:
+          # Initialize defects
+          System_state.defect_gen()
 
-        
-
-        
         # 9. Post initialization steps
         # Write metadata
         System_state.write_metadata(paths['data'])   
@@ -519,8 +483,8 @@ def initialization(n_sim,params):
         Elec_controller.crystal_size = System_state.crystal_size #  The crystal_size after the generation of the lattice may differ from the parameter provided in a NN points separation
         System_state.timestep_limits = Elec_controller.voltage_update_time  
 
-        # Initialize defects
-        #System_state.defect_gen()
+        
+       
         
         
 

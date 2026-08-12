@@ -5,9 +5,9 @@
             "activation_energies": {
                 "E_gen_defect": 3.6,
                 "E_min_gen": 0.3,
-                "E_mig_plane": 0.7,
-                "E_mig_upward": 0.7,
-                "E_mig_downward": 0.7,
+                "E_mig_plane": 3.7,
+                "E_mig_upward": 3.7,
+                "E_mig_downward": 3.7,
                 "E_min_mig": 0.1,
                 "binding_energy_bottom_layer": -0.0,
                 "binding_energy_top_layer": -0.0,
@@ -22,12 +22,12 @@
         {
             "specie": "H",
             "activation_energies": {
-                "E_gen_defect": 3.5,
+                "E_gen_defect": 0.48,
                 "E_min_gen": 0.4,
                 "E_mig_plane": 0.5,
                 "E_mig_upward": 0.5,
                 "E_mig_downward": 0.5,
-                "E_min_mig": 0.1,
+                "E_min_mig": 0.22,
                 "binding_energy_bottom_layer": -0.0,
                 "binding_energy_top_layer": -0.0,
                 "CN_clustering_energy": 0.1,

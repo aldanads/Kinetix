@@ -983,10 +983,6 @@ class Site():
                 mig_vec = migration_pathways[event_type]['direction']
                 Act_E = max(event[-1] - self.ion_charge * np.dot(E_site_field,mig_vec) * 1e-10 ,self.Act_E_dict[current_defect]['E_min_mig'])
                 
-                if self.ion_charge != 0 and self.chemical_specie == 'H':
-                  print(f'Chemical specie: {self.chemical_specie}, position: {self.position}')
-                  print(f'Base act Energy: {event[-1]}, Act energy: {Act_E}, E field contribution: {self.ion_charge * np.dot(E_site_field,mig_vec) * 1e-10 }, electric field: {E_site_field} and mig vec: {mig_vec}')
-                
               elif any(event_type == reaction['name'] for reaction in self.reactions_config.values()): # Reactions
                 # Check if this reaction is field-dependent
                 reaction_cfg = self._get_reaction_config(event_type)
