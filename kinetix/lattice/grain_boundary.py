@@ -118,37 +118,45 @@ class GrainBoundary:
           config['gen_cfg'] = event_modifications.get('generation', {})
           config['rxn_cfg'] = event_modifications.get('reaction', {})
           
+          # Backward compatibility
           for cfg_key in ['mig_cfg', 'gen_cfg', 'rxn_cfg']:
-            cfg = config[cfg_key]
-            if cfg: 
-              if 'affected_defects' in cfg:
-                cfg['affected_defects_set'] = set(cfg['affected_defects'])
-              if 'affected_reactions' in cfg:
-                cfg['affected_reactions_set'] = set(cfg['affected_reactions'])
+            if isinstance(config[cfg_key], dict):
+              config[cfg_key] = [config[cfg_key]]
+          
+          for cfg_key in ['mig_cfg', 'gen_cfg', 'rxn_cfg']:
+            for entry in config[cfg_key]:
+              if 'affected_defects' in entry:
+                entry['affected_defects_set'] = set(entry['affected_defects'])
+              if 'affected_reactions' in entry:
+                entry['affected_reactions_set'] = set(entry['affected_reactions'])
           
           
-          for event_type, event_config in event_modifications.items():  
-            act_e_diff = event_config['Act_E_diff_GB']
+          for event_type, event_entries in event_modifications.items():  
+            if isinstance(event_entries, dict):
+              event_entries = [event_entries]
             
-            # Event-specific boundaries
-            event_inner = event_config.get('inner_boundary', inner_boundary)
-            event_outer = event_config.get('outer_boundary', outer_boundary)
-          
-            # Linear function: Act_E = slope * distance + intercept
-            # At radius: Act_E = act_e_diff (inside GB)
-            # At outer_radius: Act_E = 0 (outside GB)
-            if event_outer > event_inner:
-              slope = -act_e_diff / (event_outer - event_inner)
-              intercept = act_e_diff - slope * event_inner
-            else:
-              slope = 0
-              intercept = act_e_diff
-            
+            for entry in event_entries:
+              act_e_diff = entry['Act_E_diff_GB']
               
-            event_config['linear_slope'] = slope
-            event_config['linear_intercept'] = intercept
-            event_config['inner_boundary'] = event_inner
-            event_config['outer_boundary'] = event_outer
+              # Event-specific boundaries
+              event_inner = entry.get('inner_boundary', inner_boundary)
+              event_outer = entry.get('outer_boundary', outer_boundary)
+            
+              # Linear function: Act_E = slope * distance + intercept
+              # At radius: Act_E = act_e_diff (inside GB)
+              # At outer_radius: Act_E = 0 (outside GB)
+              if event_outer > event_inner:
+                slope = -act_e_diff / (event_outer - event_inner)
+                intercept = act_e_diff - slope * event_inner
+              else:
+                slope = 0
+                intercept = act_e_diff
+              
+                
+              entry['linear_slope'] = slope
+              entry['linear_intercept'] = intercept
+              entry['inner_boundary'] = event_inner
+              entry['outer_boundary'] = event_outer
             
     def _distance_to_planar_gb(self,site_pos,gb_config):
       """Calculate distance to planar GB core"""
@@ -195,22 +203,41 @@ class GrainBoundary:
           return 'outer_boundary'
       return 'bulk'
       
-    def _get_gb_reduction_for_site(self, pos, gb, event_type):
+    def _get_gb_reduction_for_site(self, pos, gb, event_type, defect_name=None, reaction_name=None):
       """Helper to calculate the exact energy reduction for a specific GB and event."""
-      event_cfg = gb.get('event_modifications',{}).get(event_type)
-      if not event_cfg: return 0.0
+      event_entries = gb.get('event_modifications',{}).get(event_type)
+      if not event_entries: return 0.0
+      
+      # Backward compatibility: wrap single dict in a list
+      if isinstance(event_entries, dict):
+        event_entries = [event_entries]
+        
+      # Find the entry that applies to this defect or reaction
+      matching_entry = None
+      for entry in event_entries:
+        if event_type == 'reaction':
+         if reaction_name and reaction_name in entry.get('affected_reactions', []):
+           matching_entry = entry
+           break
+        else:
+          if defect_name and defect_name in entry.get('affected_defects', []):
+            matching_entry = entry
+            break
+            
+      if not matching_entry:
+        return 0.0
       
       dist_func = gb.get('distance_function')
       if not dist_func: return 0.0
       
       dist = dist_func(pos, gb)
-      inner = event_cfg['inner_boundary']
-      outer = event_cfg['outer_boundary']
+      inner = matching_entry['inner_boundary']
+      outer = matching_entry['outer_boundary']
       
       if dist <= inner:
-        return event_cfg['Act_E_diff_GB']
+        return matching_entry['Act_E_diff_GB']
       elif dist <= outer:
-        energy = event_cfg['linear_slope'] * dist + event_cfg['linear_intercept']
+        energy = matching_entry['linear_slope'] * dist + matching_entry['linear_intercept']
         return max(energy, 0.0)
       return 0.0
       
@@ -261,44 +288,68 @@ class GrainBoundary:
         if not gb.get('distance_function'):
           continue
         
-        mig_cfg = gb['mig_cfg']
-        gen_cfg = gb['gen_cfg']
-        rxn_cfg = gb['rxn_cfg']
+        mig_entries = gb['mig_cfg']
+        gen_entries = gb['gen_cfg']
+        rxn_entries = gb['rxn_cfg']
+        
+        if mig_entries and isinstance(mig_entries, dict):
+          mig_entries = [mig_entries]
+        if gen_entries and isinstance(gen_entries, dict):
+          gen_entries = [gen_entries]
+        if rxn_entries and isinstance(rxn_entries, dict):
+          rxn_entries = [rxn_entries]
         
         # Iterate through all applicable defects
         for defect_name in applicable_defects:
           base_energies = site.Act_E_dict[defect_name]
         
           # 1. Handle generation
-          if gen_cfg and defect_name in gen_cfg.get('affected_defects_set', set()):
-            if self._region_matches(site_gb_region, gen_cfg.get('region')):
-              red = self._get_gb_reduction_for_site(site_pos, gb, 'generation')
+          if gen_entries:
+            for gen_cfg in gen_entries:
+              if defect_name not in gen_cfg.get('affected_defects_set', set()):
+                continue
+              if not self._region_matches(site_gb_region, gen_cfg.get('region')):
+                continue
+              red = self._get_gb_reduction_for_site(site_pos, gb, 'generation', defect_name=defect_name)
               max_gen_reductions[defect_name] = max(max_gen_reductions[defect_name], red)
               
-          # 2. Handle migration    
-          if mig_cfg and defect_name in mig_cfg.get('affected_defects_set', set()):
-            mig_req_region = mig_cfg.get('region')
-            for key,migration_vector in migration_pathways.items():
-              dest_pos = self._calculate_dest_pos(site_pos, migration_vector)
-              dest_gb_region = self.get_site_gb_region(dest_pos)
-              
-              if self._region_matches(dest_gb_region, mig_req_region):
-                red = self._get_gb_reduction_for_site(dest_pos,gb, 'migration')
+          # 2. Handle migration
+          if mig_entries:
+            for mig_cfg in mig_entries:
+              if defect_name not in mig_cfg.get('affected_defects_set', set()):
+                continue
+              mig_req_region = mig_cfg.get('region')
+            
+              for key,migration_vector in migration_pathways.items():
+                dest_pos = self._calculate_dest_pos(site_pos, migration_vector)
+                dest_gb_region = self.get_site_gb_region(dest_pos)
+                
+                if not self._region_matches(dest_gb_region, mig_req_region):
+                  continue
+                  
+                red = self._get_gb_reduction_for_site(dest_pos,gb, 'migration', defect_name=defect_name)
                 current_max = max_mig_reductions[defect_name].get(key, 0.0)
                 max_mig_reductions[defect_name][key] = max(current_max, red)
             
           # 3. Handle reactions
-          if rxn_cfg:
-            affected_rxns_set = rxn_cfg.get('affected_reactions_set',set())
-            if affected_rxns_set and self._region_matches(site_gb_region, rxn_cfg.get('region')):
-              red = self._get_gb_reduction_for_site(site_pos, gb, 'reaction')
+          if rxn_entries:
+            for rxn_cfg in rxn_entries:
+              affected_rxns_set = rxn_cfg.get('affected_reactions_set',set())
+              if not affected_rxns_set:
+                continue
+              if not self._region_matches(site_gb_region, rxn_cfg.get('region')):
+                continue
               
               for rxn_key in affected_rxns_set:
-                if rxn_key in reactions_config: 
-                  rxn_name = reactions_config[rxn_key]['name']
-                  if rxn_name in base_energies:
-                    current_max = max_rxn_reductions[defect_name].get(rxn_name, 0.0)
-                    max_rxn_reductions[defect_name][rxn_name] = max(current_max, red)
+                if rxn_key not in reactions_config: 
+                  continue
+                rxn_name = reactions_config[rxn_key]['name']
+                if rxn_name not in base_energies:
+                  continue
+                
+                red = self._get_gb_reduction_for_site(site_pos, gb, 'reaction', reaction_name=rxn_key)
+                current_max = max_rxn_reductions[defect_name].get(rxn_name, 0.0)
+                max_rxn_reductions[defect_name][rxn_name] = max(current_max, red)
                     
                     
       # Apply the calculated maximum reductions to the site's Act_E_dict      

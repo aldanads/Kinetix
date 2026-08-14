@@ -22,7 +22,7 @@
         {
             "specie": "H",
             "activation_energies": {
-                "E_gen_defect": 0.48,
+                "E_gen_defect": 0.45,
                 "E_min_gen": 0.4,
                 "E_mig_plane": 0.5,
                 "E_mig_upward": 0.5,

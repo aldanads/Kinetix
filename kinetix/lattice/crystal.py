@@ -2556,22 +2556,28 @@ class Crystal_Lattice():
         return None
       
       gb_config = self.gb_model.gb_configurations[0]
-      event_config = gb_config['event_modifications'].get(event_type)
-      if event_config is None:
+      event_entries = gb_config['event_modifications'].get(event_type)
+      if event_entries is None:
         return None
         
+      # Backward compatibility
+      if isinstance(event_entries, dict):
+        event_entries = [event_entries]
+        
+      # Find the entry that applies to this case
+      for entry in event_entries:
       # Check if this defect is affected
-      affected_defects = event_config.get('affected_defects',[])
-      if defect_name and defect_name not in affected_defects:
-        return None
+        affected_defects = entry.get('affected_defects',[])
+        if defect_name and defect_name not in affected_defects:
+          continue
         
-      charge_state = event_config.get('charge_state', {})
-      if not charge_state:
-        return None
+        charge_state = entry.get('charge_state', {})
+        if not charge_state:
+          return None # Affected by GB but has no charge modifications
         
-      # Get site region and return charge state
-      site_gb_region = self.gb_model.get_site_gb_region(site_position)
-      return charge_state.get(site_gb_region,None)
+        # Get site region and return charge state
+        site_gb_region = self.gb_model.get_site_gb_region(site_position)
+        return charge_state.get(site_gb_region, None)
       
     def _handle_migration_event(self, chosen_event, support_update_sites, event_update_sites):
       """Handle migration events with multi-species support."""

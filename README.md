@@ -5,23 +5,52 @@ A fully open-source kinetic Monte Carlo (kMC) simulator for materials deposition
 > **⚠️ Active Development**
 > This tool is currently in beta. The README and installation workflows are not ready yet. 
 > Feel free to contact me directly. 
-> Best suited for those comfortable with Python/FEniCS environments.
+> Best suited for those comfortable with Python, FEniCS/DOLFINx and MPI environments.
 
 ## Capacities
 Kinetix is a Python-based, open-source simulation framework (**MIT License**) that enables atomic-scale modeling of:
-* Material deposition (e.g., fcc metals),
-* Vacuum annealing of deposited films, and
-* Resistive switching in redox- and filamentary-type memristors.
+* **Material Deposition:** Nucleation and growth of thin films (e.g., fcc metals),
+* **Vacuum Annealing:** Thermal evolution, defect passivation and morphology relaxation of deposited films.
+* **Resistive Switching:** Formation and dissolution of conductive filaments in redox- and valence change memristors (VCM and ECM).
+* **Grain Boundary (GB) Engineering:** Spatially resolved modifications of activation energies at grain boundaries
+* **Multiphysics Coupling:** Real-time feedback between electrostatics, Joule heating and stochastic defect kinetics.
+
+---
 
 ## Dependencies
 Built entirely on free and open-source software, Kinetix integrates seamlessly with:
 * [pymatgen](https://pymatgen.org) – to fetch crystal structures from the [Materials Project](https://next-gen.materialsproject.org/),
 * [gmsh](https://gmsh.info/) – for automated 3D mesh generation,
-* [DOLFINx](https://github.com/FEniCS/dolfinx) (part of the [FEniCS Project](https://fenicsproject.org/)) – to solve the Poisson equation for electrostatics,
+* [DOLFINx](https://github.com/FEniCS/dolfinx) (part of the [FEniCS Project](https://fenicsproject.org/)) – To solve the Poisson and Heat equations via the Finite Element Method.
+* [SciPy](https://scipy.org/) – For efficient spatial queries (cKDTree) and neighbor-finding algorithms with periodic boundary conditions.
 * MPI + OpenMP – for hybrid parallelization (MPI via DOLFINx, OpenMP for lattice operations).
 
 > [!NOTE]
 > **License**: Kinetix is released under the **MIT License** — free to use, modify, and distribute, with attribution. See [LICENSE](LICENSE) for full terms.
+
+---
+
+## 🔄 Simulation Workflow
+1. **Lattice Generation:** Constructs the 3D atomic grid (including grain boundaries and interfaces) using `pymatgen` and the mesh for the FEM solvers using `gmsh`.
+2. **FEM Solvers:** Computes the electric field (Poisson) and temperature distribution (Heat) based on the current defect configuration and applied boundary conditions.
+3. **Energy Landscape Update:** Calculates local activation energies for all possible defect events (migration, generation, recombination).
+4. **kMC Step:** Selects an event using the BKL (Bortz-Kalos-Lebowitz) or rejection-free algorithm, advances the simulation time, and updates the lattice.
+5. **Loop:** Repeats steps 2–4 to capture the dynamic evolution of the device.
+
+---
+
+## ⚙️ Configuration & Usage Guide
+Kinetix is driven by a set of modular YAML and JSON configuration files located in the `data/parameters/` directory. This separation allows to swap materials, defect chemistries, and device geometries without modifying the core Python code.
+
+### 📁 Directory Structure
+```text
+data/parameters/
+├── defects/                 # Defines mobile species (e.g., H+, V_O)
+├── reactions/               # Defines redox, recombination, and passivation reactions
+├── electrical/              # Electrode boundary conditions and voltage sweeps
+├── grain_boundaries/        # GB geometry and localized barrier modifications
+└── activation_energies/     # Base DFT/experimental energy barriers (JSON)
+---
 
 ## Aim
 Kinetix aims to bridge materials science and device physics by providing a transparent, modular, and accessible platform for multiscale simulation of emerging electronic devices, ideal for research in neuromorphic computing, memristors, and thin-film processing.
