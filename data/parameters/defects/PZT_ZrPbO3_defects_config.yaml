@@ -14,6 +14,7 @@ defects:
     sites_generation_layer: "top_layer"
     field_dependent_generation: False
     CN_matters: true
+    migrating_attributes: ['ion_charge']
     description: "Hydrogen defect in interstitial"
 
   oxygen_vacancy:
@@ -29,7 +30,8 @@ defects:
     CN_matters: true
     passivation_level: 0
     max_passivation_level: 1
-    charge_per_passivation: +1
+    charge_per_passivation: 0
+    migrating_attributes: ["ion_charge", "passivation_level"]
     description: "Intrinsic vacancy in oxide lattice"
 
   hydrogen_gas:

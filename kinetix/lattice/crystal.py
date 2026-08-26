@@ -2595,27 +2595,29 @@ class Crystal_Lattice():
               defect_name = source_site._get_current_defect_name()
               self.scavenged_ions[defect_name] = self.scavenged_ions.get(defect_name,0) + 1
           
-          self._remove_species_at_site(source_idx, support_update_sites, event_update_sites)
+          extra_state = source_site.get_migrating_state(self.defects_config)
+          self._remove_species_at_site(source_idx, support_update_sites, event_update_sites,
+                                       attributes_to_reset=extra_state.keys() if extra_state else None)
           if self.poissonSolver_parameters['solve_Poisson']:
             event_update_sites.update(self._get_mobile_sites(self.active_event_sites))
           return
           
       # Get source species info
-      source_site = self.grid_crystal[source_idx]
-      chemical_specie = source_site.chemical_specie
       defect_name = source_site._get_current_defect_name()
-      
+      chemical_specie = source_site.chemical_specie
       migrating_charge = source_site.ion_charge
       
-      # Apply GB charge state modification
-      dest_pos = dest_site.position
-      gb_charge = self._get_gb_charge_state(defect_name, dest_pos, event_type='migration')
+      extra_state = source_site.get_migrating_state(self.defects_config)
       
+      # Apply GB charge state modification
+      gb_charge = self._get_gb_charge_state(defect_name, dest_site.position, event_type='migration')      
       if gb_charge is not None:
         migrating_charge = gb_charge
           
-      self._introduce_specie_site(dest_idx, support_update_sites, event_update_sites, chemical_specie, migrating_charge)
-      self._remove_species_at_site(source_idx, support_update_sites, event_update_sites)
+      self._introduce_specie_site(dest_idx, support_update_sites, event_update_sites, 
+                                  chemical_specie, migrating_charge, extra_state=extra_state)
+      self._remove_species_at_site(source_idx, support_update_sites, event_update_sites, 
+                                   attributes_to_reset=extra_state.keys() if extra_state else None)
       
       # Update Poisson-relevant sites
       if self.poissonSolver_parameters['solve_Poisson']:
@@ -2907,11 +2909,16 @@ class Crystal_Lattice():
 # =============================================================================
 #             Introduce particle
 # =============================================================================
-    def _introduce_specie_site(self,idx,support_update_sites, event_update_sites, chemical_specie, ion_charge = None):
+    def _introduce_specie_site(self,idx,support_update_sites, event_update_sites, chemical_specie, ion_charge = None, extra_state=None):
         """Introduce species at site and track affected sites."""
         # Chemical specie deposited
         site = self.grid_crystal[idx]
         site.introduce_specie(chemical_specie, ion_charge)
+        
+        # Apply additional migrating attributes (e.g., passivation_level)
+        if extra_state:
+          for attr, value in extra_state.items():
+            setattr(site, attr, value)
         
         # Track sites occupied
         if idx not in self.active_event_sites:
@@ -2937,10 +2944,14 @@ class Crystal_Lattice():
 # =============================================================================
 #             Remove particle 
 # =============================================================================
-    def _remove_species_at_site(self,idx,support_update_sites, event_update_sites):
+    def _remove_species_at_site(self,idx,support_update_sites, event_update_sites, attributes_to_reset=None):
         """Remove species from site and track affected sites."""
         site = self.grid_crystal[idx]
         site.remove_specie(self.affected_site)
+        
+        if attributes_to_reset:
+          for attr in attributes_to_reset:
+            setattr(site, attr, 0)
 
         if idx in self.active_event_sites:
           self.active_event_sites.remove(idx) 

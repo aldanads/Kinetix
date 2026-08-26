@@ -378,6 +378,26 @@ class Site():
         #self.site_events.remove(['Desorption',self.num_event])
         self.site_events = []
         
+    def get_migrating_state(self, defects_config):
+      """Extracts a dictionary of all attributes that should move with the defect."""
+      defect_name = self._get_current_defect_name()
+      if not defect_name or defect_name not in defects_config:
+        return None
+      
+      config = defects_config[defect_name]
+      
+      base_attrs = {'chemical_specie', 'ion_charge', 'defect_name'}
+      extra_state = {}
+      
+      # Dynamically add configured migrating attributes
+      for attr in config.get('migrating_attributes', []):
+        if attr in base_attrs:
+          continue # Handled by _introduce_specie_site
+        if hasattr(self, attr):
+          extra_state[attr] = getattr(self, attr)
+      
+      return extra_state
+        
     def available_pathways(self,grid_crystal,idx_origin, facets_type):
     
       self.site_events = []

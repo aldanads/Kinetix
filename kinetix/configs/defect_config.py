@@ -32,6 +32,7 @@ class DefectConfig:
   CN_matters: bool = False
   sites_generation_layer: Optional[str] = None
   interface_tolerance_generation: Optional[float] = 0.0
+  migrating_attributes: List[str] = field(default_factory=list)
   field_dependent_generation: bool = False
   electrode_scavenging: bool = False
   description: str = ""
@@ -56,6 +57,7 @@ class DefectConfig:
       'CN_matters': self.CN_matters,
       'sites_generation_layer': self.sites_generation_layer,
       'interface_tolerance_generation': self.interface_tolerance_generation,
+      'migrating_attributes': self.migrating_attributes,
       'field_dependent_generation': self.field_dependent_generation,
       'electrode_scavenging': self.electrode_scavenging,
       'description': self.description,
@@ -85,6 +87,7 @@ class DefectConfig:
       CN_matters=data.get('CN_matters', False),
       sites_generation_layer=data.get('sites_generation_layer'),
       interface_tolerance_generation=data.get('interface_tolerance_generation'),
+      migrating_attributes=data.get('migrating_attributes'),
       field_dependent_generation=data.get('field_dependent_generation'),
       electrode_scavenging=data.get('electrode_scavenging'),
       description=data.get('description', ''),
