@@ -6,6 +6,7 @@ Created on Mon Jan 15 15:12:23 2024
 """
 
 import sys
+import argparse
 from kinetix.initialization import initialization,save_variables
 import numpy as np
 import time
@@ -30,11 +31,55 @@ def get_parameters_from_sim_id(sim_id: int) -> dict:
      'h_generation': h_generation[i_gen_h]
    }
    
+def parse_arguments():
+  """Parse command-line arguments"""
+  parser = argparse.ArgumentParser(
+    description="Kinetix: Kinetic Monte Carlo simulator for materials and memristive devices.",
+    formatter_class=argparse.RawDescriptionHelpFormatter,
+    epilog="""
+Examples:
+  python run_simulation.py 42
+  python run_simulation.py 42 --config PZT_ZrTi(PbO3)2.yaml
+  python run_simulation.py 42 --config VCM_HfO2_cylindrical_gb.yaml --profile
+  python run_simulation.py --config PZT_ZrTi(PbO3)2_annealing.yaml     
+    """
+  )
+  
+  parser.add_argument(
+    'sim_id',
+    type=int,
+    nargs='?',
+    default=0,
+    help='Simulation ID for parameter sweep indexing (default: 0)'
+  )
+  
+  parser.add_argument(
+    '--config', '-c',
+    type=str,
+    default='PZT_ZrTi(PbO3)2.yaml',
+    help='Preset configuration file name or path (default: PZT_ZrTi(PbO3)2.yaml)'
+  )
+  
+  parser.add_argument(
+    '--profile',
+    action='store_true',
+    help='Enable cProfile profiling and save results to kmc_profile.prof'
+  )
+  
+  parser.add_argument(
+    '--dry-run',
+    action='store_true',
+    help='Print resolved configuration and exit without running'
+  )
+  
+  return parser.parse_args()
+  
+   
 
-def main(sim_id):
+def main(sim_id, config_name='PZT_ZrTi_PbO3_2.yaml'):
         
         params = get_parameters_from_sim_id(sim_id)
-        System_state,rng,paths,Results,simulation_parameters,Elec_controller = initialization(sim_id, params)
+        System_state,rng,paths,Results,simulation_parameters,Elec_controller = initialization(sim_id, params, config_name)
         
         if System_state.rank == 0:
           print(f'System size: {System_state.crystal_size}')
@@ -329,23 +374,15 @@ def main(sim_id):
 if __name__ == '__main__':
     import atexit
     
-    # Preserve your original sim_id logic
-    if len(sys.argv) > 1 and not sys.argv[1].startswith('--'):
-        # Positional argument (HPC/PBS mode): python script.py 42
-        sim_id = int(sys.argv[1])
-        profile_mode = False
-    elif len(sys.argv) >= 3 and sys.argv[1] == '--profile':
-        # Profiling mode: python script.py --profile [42]
-        profile_mode = True
-        sim_id = int(sys.argv[2]) if len(sys.argv) > 2 else 0
-    elif len(sys.argv) == 2 and sys.argv[1] == '--profile':
-        # Profiling with default sim_id: python script.py --profile
-        profile_mode = True
-        sim_id = 0
-    else:
-        # No arguments: local fallback
-        sim_id = 0
-        profile_mode = False
+    args = parse_arguments()
+    
+    sim_id = args.sim_id
+    config_name = args.config
+    profile_mode = args.profile
+    
+    if args.dry_run:
+      print(f"[DRY RUN] sim_id={sim_id}, config={config_name}, profile={profile_mode}")
+      sys.exit(0)
     
     if profile_mode:
         import pstats
@@ -369,14 +406,4 @@ if __name__ == '__main__':
         stats.print_stats(15)
         print("Full profile saved to 'kmc_profile.prof'")
     else:
-        System_state = main(sim_id)
-    
-    
-# Use cProfile to profile the main function
-#     cProfile.run('main()', 'profile_output.prof')    
-
-# import pstats
-
-# # Load and analyze the profiling results
-# p = pstats.Stats('profile_output.prof')
-# p.strip_dirs().sort_stats('time').print_stats(15)  # Show top 10 time-consuming functions
+        System_state = main(sim_id, config_name)

@@ -57,6 +57,8 @@ export DOLFINX_JIT_TIMEOUT=300
 # =============================================================================
 
 SIM_ID=${PBS_ARRAYID}
+# For a different material/experiment, just change this line:
+CONFIG_FILE="PZT_ZrTi_PbO3_2.yaml"
 
 # Core counting (works with both PBS_NCPUS and PBS_NODEFILE)
 if [ -n "$PBS_NCPUS" ]; then
@@ -76,7 +78,7 @@ echo "Time: $(date)"
 echo "=================================================="
 
 # Run simulation
-$MPI_EXEC -n $CORES $PYTHON_EXEC run_simulation.py $SIM_ID
+$MPI_EXEC -n $CORES $PYTHON_EXEC run_simulation.py $SIM_ID --config "$CONFIG_FILE"
 
 echo "=================================================="
 echo "Completed at $(date)"

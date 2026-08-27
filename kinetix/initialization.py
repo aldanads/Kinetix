@@ -38,7 +38,7 @@ import warnings
 from typing import Any, Dict, List, Tuple
 
 
-def initialization(n_sim,params):
+def initialization(n_sim,params, config_name='PZT_ZrTi_PbO3_2.yaml'):
     
 # =============================================================================
 #         Simulation parameters
@@ -48,9 +48,16 @@ def initialization(n_sim,params):
     mpi_ctx = MPIContext.get_instance()
     
     parameters_root = get_parameters_root()
-    preset_name = 'PZT_ZrTi(PbO3)2.yaml'
-    preset_path = parameters_root / 'presets' / preset_name
-    config = SimulationConfig.from_yaml(preset_path)
+    config_path = Path(config_name)
+    if not config_path.is_absolute() and not config_path.exists():
+      config_path = parameters_root / 'presets' / preset_name
+      
+    if not config_path.exists():
+      raise FileNotFoundError(
+        f"Configuration file not found: {config_path}\n"
+        f"Searched in: {parameters_root / 'presets'}"
+      )
+    config = SimulationConfig.from_yaml(config_path)
     
     seed = config.settings.seed_rng
     # Random seed as time
@@ -432,7 +439,7 @@ def initialization(n_sim,params):
         }
         
         # 7. Activation energies
-        ae_data = load_activation_energies(preset_path, config.settings)
+        ae_data = load_activation_energies(config_path, config.settings)
         ### ----------------- PARAMETER SWEEP ----------------- ###
         #ae_data['PZT'][1]['activation_energies']['E_gen_defect'] = params['h_generation']
 

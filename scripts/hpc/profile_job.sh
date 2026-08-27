@@ -3,9 +3,9 @@
 #PBS -N kmc_profile
 #PBS -q default
 #PBS -j oe
-#PBS -t 0                     # ? Single job (not array), use your test sim_id
 
-SIM_ID=${PBS_ARRAYID}
+SIM_ID=0
+CONFIG_FILE="PZT_ZrTi_PbO3_2.yaml"
 
 # 1. Navigate to submission directory
 cd $PBS_O_WORKDIR
@@ -35,6 +35,8 @@ CORES=1
 
 echo "=================================================="
 echo "PROFILING JOB"
+echo "Simulation ID: $SIM_ID"
+echo "Config: $CONFIG_FILE"
 echo "Requested Cores: $CORES"
 echo "Working Directory: $PBS_O_WORKDIR"
 echo "Python Version: $($PYTHON_EXEC --version)"
@@ -42,9 +44,9 @@ echo "Time: $(date)"
 echo "=================================================="
 
 # Run with profiling flag (no MPI!)
-$PYTHON_EXEC run_simulation.py --profile $SIM_ID
+$PYTHON_EXEC run_simulation.py "$SIM_ID" --profile --config "$CONFIG_FILE"
 
 echo "=================================================="
 echo "Profiling completed at $(date)"
-echo "Profile file: kmc_profile.prof"
+echo "Profile file: $PBS_O_WORKDIR/kmc_profile.prof"
 echo "=================================================="
