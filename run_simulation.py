@@ -67,6 +67,13 @@ Examples:
   )
   
   parser.add_argument(
+    '--allow-multi-rank-profile',
+    action='store_true',
+    help='Allow profiling with >1 MPI rank (results may be misleading due to synchronization distortion)'
+
+  )
+  
+  parser.add_argument(
     '--dry-run',
     action='store_true',
     help='Print resolved configuration and exit without running'
@@ -74,6 +81,56 @@ Examples:
   
   return parser.parse_args()
   
+def _enforce_single_rank_profiling(args):
+    """
+    Enforce single-rank execution when profiling is active.
+
+    cProfile is a single-process profiler. With multiple MPI ranks:
+    - Only rank 0 is instrumented; other ranks run unprofiled.
+    - Rank 0 is slowed by profiler overhead, causing other ranks to
+      accumulate artificial wait time at MPI barriers/collectives.
+    - The resulting profile is dominated by MPI synchronization
+      artifacts rather than real computational bottlenecks.
+
+    Raises
+    ------
+    SystemExit
+        If world_size > 1 and --allow-multi-rank-profile is not set.
+    """
+    if not args.profile:
+      return
+
+    try:
+        from mpi4py import MPI
+        comm = MPI.COMM_WORLD
+        world_size = comm.Get_size()
+        rank = comm.Get_rank()
+    except ImportError:
+        # No mpi4py installed ? single-process execution, nothing to check
+        return
+
+    if world_size > 1 and not args.allow_multi_rank_profile:
+        msg = (
+            f"\n{'='*60}\n"
+            f"ERROR: --profile active with {world_size} MPI ranks.\n"
+            f"\n"
+            f"cProfile only instruments rank 0. The other {world_size - 1} rank(s)\n"
+            f"run unprofiled, causing:\n"
+            f"  - Artificial MPI wait times in the profile\n"
+            f"  - Misleading bottleneck identification\n"
+            f"  - Wasted compute resources\n"
+            f"\n"
+            f"Recommendation: rerun with a single core:\n"
+            f"  python run_simulation.py {args.sim_id} --profile --config {args.config}\n"
+            f"  mpiexec -n 1 python run_simulation.py {args.sim_id} --profile\n"
+            f"\n"
+            f"To override (not recommended), add --allow-multi-rank-profile.\n"
+            f"{'='*60}\n"
+        )
+        if rank == 0:
+            print(msg, file=sys.stderr)
+        comm.Barrier()  # Ensure all ranks see the message before abort
+        comm.Abort(1)
    
 
 def main(sim_id, config_name='PZT_ZrTi_PbO3_2.yaml'):
@@ -383,6 +440,8 @@ if __name__ == '__main__':
     if args.dry_run:
       print(f"[DRY RUN] sim_id={sim_id}, config={config_name}, profile={profile_mode}")
       sys.exit(0)
+      
+    _enforce_single_rank_profiling(args)
     
     if profile_mode:
         import pstats
