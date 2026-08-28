@@ -107,7 +107,6 @@ Kinetix loads this file automatically at runtime (see `kinetix/configs/config_lo
 
 ***
 
----
 ## ▶️ Running a Simulation
 Simulations are launched from the project root with [`run_simulation.py`](run_simulation.py), which drives the kMC loop for the material/defect/reaction/electrical setup described in a YAML preset (see `data/parameters/presets/`, e.g. `PZT_ZrTi_PbO3_2.yaml`).
 
@@ -125,6 +124,47 @@ python run_simulation.py
 Running without arguments defaults to `sim_id = 0` and uses the default preset defined in the script (e.g., `PZT_ZrTi_PbO3_2.yaml`)
 
 ### Specifying a configuration and parameter set
+Use the `--config` (or `-c`) flag to select a specific material/device preset from `data/parameters/presets/`, and pass a `sim_id` integer to index into your parameter sweep array:
+
+```bash
+python run_simulation.py 4 --config VCM_HfO2_cylindrical_gb.yaml
+```
+
+_Edit `get_parameters_from_sim_id()` in `run_simulation.py` to customize the parameter sweep mappings._
+
+### Running in parallel (MPI)
+The DOLFINx-based Poisson/heat solvers support MPI, while lattice operations use OpenMP. To run on multiple ranks:
+```bash
+mpiexec -n 8 python run_simulation.py 4 --config PZT_ZrTi_PbO3_2.yaml
+```
+
+> [!NOTE]
+> The coupled electrostatics/heat solvers only run on Linux (guarded by `platform.system() == 'Linux'` in the code). On other platforms, deposition/annealing simulations without the field solvers will still run.
+
+### Profiling a run
+Use the `--profile` flag to wrap the execution in `cProfile`. This prints the top 15 functions by cumulative time and saves the full profile to `kmc_profile.prof`.
+
+> [!WARNING]
+> **Single-core enforcement:** `cProfile` is a single-process profiler. If launched with multiple MPI ranks, only rank 0 is instrumented, and the profiler's overhead creates artificial MPI wait times that distort the bottleneck analysis. Therefore, Kinetix **automatically aborts** if `--profile` is used with `>1` MPI ranks.
+To profile, run with a single core (as shown above). If you explicitly want to profile a multi-rank run despite the distortion, use the override flag:
+```bash
+mpiexec -n 4 python run_simulation.py 0 --profile --allow-multi-rank-profile
+```
+
+### Dry run (validation)
+To verify your command-line arguments and configuration paths without initializing the heavy FEM meshes or kMC lattice:
+```bash
+python run_simulation.py 4 --config PZT_ZrTi(PbO3)2.yaml --dry-run
+```
+
+### Running on an HPC cluster (PBS)
+[`PZT_batch_sim.sh`](PZT_batch_sim.sh) is an example PBS submission script. When submitting jobs, you can easily swap the `CONFIG_FILE` variable at the top of the script to run different material presets across your cluster nodes:
+```bash
+qsub PZT_batch_sim.sh
+```
+
+Edit the `CONFIG_FILE`, `SIM_ID`, and `#PBS` resource directives (`nodes`, `ppn`) at the top of the script to match your job and cluster paths.
+Simulation outputs (crystal snapshots, saved state, IV curves) are written under the program/ and output/ directories.
 ---
 
 ## 📚 How to Cite
