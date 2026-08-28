@@ -158,7 +158,7 @@ python run_simulation.py 4 --config PZT_ZrTi(PbO3)2.yaml --dry-run
 ```
 
 ### Running on an HPC cluster (PBS)
-[`pbs_template.sh`](pbs_template.sh) is an example PBS submission script. When submitting jobs, you can easily swap the `CONFIG_FILE` variable at the top of the script to run different material presets across your cluster nodes:
+[`pbs_template.sh`](scripts/hpc/pbs_template.sh) is an example PBS submission script. When submitting jobs, you can easily swap the `CONFIG_FILE` variable at the top of the script to run different material presets across your cluster nodes:
 ```bash
 qsub pbs_template.sh
 ```
