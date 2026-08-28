@@ -3,7 +3,7 @@ A fully open-source kinetic Monte Carlo (kMC) simulator for materials deposition
 
 > [!WARNING]
 > **⚠️ Active Development**
-> This tool is currently in beta. The README and installation workflows are not ready yet. 
+> This tool is currently in beta.
 > Feel free to contact me directly. 
 > Best suited for those comfortable with Python, FEniCS/DOLFINx and MPI environments.
 
@@ -40,6 +40,7 @@ data/parameters/
 ├── electrical/              # Electrode boundary conditions and voltage sweeps
 ├── grain_boundaries/        # GB geometry and localized barrier modifications
 └── activation_energies/     # Base DFT/experimental energy barriers (JSON)
+└── presets/     	     # Master files that define the system and the relation with other parameter files
 ```
 ---
 
