@@ -104,6 +104,9 @@ Kinetix fetches crystal structures and material properties (density, dielectric 
 > `config.json` is listed in [`.gitignore`](.gitignore) and must **never** be committed — it holds your personal, secret API key. Only the placeholder file, `config.template.json`, is tracked in the repository.
 
 Kinetix loads this file automatically at runtime (see `kinetix/configs/config_loader.py` and `get_api_key()`), so no environment variables or extra command-line flags are needed once `config.json` exists in the project root.
+
+***
+
 ---
 ## ▶️ Running a Simulation
 Simulations are launched from the project root with [`run_simulation.py`](run_simulation.py), which drives the kMC loop for the material/defect/reaction/electrical setup described in a YAML preset (see `data/parameters/presets/`, e.g. `PZT_ZrTi_PbO3_2.yaml`).
@@ -114,8 +117,14 @@ python run_simulation.py --help
 ```
 
 ### Basic run (single process) 
+```bash
 conda activate Kinetix
 python run_simulation.py
+```
+
+Running without arguments defaults to `sim_id = 0` and uses the default preset defined in the script (e.g., `PZT_ZrTi_PbO3_2.yaml`)
+
+### Specifying a configuration and parameter set
 ---
 
 ## 📚 How to Cite
