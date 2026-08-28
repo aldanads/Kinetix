@@ -165,7 +165,8 @@ qsub PZT_batch_sim.sh
 
 Edit the `CONFIG_FILE`, `SIM_ID`, and `#PBS` resource directives (`nodes`, `ppn`) at the top of the script to match your job and cluster paths.
 Simulation outputs (crystal snapshots, saved state, IV curves) are written under the program/ and output/ directories.
----
+
+***
 
 ## 📚 How to Cite
 
