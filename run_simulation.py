@@ -57,7 +57,7 @@ Examples:
     '--config', '-c',
     type=str,
     default='PZT_ZrTi(PbO3)2.yaml',
-    help='Preset configuration file name or path (default: PZT_ZrTi(PbO3)2.yaml)'
+    help='Preset configuration file name or path (default: PZT_ZrTi_PbO3_2.yaml)'
   )
   
   parser.add_argument(

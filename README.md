@@ -10,7 +10,7 @@ A fully open-source kinetic Monte Carlo (kMC) simulator for materials deposition
 ## Aim
 Kinetix aims to bridge materials science and device physics by providing a transparent, modular, and accessible platform for multiscale simulation of emerging electronic devices, ideal for research in neuromorphic computing, memristors, and thin-film processing.
 
-## Capacities
+## Capabilities
 Kinetix is a Python-based, open-source simulation framework (**MIT License**) that enables atomic-scale modeling of:
 * **Material Deposition:** Nucleation and growth of thin films (e.g., fcc metals),
 * **Vacuum Annealing:** Thermal evolution, defect passivation and morphology relaxation of deposited films.
@@ -54,6 +54,68 @@ Built entirely on free and open-source software, Kinetix integrates seamlessly w
 > [!NOTE]
 > **License**: Kinetix is released under the **MIT License** — free to use, modify, and distribute, with attribution. See [LICENSE](LICENSE) for full terms.
 
+---
+## 🛠️ Installation
+
+Kinetix relies on a heavy scientific stack (DOLFINx, gmsh, MPI, pymatgen) that is easiest to install through the provided conda environment file, [`environment.yml`](environment.yml)
+
+> [!NOTE]
+> `environment.yml` was generated on Linux (e.g., for HPC use) and pins some Linux-specific builds (`gcc_linux-64`, `binutils_linux-64`, etc.). DOLFINx and the MPI-based solvers are best supported on Linux/macOS.
+
+1. Close the repository:
+   ```bash
+   git clone https://github.com/aldanads/Kinetix.git
+   cd Kinetix
+   ```
+2. Create the conda environment from `environment.yml` (this installs the full FEniCS/DOLFINx + MPI stack and can take several minutes):
+   ```bash
+   conda env create -f environment.yml
+   ```
+   [Mamba](https://mamba.readthedocs.io/) also works as a faster drop-in replacement:
+   ```bash
+   mamba env create -f environment.yml
+   ```
+3. Activate the environment. Its name (`Kinetix`) is set by the `name:` field at the top of `environment.yml`:
+   ```bash
+   conda activate Kinetix
+   ```
+4. (Optional) Verify the key dependencies import correctly:
+   ```bash
+   python -c "import dolfinx, gmsh, pymatgen, mpi4py; print('Environment OK')"
+   ```
+
+## 🔑 Materials Project API Key
+
+Kinetix fetches crystal structures and material properties (density, dielectric constants, etc.) directly from the [Materials Project](https://next-gen.materialsproject.org/) via `pymatgen`. This requires a free personal API key.
+
+1. Log in (or register) at the Materials Project and copy your API key from your [account dashboard](https://next-gen.materialsproject.org/api).
+2. Copy the provided template to create your own local `config.json` in the project root:
+   ```bash
+   cp config.template.json config.json
+   ```
+3. Open `config.json` and replace the placeholder with your key:
+   ```json
+   {
+       "api_key": "YOUR_API_KEY_HERE"
+   }
+   ```
+
+> [!IMPORTANT]
+> `config.json` is listed in [`.gitignore`](.gitignore) and must **never** be committed — it holds your personal, secret API key. Only the placeholder file, `config.template.json`, is tracked in the repository.
+
+Kinetix loads this file automatically at runtime (see `kinetix/configs/config_loader.py` and `get_api_key()`), so no environment variables or extra command-line flags are needed once `config.json` exists in the project root.
+---
+## ▶️ Running a Simulation
+Simulations are launched from the project root with [`run_simulation.py`](run_simulation.py), which drives the kMC loop for the material/defect/reaction/electrical setup described in a YAML preset (see `data/parameters/presets/`, e.g. `PZT_ZrTi_PbO3_2.yaml`).
+
+To see all available options:
+```bash
+python run_simulation.py --help
+```
+
+### Basic run (single process) 
+conda activate Kinetix
+python run_simulation.py
 ---
 
 ## 📚 How to Cite
