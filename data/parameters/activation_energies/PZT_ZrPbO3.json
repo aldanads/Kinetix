@@ -5,17 +5,15 @@
             "activation_energies": {
                 "E_gen_defect": 3.6,
                 "E_min_gen": 0.3,
-                "E_mig_plane": 3.7,
-                "E_mig_upward": 3.7,
-                "E_mig_downward": 3.7,
+                "E_mig_plane": 1.54,
+                "E_mig_upward": 1.54,
+                "E_mig_downward": 1.54,
                 "E_min_mig": 0.1,
                 "binding_energy_bottom_layer": -0.0,
                 "binding_energy_top_layer": -0.0,
                 "CN_clustering_energy": -0.1,
                 "V_OH -> V_O + H": {
-                  "1": 1.47,
-                  "2": 1.15,
-                  "3": 0.26
+                  "1": 1.50
                 }
             }
         },
@@ -24,19 +22,22 @@
             "activation_energies": {
                 "E_gen_defect": 0.45,
                 "E_min_gen": 0.4,
-                "E_mig_plane": 0.5,
-                "E_mig_upward": 0.5,
-                "E_mig_downward": 0.5,
-                "E_min_mig": 0.22,
+                "E_mig_plane": 0.39,
+                "E_mig_upward": 0.23,
+                "E_mig_downward": 0.23,
+                "E_min_mig": 0.05,
+                "gb_direction_barriers": {
+                  "outer_boundary_to_inner_boundary": 0.15,
+                  "inner_boundary_to_outer_boundary": 0.65,
+                  "inner_boundary_to_inner_boundary": 0.15
+                },
                 "binding_energy_bottom_layer": -0.0,
                 "binding_energy_top_layer": -0.0,
                 "CN_clustering_energy": 0.1,
                 "H + H -> H2": 4.0,
                 "H -> Empty": 0.25,
                 "H + V_O -> V_OH": {
-                  "0": 0.34,
-                  "1": 0.22,
-                  "2": 0.17
+                  "0": 0.26
                 } 
             }
         },

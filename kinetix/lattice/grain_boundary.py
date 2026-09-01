@@ -135,12 +135,28 @@ class GrainBoundary:
             if isinstance(event_entries, dict):
               event_entries = [event_entries]
             
-            for entry in event_entries:
-              act_e_diff = entry['Act_E_diff_GB']
-              
+            for entry in event_entries:        
               # Event-specific boundaries
               event_inner = entry.get('inner_boundary', inner_boundary)
               event_outer = entry.get('outer_boundary', outer_boundary)
+              
+              entry['inner_boundary'] = event_inner
+              entry['outer_boundary'] = event_outer
+              
+              # Direction-dependent barriers come from the activation energy JSON,
+              # so the entry does not need Act_E_diff_GB
+              barrier_model = entry.get('barrier_model', 'linear')
+              act_e_diff = entry.get('Act_E_diff_GB', None)
+              
+              if act_e_diff is None:
+                if barrier_model == 'direction_dependent':
+                  # No linear interpolation parameters needed
+                  continue
+                else:
+                  raise KeyError(
+                    f"Missing 'Act_E_diff_GB' for event '{event_type}' "
+                    f"in GB config entry: {entry}"
+                  )
             
               # Linear function: Act_E = slope * distance + intercept
               # At radius: Act_E = act_e_diff (inside GB)
@@ -155,8 +171,7 @@ class GrainBoundary:
                 
               entry['linear_slope'] = slope
               entry['linear_intercept'] = intercept
-              entry['inner_boundary'] = event_inner
-              entry['outer_boundary'] = event_outer
+              
             
     def _distance_to_planar_gb(self,site_pos,gb_config):
       """Calculate distance to planar GB core"""
@@ -241,6 +256,60 @@ class GrainBoundary:
         return max(energy, 0.0)
       return 0.0
       
+    def _get_direction_dependent_barrier(self, source_pos, dest_pos, gb, gb_direction_barriers, base_barrier):
+      """
+      Compute absolute migration barrier from (source_region, dest_region) pair
+      """
+      source_region = self.get_site_gb_region(source_pos)
+      dest_region = self.get_site_gb_region(dest_pos)
+      
+      key = f"{source_region}_to_{dest_region}"
+      
+      # Activation energy from the json file
+      if key in gb_direction_barriers and gb_direction_barriers[key] is not None:
+        return gb_direction_barriers[key]
+        
+      if source_region == 'bulk' and dest_region == 'bulk':
+        return base_barrier
+      
+      # Interpolate for hops involving the outer region
+      dist_func = gb.get('distance_function')
+      
+      if not dist_func:
+        return base_barrier
+          
+      inner = gb['inner_boundary']
+      outer = gb['outer_boundary']
+      
+      if outer <= inner:
+        return base_barrier
+        
+      dist_source = dist_func(source_pos, gb)
+      dist_dest = dist_func(dest_pos, gb)
+        
+      e_enter = gb_direction_barriers.get('outer_boundary_to_inner_boundary')
+      e_leave = gb_direction_barriers.get('inner_boundary_to_outer_boundary')
+      
+      if dist_dest < dist_source:
+        # -- Entering: moving toward GB core --
+        # Barrier decreases from base_barrier (outer edge) toward e_enter (inner edge)
+        t = np.clip((dist_dest - inner) /  (outer - inner), 0.0, 1.0)
+        return e_enter + t * (base_barrier - e_enter)
+      
+      elif dist_dest > dist_source:
+        # -- Leaving: moving away from GB core --
+        # Barrier decreases from e_leave (inner edge) toward base_barrier (outer edge)
+        t = np.clip((dist_source - inner) / (outer - inner), 0.0, 1.0)
+        return e_leave + t * (base_barrier - e_leave)
+      
+      else:
+        # Lateral movement
+        return base_barrier
+    
+        
+        
+        
+      
     def _calculate_dest_pos(self, origin_pos, mig_vector):
       """Calculate destination coordinates for a migration step."""
       ox, oy, oz = origin_pos
@@ -258,6 +327,38 @@ class GrainBoundary:
       elif required_region == 'outer_boundary':
         return site_region in ['inner_boundary', 'outer_boundary']
       return False
+      
+    def _migration_region_matches(self, source_region, dest_region, required_region, barrier_model='linear'):
+      """
+      Check whether a migration hop should receive a GB modification.
+  
+      For the original linear model, the modification is destination-based.
+  
+      For the direction-dependent model, the modification depends on the
+      source-destination pair, so either source or destination being in the
+      required GB region should activate the model.
+      """
+      if barrier_model == 'direction_dependent':
+        if required_region == 'inner_boundary':
+          return (
+            source_region == 'inner_boundary' or
+            dest_region == 'inner_boundary'
+          )
+        
+        elif required_region == 'outer_boundary':
+          gb_regions = {'inner_boundary', 'outer_boundary'}
+          return (
+            source_region in gb_regions or
+            dest_region in gb_regions
+          )
+        
+        elif required_region == 'bulk':
+          return True
+        
+        return False
+      
+      # Linear model
+      return self._region_matches(dest_region, required_region)
        
     
     def modify_act_energy_GB(self,site,migration_pathways,defects_config,reactions_config):
@@ -269,8 +370,8 @@ class GrainBoundary:
       # Find defect that matches this site's type
       applicable_defects = site.applicable_defects
         
-      if not applicable_defects or not self.is_site_in_grain_boundary(site.position): 
-        return # No defects can occupy this site type or outside GB
+      if not applicable_defects: 
+        return # No defects can occupy this site type
         
       site_pos = site.position
       # Check if site is in GB
@@ -278,6 +379,7 @@ class GrainBoundary:
       
       # Track maximum reductions to handle overlapping GBs
       max_mig_reductions = {defect: {} for defect in applicable_defects}
+      absolute_mig_barriers = {defect: {} for defect in applicable_defects}
       max_gen_reductions = {defect: 0.0 for defect in applicable_defects}
       max_rxn_reductions = {defect: {} for defect in applicable_defects}
       
@@ -318,19 +420,47 @@ class GrainBoundary:
             for mig_cfg in mig_entries:
               if defect_name not in mig_cfg.get('affected_defects_set', set()):
                 continue
+                
               mig_req_region = mig_cfg.get('region')
+              barrier_model = mig_cfg.get('barrier_model', 'linear')
             
               for key,migration_vector in migration_pathways.items():
                 dest_pos = self._calculate_dest_pos(site_pos, migration_vector)
+                
+                source_gb_region = site_gb_region
                 dest_gb_region = self.get_site_gb_region(dest_pos)
                 
-                if not self._region_matches(dest_gb_region, mig_req_region):
+                if not self._migration_region_matches(source_gb_region, dest_gb_region, mig_req_region, barrier_model=barrier_model):
                   continue
                   
-                red = self._get_gb_reduction_for_site(dest_pos,gb, 'migration', defect_name=defect_name)
-                current_max = max_mig_reductions[defect_name].get(key, 0.0)
-                max_mig_reductions[defect_name][key] = max(current_max, red)
-            
+                if barrier_model == 'direction_dependent':
+                  base_e = base_energies.get('E_mig',{}).get(key)
+                  gb_direction_barriers = base_energies.get('gb_direction_barriers') 
+                  
+                  if gb_direction_barriers is None:
+                    raise ValueError(
+                      f"Defect '{defect_name}' uses barrier_model='direction_dependent', "
+                      f"but no 'gb_direction_barriers' found in activation energies. "
+                      f"Available keys: {list(base_energies.keys())}"
+                    )
+                
+                  abs_barrier = self._get_direction_dependent_barrier(
+                    source_pos=site_pos,
+                    dest_pos=dest_pos,
+                    gb=gb,
+                    gb_direction_barriers=gb_direction_barriers,
+                    base_barrier=base_e
+                  )
+                
+                  current = absolute_mig_barriers[defect_name].get(key)
+                  if current is None or abs_barrier < current:
+                    absolute_mig_barriers[defect_name][key] = abs_barrier
+                
+                else:
+                  red = self._get_gb_reduction_for_site(dest_pos,gb, 'migration', defect_name=defect_name)
+                  current_max = max_mig_reductions[defect_name].get(key, 0.0)
+                  max_mig_reductions[defect_name][key] = max(current_max, red)
+              
           # 3. Handle reactions
           if rxn_entries:
             for rxn_cfg in rxn_entries:
@@ -350,7 +480,7 @@ class GrainBoundary:
                 red = self._get_gb_reduction_for_site(site_pos, gb, 'reaction', reaction_name=rxn_key)
                 current_max = max_rxn_reductions[defect_name].get(rxn_name, 0.0)
                 max_rxn_reductions[defect_name][rxn_name] = max(current_max, red)
-                    
+                  
                     
       # Apply the calculated maximum reductions to the site's Act_E_dict      
       for defect_name in applicable_defects:
@@ -362,16 +492,22 @@ class GrainBoundary:
           
         # Apply migration
         if migration_pathways:
-          new_mig_energies = {}
-          for key, mig_vector in migration_pathways.items():
-            z_comp = mig_vector['direction'][2]
-            if abs(z_comp) < 1e-9: base_e = base_energies.get('E_mig_plane', 0)
-            elif z_comp > 0:       base_e = base_energies.get('E_mig_upward',0)
-            else:                  base_e = base_energies.get('E_mig_downward', 0)
+          has_mig_changes = (
+              bool(absolute_mig_barriers[defect_name]) or
+              any(r > 0 for r in max_mig_reductions[defect_name].values())
+          )
+          if has_mig_changes:
+            new_mig_energies = dict(base_energies.get('E_mig', {}))
             
-            reduction = max_mig_reductions[defect_name].get(key,0.0)
-            new_mig_energies[key] = base_e - reduction
-          base_energies['E_mig'] = new_mig_energies
+            for key, abs_barrier in absolute_mig_barriers[defect_name].items():
+              new_mig_energies[key] = abs_barrier
+            
+            for key, reduction in max_mig_reductions[defect_name].items():
+              if reduction > 0:
+                current_e = new_mig_energies.get(key)
+                new_mig_energies[key] = current_e - reduction
+                
+            base_energies['E_mig'] = new_mig_energies
           
         # Apply reactions
         for rxn_name, reduction in max_rxn_reductions[defect_name].items():

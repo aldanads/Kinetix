@@ -489,6 +489,7 @@ class Crystal_Lattice():
           if reset_energies:  
             for site in self.grid_crystal.values():
               site.site_events = [] # Clear old events
+            
               
     def _minimum_image_vector(self, vec):
       """
@@ -864,11 +865,13 @@ class Crystal_Lattice():
           
           for i, site in enumerate(sites_list):
             self.gb_model.modify_act_energy_GB(site, mig_paths, defects_cfg, reactions_cfg)
+                
           if is_root:
             print(f"Step 6 (Grain boundaries): {time.perf_counter() - start_time:.4f} seconds", flush=True) 
           
             
         print('Finished grid initialization', flush=True)  
+        
             
         # Synchronize all ranks before starting kMC steps
         if self.mpi_ctx:

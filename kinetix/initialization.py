@@ -50,7 +50,7 @@ def initialization(n_sim,params, config_name='PZT_ZrTi_PbO3_2.yaml'):
     parameters_root = get_parameters_root()
     config_path = Path(config_name)
     if not config_path.is_absolute() and not config_path.exists():
-      config_path = parameters_root / 'presets' / preset_name
+      config_path = parameters_root / 'presets' / config_path
       
     if not config_path.exists():
       raise FileNotFoundError(

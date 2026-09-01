@@ -21,7 +21,7 @@ grain_boundaries:
       migration:
         - region: "outer_boundary"        # 'inner_boundary', 'outer_boundary', or 'bulk'
           affected_defects: ["hydrogen_interstitial"]
-          Act_E_diff_GB: 0.27             # eV (barrier modification)
+          barrier_model: "direction_dependent"
           charge_state:
             inner_boundary: 0             # H becomes neutral in GB core
             outer_boundary: 1             # H remains charged in transition
@@ -29,19 +29,20 @@ grain_boundaries:
           
         - region: "outer_boundary"        # 'inner_boundary', 'outer_boundary', or 'bulk'
           affected_defects: ["oxygen_vacancy"]
+          barrier_model: "linear"
           Act_E_diff_GB: 0.27             # eV (barrier modification)
         
       
       generation:
-        region: 'inner_boundary'
-        affected_defects: ["hydrogen_interstitial"]
-        Act_E_diff_GB: 0.0
-        charge_state:
-          inner_boundary: 0
-          outer_boundary: 1
-          bulk: 1
+        - region: 'inner_boundary'
+          affected_defects: ["hydrogen_interstitial"]
+          Act_E_diff_GB: 0.0
+          charge_state:
+            inner_boundary: 0
+            outer_boundary: 1
+            bulk: 1
       
       reaction:
-        region: "inner_boundary"
-        affected_reactions: ["H2_formation"]
-        Act_E_diff_GB: 3.31             # eV (barrier modification)
+        - region: "inner_boundary"
+          affected_reactions: ["H2_formation"]
+          Act_E_diff_GB: 3.31             # eV (barrier modification)
