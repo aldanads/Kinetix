@@ -15,15 +15,15 @@ import platform
 def get_parameters_from_sim_id(sim_id: int) -> dict:
    """Map SIM_ID to simulation parameters."""
    # Define parameters
-   v0_initial_concentrations = [1.0e-3, 1.0e-2, 2.0e-2, 3.0e-2,  4.0e-2,  5.0e-2]
-   temperatures = [293.0, 310.0, 323.0]
+   v0_initial_concentrations = [1.0e-2, 2.0e-2, 3.0e-2,  4.0e-2,  5.0e-2]
+   temperatures = [293.0, 310.0, 373.0, 473.0, 573.0]
    h_generation = [0.45,0.48,0.50, 0.52, 0.55]
    
    idx = sim_id
    
-   i_vo = idx % 6
-   i_temp = (idx // 6) % 3
-   i_gen_h = (idx // 18) % 5
+   i_vo = idx % 5
+   i_temp = (idx // 5) % 5
+   i_gen_h = (idx // 25) % 5
    
    return {
      'vo_initial_concentration': v0_initial_concentrations[i_vo],
@@ -56,7 +56,7 @@ Examples:
   parser.add_argument(
     '--config', '-c',
     type=str,
-    default='PZT_ZrTi(PbO3)2.yaml',
+    default='PZT_ZrTi_PbO3_2.yaml',
     help='Preset configuration file name or path (default: PZT_ZrTi_PbO3_2.yaml)'
   )
   
