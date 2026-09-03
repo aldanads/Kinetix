@@ -33,7 +33,14 @@ import shelve
 import time
 import warnings
 
-
+# fcntl is Unix-only — import conditionally
+try:
+    import fcntl
+    _HAS_FCNTL = True
+except ImportError:
+    _HAS_FCNTL = False
+    
+from contextlib import contextmanager
 
 from typing import Any, Dict, List, Tuple
 
@@ -497,6 +504,49 @@ def initialization(n_sim,params, config_name='PZT_ZrTi_PbO3_2.yaml'):
         
 
     return System_state,rng,paths,Results, simulation_parameters,Elec_controller
+    
+@contextmanager
+def _file_lock(lock_path: Path, timeout: float = 3600.0):
+  """
+  Context manager for file-based locking.
+    
+  Parameters
+  ----------
+  lock_path : Path
+    Path to the lock file.
+  timeout : float
+    Maximum time to wait for lock (seconds). Default: 1 hour.
+  """
+  lock_path.parent.mkdir(parents=True, exist_ok=True)
+  
+  if not _HAS_FCNTL:
+    # Windows: no file locking available, just proceed
+    # (acceptable for single-user local development)
+    yield
+    return
+        
+  lock_file = open(lock_path, 'w')
+  
+  try:
+    # Try to acquire exclusive lock (non-blocking first)
+    start_time = time.time()
+    while True:
+      try:
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        break # Lock acquired
+      except (IOError, OSError):
+        if time.time() - start_time > timeout:
+          raise TimeoutError(f"Could not acquire lock on {lock_path} within {timeout}s")
+        time.sleep(5) # Wait 5 seconds before retrying
+        
+    yield
+    
+  finally:
+    fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+    lock_file.close()
+    # Don't delete lock file - other processes might be waiting
+  
+      
 
     # =============================================================================
     #     Initialize the crystal grid structure - nodes with empty spaces
@@ -516,6 +566,9 @@ def initialize_grid_crystal(
         """
         Initialize or load a crystal lattice state for kMC simulation.
         
+        Thread-safe: handles concurrent access from multiple HPC jobs.
+        The first job to arrive creates the grid; subsequent jobs wait and load it.
+        
         Parameters
         ----------
         filename : str
@@ -531,53 +584,76 @@ def initialize_grid_crystal(
         # If grid_crystal exists: we loaded
         # Otherwise: we create it (very expensive for larger systems ~100 anstrongs)
         grid_directory = get_grids_root()
-        dat_path = grid_directory / f"{filename}.dat"
-        pkl_path = grid_directory / f"{filename}.pkl"
+        lock_path = grid_directory / f"{filename}.lock"
 
-        # Determine if we can load an existing grid
-        grid_crystal = None
-        
-        if dat_path.exists():
-          print('Loading ' + filename + ".dat")
-          with shelve.open(str(grid_directory / filename)) as shelf:
-            grid_crystal = shelf.get(filename)
+        # === Fast path: try to load existing grid (no locking needed) ===
+        grid_crystal = _try_load_grid(grid_directory, filename)
             
-        elif pkl_path.exists():
-          print('Loading ' + filename + '.pkl')
-          with open(pkl_path, 'rb') as f:
-            data = pickle.load(f)
-            grid_crystal = data.get(filename)
+        # === Slow path: grid doesn't exist, need to create it ===
+        if grid_crystal is None:
+          print(f'Grid {filename} not found. Acquiring lock to create it...')
         
-        
-        # Prepare keyword arguments
+          with _file_lock(lock_path):
+            # Double-check: another process might have created it
+            # while we waited for the lock
+            grid_crystal = _try_load_grid(grid_directory, filename)
+                
+            if grid_crystal is None:
+              # We're the first: create the grid
+              print(f'Creating grid {filename}... '
+                    f'this may take several minutes for large systems.')
+                
+              # Prepare keyword arguments
+              crystal_kwargs = {}
+              if poissonSolver_parameters is not None:
+                crystal_kwargs['poissonSolver_parameters'] = poissonSolver_parameters
+              
+              if heat_parameters is not None:
+                crystal_kwargs['heat_parameters'] = heat_parameters
+                  
+              # Instantiate system (loads or creates grid internally)
+              System_state = Crystal_Lattice(
+                crystal_features = crystal_features,
+                experimental_conditions = experimental_conditions,
+                Act_E_dict = Act_E_dict,
+                lammps_file = lammps_file,
+                superbasin_parameters = superbasin_parameters,
+                mpi_ctx = mpi_ctx,
+                **crystal_kwargs 
+              )
+            
+              # Save with atomic write
+              if save_data:
+                _save_grid_atomic(
+                  grid_directory, filename, System_state.grid_crystal
+                )
+
+      
+              return System_state
+            
+            
+        # === Normal path: grid was loaded successfully ===
         crystal_kwargs = {}
         if poissonSolver_parameters is not None:
-          crystal_kwargs['poissonSolver_parameters'] = poissonSolver_parameters
-            
+            crystal_kwargs['poissonSolver_parameters'] = poissonSolver_parameters
         if grid_crystal is not None:
-          crystal_kwargs['grid_crystal'] = grid_crystal
-        
+            crystal_kwargs['grid_crystal'] = grid_crystal
         if heat_parameters is not None:
-          crystal_kwargs['heat_parameters'] = heat_parameters
-            
-        # Instantiate system (loads or creates grid internally)
+            crystal_kwargs['heat_parameters'] = heat_parameters
+        
         System_state = Crystal_Lattice(
-          crystal_features = crystal_features,
-          experimental_conditions = experimental_conditions,
-          Act_E_dict = Act_E_dict,
-          lammps_file = lammps_file,
-          superbasin_parameters = superbasin_parameters,
-          mpi_ctx = mpi_ctx,
-          **crystal_kwargs 
+            crystal_features=crystal_features,
+            experimental_conditions=experimental_conditions,
+            Act_E_dict=Act_E_dict,
+            lammps_file=lammps_file,
+            superbasin_parameters=superbasin_parameters,
+            mpi_ctx=mpi_ctx,
+            **crystal_kwargs
         )
-            
-            # Save the newly created data
-        if save_data and grid_crystal is None:
-          print(f'Saving {filename}')
-          save_variables(grid_directory, {filename : System_state.grid_crystal}, filename)
-
+        
         return System_state
-           
+          
+
            
 def _process_activation_energies(defects_config, ae_data:Dict, technology: str) -> Dict:
   """
@@ -711,7 +787,59 @@ def save_simulation(files_copy,dst,n_sim,simulation_type):
       Results = None
       
     return paths, Results
+    
+def _try_load_grid(grid_directory: Path, filename: str):
+  """
+  Attempt to load a grid from .dat or .pkl file.
+  Returns the grid dict or None if not found / corrupted.
+  """
+  dat_path = grid_directory / f"{filename}.dat"
+  pkl_path = grid_directory / f"{filename}.pkl"
+  
+  if dat_path.exists():
+    try:
+      print(f'Loading {filename}.dat')
+      with shelve.open(str(grid_directory / filename)) as shelf:
+        return shelf.get(filename)
+    except Exception as e:
+      print(f'⚠ Failed to load {dat_path}: {e}. '
+            f'File may be corrupted.')
+      return None
+  elif pkl_path.exists():
+    try:
+      print(f'Loading {filename}.pkl')
+      with open(pkl_path, 'rb') as f:
+        data = pickle.load(f)
+        return data.get(filename)
+    except Exception as e:
+      print(f'⚠ Failed to load {pkl_path}: {e}. '
+            f'File may be corrupted.')
+      return None
+      
+  return None
 
+def _save_grid_atomic(grid_directory: Path, filename: str, grid_crystal):
+    """
+    Save grid using atomic write (write to temp file, then rename).
+    Prevents corruption if the process dies mid-write.
+    """
+    pkl_path = grid_directory / f"{filename}.pkl"
+    temp_path = pkl_path.with_suffix('.tmp')
+    
+    try:
+      with open(temp_path, 'wb') as f:
+        pickle.dump({filename: grid_crystal}, f)
+        
+      # os.replace() is atomic on BOTH POSIX and Windows
+      # (unlike Path.rename() which fails on Windows if dest exists)
+      os.replace(str(temp_path), str(pkl_path))
+      print(f'Grid saved to {pkl_path}')
+      
+    except Exception as e:
+      # Clean up temp file on failure
+      if temp_path.exists():
+        temp_path.unlink()
+      raise RuntimeError(f'Failed to save grid: {e}') from e
 
 def save_variables(paths,variables,filename):
     
