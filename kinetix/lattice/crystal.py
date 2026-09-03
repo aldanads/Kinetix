@@ -38,6 +38,7 @@ from pymatgen.core import Structure, PeriodicSite
 
 
 import json
+import subprocess
 from typing import Dict, List, Any
 import os
 from pathlib import Path
@@ -3143,11 +3144,13 @@ class Crystal_Lattice():
             
                     
                     
-    def write_metadata(self,output_path: str = './output') -> None:
+    def write_metadata(self,output_path: str | Path = './output') -> None:
+      """ Write simulation metadata to JSON file """
       from datetime import datetime
       import uuid
 
-      """ Write simulation metadata to JSON file """
+
+
       metadata_path = output_path / "metadata.json"
       self._species_id_gen()
       
@@ -3213,6 +3216,7 @@ class Crystal_Lattice():
               "space_group_number": 0,
             })
             
+      git_metadata = self._get_git_provenance()
       
       sim_id = f"{self.chemical_formula}_{self.simulation_type}_{int(self.temperature)}K_{uuid.uuid4().hex[:8]}"
       
@@ -3224,7 +3228,8 @@ class Crystal_Lattice():
         "workflow":{
           "type": "kinetic_monte_carlo",
           "code_name": "Kinetix",
-          "code_url": "https://github.com/aldanads/Kinetix"
+          "code_url": "https://github.com/aldanads/Kinetix",
+          "git": git_metadata
         },
         
         "system":{
@@ -3236,7 +3241,7 @@ class Crystal_Lattice():
           "lattice_type":crystal_data["space_group_number"],
           "film_orientation": f"{self.miller_indices}",
           "growth_direction": [d for d in self.miller_indices],
-          "simulation_domain_angstrom": list(self.crystal_size),
+          "simulation_domain_angstrom": self._sanitize_numpy(self.crystal_size),
           "periodic_boundary_conditions": [True, True, True],
           "materials_project_id": self.id_material
         },
@@ -3246,13 +3251,13 @@ class Crystal_Lattice():
           'temperature_K': float(self.temperature),
           'partial_pressure_Pa': float(self.partial_pressure) if self.partial_pressure is not None else None,
           'sticking_coefficient': float(self.sticking_coefficient) if self.sticking_coefficient is not None else None,
-          'simulation_time_limit_s': self.time_step_limits
+          'simulation_time_limit_s': self._sanitize_numpy(self.time_step_limits)
         },
         
         "energy_model": {
           "source": "DFT-derived parameters",
           "superbasin_enabled": self.n_search_superbasin > 0,
-          "superbasin_search_interval": self.n_search_superbasin,
+          "superbasin_search_interval": self._sanitize_numpy(self.n_search_superbasin),
           "superbasin_energy_threshold_ev": float(self.E_min) if self.E_min is not None else None
         },
         
@@ -3269,6 +3274,26 @@ class Crystal_Lattice():
       
       with open(metadata_path, 'w') as f:
         json.dump(metadata, f, indent=2, default=str)
+        
+    def _get_git_provenance(self) -> dict:
+      """Capture git state for reproducibility."""
+      git_info = {"commit": "unknown", "branch": "unknown", "is_clean": False}
+      try:
+        git_info["commit"] = subprocess.check_output(["git", "rev-parse", "HEAD"], stderr=subprocess.DEVNULL).decode().strip()
+        git_info["branch"] = subprocess.check_output(["git", "branch", "--show-current"], stderr=subprocess.DEVNULL).decode().strip()
+        status = subprocess.check_output(["git", "status", "--porcelain"], stderr=subprocess.DEVNULL).decode().strip()
+        git_info["is_clean"] = len(status) == 0
+      except subprocess.CalledProcessError:
+        pass # Not a git repo or git not installed
+      return git_info
+      
+    def _sanitize_numpy(self, value):
+      """Safely convert numpy types to native Python types for JSON serialization."""
+      if hasattr(value, 'item'):      # numpy scalar (e.g., np.float64)
+          return value.item()
+      if hasattr(value, 'tolist'):     # numpy array
+          return value.tolist()
+      return value
         
     def _species_id_gen(self):
     
