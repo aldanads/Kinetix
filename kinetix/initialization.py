@@ -493,7 +493,6 @@ def initialization(n_sim,params, config_name='PZT_ZrTi_PbO3_2.yaml'):
         # 9. Post initialization steps
         # Write metadata
         System_state.write_metadata(paths['data']) 
-        exit() 
 
         Elec_controller.crystal_size = System_state.crystal_size #  The crystal_size after the generation of the lattice may differ from the parameter provided in a NN points separation
         System_state.timestep_limits = Elec_controller.voltage_update_time  
@@ -506,7 +505,7 @@ def initialization(n_sim,params, config_name='PZT_ZrTi_PbO3_2.yaml'):
     return System_state,rng,paths,Results, simulation_parameters,Elec_controller
     
 @contextmanager
-def _file_lock(lock_path: Path, timeout: float = 3600.0):
+def _file_lock(lock_path: Path, timeout: float = 7200.0):
   """
   Context manager for file-based locking.
     
