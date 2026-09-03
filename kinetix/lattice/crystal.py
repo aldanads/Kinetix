@@ -46,6 +46,8 @@ import platform
 
 class Crystal_Lattice():
     
+    METAL_SPECIES = {'Ag', 'Cu', 'Pt', "Au", "Pd", "Ni"}
+    
     def __init__(
       self,
       crystal_features,
@@ -2258,7 +2260,7 @@ class Crystal_Lattice():
       # === Step 1: Rank 0 executes kMC, others prepare to receive ===
       if self.rank == 0:
         # Execute kMC step (modifies self internally)
-        kmc_time_step, chosen_event = self._kmc_step(rng, E_field_dict, T_field_dict)
+        kmc_time_step, chosen_event = self._kmc_step(rng, E_field_dict, T_field_dict)     
         
         if chosen_event is not None:
           self.events_tracking[chosen_event[2]] += 1
@@ -2268,6 +2270,7 @@ class Crystal_Lattice():
         
         # Package for broadcasting
         payload = self.time
+        
       else:
         # Non-root ranks: prepare to receive
         payload = None
@@ -2277,7 +2280,7 @@ class Crystal_Lattice():
       
       # === Step 3: Unpack and update
       self.time = payload
-    
+          
     
     def _kmc_step(self, rng, E_field_dict, T_field_dict):
       """
@@ -2366,7 +2369,8 @@ class Crystal_Lattice():
         
         return time_step, chosen_event
       else:
-        print(f'No event within time step. Time step: {time_step}, time step limit: {timestep_limit}', flush=True)
+        print(f'[KMC STEP] No event within time step. Time step: {time_step}, time step limit: {timestep_limit}', flush=True)  
+        
         # No event within timestep limit
         self.track_time(timestep_limit)
         return timestep_limit, None
@@ -2598,12 +2602,13 @@ class Crystal_Lattice():
               defect_name = source_site._get_current_defect_name()
               self.scavenged_ions[defect_name] = self.scavenged_ions.get(defect_name,0) + 1
           
-          extra_state = source_site.get_migrating_state(self.defects_config)
-          self._remove_species_at_site(source_idx, support_update_sites, event_update_sites,
-                                       attributes_to_reset=extra_state.keys() if extra_state else None)
-          if self.poissonSolver_parameters['solve_Poisson']:
-            event_update_sites.update(self._get_mobile_sites(self.active_event_sites))
-          return
+            extra_state = source_site.get_migrating_state(self.defects_config)
+            self._remove_species_at_site(source_idx, support_update_sites, event_update_sites,
+                                         attributes_to_reset=extra_state.keys() if extra_state else None)
+            
+            if self.poissonSolver_parameters['solve_Poisson']:
+              event_update_sites.update(self._get_mobile_sites(self.active_event_sites))
+            return
           
       # Get source species info
       defect_name = source_site._get_current_defect_name()
@@ -2627,7 +2632,7 @@ class Crystal_Lattice():
         event_update_sites.update(self._get_mobile_sites(self.active_event_sites))
         
       # Handle cluster updates for neutral metal atoms
-      if migrating_charge == 0:
+      if chemical_specie in self.METAL_SPECIES and migrating_charge == 0:
         self._remove_metal_atom_from_clusters(source_idx) 
         self._add_metal_atom_to_clusters(dest_idx)
         

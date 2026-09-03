@@ -21,6 +21,7 @@ defects:
     
   lattice_oxygen:
     symbol: "O"
+    physical_element: "O"
     charge: 0
     site_type: "O"
     allowed_sublattices: ["O"]
@@ -34,6 +35,7 @@ defects:
 
   oxygen_vacancy:
     symbol: "V_O"
+    physical_element: null
     charge: 2
     site_type: "O"
     allowed_sublattices: ["O"]

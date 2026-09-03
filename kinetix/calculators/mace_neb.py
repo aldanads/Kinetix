@@ -7,11 +7,14 @@ import time
 from pathlib import Path
 
 import numpy as np
+from itertools import product
 from ase import Atoms
 from ase.constraints import FixAtoms
 from ase.geometry import get_distances
 from ase.mep import NEB
 from ase.optimize import FIRE
+from ase.data import chemical_symbols
+
 
 from kinetix.calculators.base import ActivationEnergyCalculator
 
@@ -58,7 +61,7 @@ class BarrierCache:
                 -- Full energy profile (eV relative to image 0) as JSON text.
                 profile TEXT,
                 -- Free provenance: SQLite fills the UTC timestamp itself.
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP)"""))
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP)""")
             
     # SQLite works in transactions: changes are provisional until
     # commit(), which flushes them durably to disk.
@@ -147,30 +150,40 @@ class MACENEBBarrierCalculator:
     return MACECalculator(model_paths=[str(self.model_path)],
                           device=self.device, default_dtype=self.dtype)
                           
-  def prepare_band(self, start, end, migrating_index=None):
+  def prepare_band(self, start, end, migrating_index=None, frozen=None):
     """Build the list of NEB images (the 'band').
 
     Returns (images, n_frozen). Every image has the same atoms in the
     same order, a NEB requirement.
+    
+    frozen : precomputed shell indices (adapter mode). When provided,
+             start/end are assumed to be already-cut clusters and the
+             distance-based derivation below is skipped entirely.
     """
     assert len(start) == len(end), "Start and end must have identical atoms"
     
-    # --- 1. Locate the hop ------------------------------------------
-    # Migrating atom = largest IS->FS displacement (overridable).
-    if migrating_index is None:
-      disp = np.linalg.norm(end.positions - start.positions, axis=1)
-      migrating_index = int(np.argmax(disp))
-    
-    # Sphere center = hop midpoint, so origin and destination are
-    # covered symmetrically by the cluster cut.
-    center = 0.5 * (start.positions[migrating_index]
-                    + end.positions[migrating_index])
-    
-    # --- 2. Cut the cluster (or skip in reference mode) --------------
-    if self.cluster is None:
+    if frozen is not None:
+      # --- Adapter mode: cluster already cut, shell already classified.
+      band_start, band_end = start, end
+      frozen = np.asarray(frozen, int)
+      
+      
+    elif self.cluster is None:
       # Full periodic cell, nothing frozen: the validation reference
       band_start, band_end, frozen = start, end, np.array([], int)
+      
+      
     else:
+      # --- Standalone cluster mode: derive everything from the structures.
+        # Migrating atom = largest IS->FS displacement (overridable).
+      if migrating_index is None:
+        disp = np.linalg.norm(end.positions - start.positions, axis=1)
+        migrating_index = int(np.argmax(disp))
+      
+      # Sphere center = hop midpoint, so origin and destination are
+      # covered symmetrically by the cluster cut.
+      center = 0.5 * (start.positions[migrating_index]
+                      + end.positions[migrating_index])
       r_a = self.cluster['R_active'] # inner region: free to relax
       r_s = self.cluster['R_shell'] # outer shell : kept but frozen
       
@@ -220,7 +233,7 @@ class MACENEBBarrierCalculator:
     h.update(json.dumps([self.cluster, self.n_images, self.fmax]).encode()) # NEB protocol
     return h.hexdigest()
     
-  def compute_barrier(self, start, end, migrating_index=None, 
+  def compute_barrier(self, start, end, migrating_index=None, frozen=None, 
                       use_cache=True, full_output=False):
     """Barrier for the hop start->end: cache first, CI-NEB on miss."""
     # --- 1. Cache lookup ---------------------------------------------
@@ -231,7 +244,7 @@ class MACENEBBarrierCalculator:
         return hit if full_output else hit["barrier"]
     
     # --- 2. Run CI-NEB -------------------------------------------------
-    images, _ = self.prepare_band(start, end, migrating_index) 
+    images, _ = self.prepare_band(start, end, migrating_index, frozen) 
     neb = NEB(images, climb=True) # climbing image converges on the TS
     neb.interpolate("idpp", mic=bool(start.pbc.any())) # seed the path
     
@@ -267,84 +280,150 @@ class MACENEBBarrierCalculator:
     restores the original cluster setting afterwards.
     """
     rows = []
-    for r in radii:
-      self.cluster = {"R_active": r, "R_shell": r + shell}
-      res = self.compute_barrier(start, end, use_cache=False,
-                                 full_output=True)
-      rows.append((r, res["barrier"], res["wall_time"]))
+    original = self.cluster
+    try:
+      for r in radii:
+        self.cluster = {"R_active": r, "R_shell": r + shell}
+        res = self.compute_barrier(start, end, use_cache=False,
+                                   full_output=True)
+        rows.append((r, res["barrier"], res["wall_time"]))
+    finally:
+      self.cluster = original
     return rows
     
 
 class KinetixMACEAdapter(ActivationEnergyCalculator):
-    """Bridges Kinetix lattice hops to the ASE-native NEB calculator.
-
-    Builds IS/FS clusters by SWAPPING the moving atom between the two hop
-    endpoints (correct for both vacancies and interstitials).
-    """
+    """Bridges Kinetix lattice hops to the ASE-native NEB calculator."""
     
-    DEFAULT_SPECIES_MAP = {   # Kinetix label -> element (None = no atom)
-        "Hf": "Hf", "O": "O", "O_i": "O", "H": "H",
-        "V_O": None, "Empty": None,
-    }
-    
-    def __init__(self, model_source, species_map=None, cell=None, **neb_kwargs):
-      self.species_map = dict(self.DEFAULT_SPECIES_MAP, **(species_map or {}))
-      self.cell = cell
+    def __init__(self, model_source, kx, species_map=None, pbc=(True, True, False), **neb_kwargs):
+      self.kx = kx # Provides _kdtree, MIC, configs
+      self.pbc = pbc # Periodic in plane
+      self.species_map = species_map or self.build_species_map(kx)
+      self.cell = np.array(kx.structure.lattice.matrix, float) # Angstroms
       self.neb = MACENEBBarrierCalculator(model_source, **neb_kwargs)
       
+      
+      # The adapter only makes sense in cluster mode: a kMC supercell as
+      # one big Atoms object would put thousands of atoms in a NEB.
+      # Fail at construction (startup), not mid-simulation.
+      if self.neb.cluster is None:
+            raise ValueError(
+                "KinetixMACEAdapter requires cluster={'R_active': ..., "
+                "'R_shell': ...} in the calculator options; use "
+                "MACENEBBarrierCalculator directly for periodic reference runs")
+      
     def get_barrier(self, lattice, origin_idx, dest_idx, event_id=None):
-      start, end = self.build_pair(lattice, origin_idx, dest_idx)
-      return self.neb.compute_barrier(start, end)
+      start, end, frozen = self.build_pair(lattice, origin_idx, dest_idx)
+      return self.neb.compute_barrier(start, end, frozen=frozen)
       
-    def build_pair(self, lattice, i0, i1):
-      e0 = self._element(lattice[i0].chemical_specie)
-      e1 = self._element(lattice[i1].chemical_specie)
-      if (e0 is None) == (e1 is None):
-        raise ValueError(f"Hop {i0}->{i1}: exactly one endpoint must "
-                         f"host the moving atom (get {e0!r}, {e1!r})")
-                         
-      elem = e0 or e1
-      p0 = np.asarray(lattice[i0].position, float)
-      p1 = np.asarray(lattice[i1].position, float)
-      cell = self._cell(lattice)
-      radius = self.neb.cluster["R_shell"] if self.neb.cluster else np.inf
-      center = 0.5 * (p0 + p1)
-      
-      pos = np.array([np.asarray(s.position, float) for s in lattice])
-      
-      d, _ = get_distances(pos, center[None, :], cell=cell, pbc=True)
-      d = d[:, 0]
-      
-      bg_symbols, bg_positions = [], []
-      for idx, site in enumerate(lattice):
-        if idx in (i0, i1) or d[idx] > radius:
-          continue
-        el = self._element(site.chemical_specie)
-        if el is None:
-          continue
-        bg_symbols.append(el)
-        bg_positions.append(pos[idx])
-        
-      start_pos = p0 if e0 is not None else p1
-      end_pos = p1 if e0 is not None else p0
-      start = Atoms(symbols=bg_symbols + [elem],
-                    positions=bg_positions + [start_pos], cell=cell, pbc=True)
-      end = Atoms(symbols=bg_symbols + [elem],
-                  positions=bg_positions + [end_pos], cell=cell, pbc=True)
-      
-      return start, end
-      
-    def _element(self, label):
-      if label not in self.species_map:
-        raise KeyError(f"Unknown species label {label!r}: extend species_map")
-      return self.species_map[label]
-      
-    def _cell(self, lattice):
-      if self.cell is not None:
-        return np.asarray(self.cell, float)
-      cell = getattr(lattice, "cell", None)
-      if cell is not None:
-        return np.asarray(cell, float)
-      raise ValueError("No cell available: pass cell= to KinetixMACEAdapter")
+    def build_species_map(self,kx, extra_species=None):
+      """
+      Kinetix label -> element (None = no atom).
 
+      Host elements: pristine structure composition (Hf, O, ...).
+      Defect/host-like labels: defects_config via `physical_element`
+      (null = pseudo-particle). Passivated levels map to `passivant`.
+      Missing semantics raise instead of guessing material physics.
+      """
+      smap = dict(extra_species or {})
+      smap['Empty'] = None
+      
+      # --- host lattice, from the pristine structure ---------------------
+      comp = getattr(getattr(kx, "structure_basic", None), "composition", None)
+      if comp is not None:
+        for elm in comp.as_dict():
+          smap[str(elm)] = str(elm)
+          
+      # --- defects and host-like entries (lattice_oxygen) -----------------
+      for name, cfg in (getattr(kx, "defects_config", None) or {}).items():
+        sym = cfg.get("symbol")
+        if "physical_element" in cfg:
+          smap[sym] = cfg["physical_element"]
+        elif sym in chemical_symbols:
+          smap[sym] = sym
+        else:
+          raise KeyError(
+            f"defect '{name}': add 'physical_element' to its config "
+            f"('O' for O_i, null for V_O)")
+        n = int(cfg.get("max_passivation_level") or 0)
+        if n > 0:
+          pas = cfg.get("passivant")
+          if not pas:
+            raise KeyError(f"defect '{name}': max_passivation_level>0 "
+                           f"requires a 'passivant' field")
+          
+          for lvl in range(1, n+1):
+            smap[f"{sym}_{lvl}"] = pas
+          
+      return smap
     
+    # -- species resolution ------------------------------------------------  
+    def _site_elements(self, site):
+      """Elements contributed by the site (list; empty = no atom) """
+      label = site.chemical_specie
+      if label not in self.species_map:
+        raise KeyError(f"Unknown species {label!r}: add 'element' to "
+                       f"defects_config or host composition")
+      els = [self.species_map[label]] if self.species_map[label] else []
+      lvl = getattr(site, "passivation_level", 0)
+      if lvl: # V_O + nH -> n H atoms
+        dname = site._get_current_defect_name()
+        els += [site.defects_config[dname]["passivant"]] * lvl
+      return els
+      
+    # -- sphere via your KD-tree --------------------------------------------
+    def _candidate_keys(self, center):
+      r = self.neb.cluster["R_shell"] if self.neb.cluster else 8.0
+      per_shifts = []
+      for vec, per, in zip(self.cell, self.pbc):
+        per_shifts.append([np.zeros(3), vec, -vec] if per else [np.zeros(3)])
+      found=set()
+      for s in (np.sum(c, axis=0) for c in product(*per_shifts)):
+        found.update(self.kx._kdtree.query_ball_point(center + s, r))
+      return [self.kx._kdtree_indices[i] for i in found]
+      
+    def build_pair(self, grid, o, d):
+      els_o, els_d = self._site_elements(grid[o]), self._site_elements(grid[d])
+
+      if not (bool(els_o) ^ bool(els_d)):
+            raise ValueError(f"Hop {o}->{d}: exactly one endpoint must host "
+                             f"the moving atom")
+                         
+      p0 = np.asarray(grid[o].position, float)
+      p1 = np.asarray(grid[d].position, float)
+      center = 0.5 * (p0 + p1)
+      r_a = self.neb.cluster["R_active"]
+      r_s = self.neb.cluster["R_shell"]
+      
+      symbols, positions, frozen = [], [], []
+      for k in sorted(self._candidate_keys(center)): # sorted = deterministic
+        if k in (o, d):  # atom order -> stable cache keys
+          continue
+        site = grid[k]
+        els = self._site_elements(site)  
+        if not els: # Empty / bare vacancy
+          continue
+        v = self.kx._minimum_image_vector(np.array(site.position, float) - center)
+        dm = np.linalg.norm(v)
+        if dm > r_s: # outside the cluster
+          continue
+        is_shell = dm > r_a # Kept, but frozen
+        for i, el in enumerate(els):
+          if is_shell:
+            frozen.append(len(symbols))
+          symbols.append(el)
+          positions.append(center + v + i * 0.05 * np.array([1., 0., 0.]))
+        
+      start_pos = p0 if els_o else p1
+      end_pos = p1 if els_o else p0
+      moving = els_o or els_d
+      if len(moving) != 1:
+          raise NotImplementedError(
+              f"Hop {o}->{d}: multi-atom migrating species not supported yet")
+      start = Atoms(symbols=symbols + moving,
+                    positions=positions + [start_pos], cell=self.cell, pbc=self.pbc)
+      end = Atoms(symbols=symbols + moving,
+                  positions=positions + [end_pos], cell=self.cell, pbc=self.pbc)
+      # frozen indices refer to background atoms only; the moving atom (last)
+      # is never frozen — consistent in both images
+      return start, end, frozen

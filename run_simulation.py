@@ -376,13 +376,6 @@ def main(sim_id, config_name='PZT_ZrTi_PbO3_2.yaml'):
                               
                 System_state.step_kmc(rng)
                 
-                """
-                for cluster in clusters.values():
-                  if cluster.attached_layer['bottom_layer'] and cluster.attached_layer['top_layer']:
-                    print('')
-                    
-                """
-                
                 if snapshots:
                 
                     j+=1
