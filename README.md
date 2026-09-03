@@ -43,23 +43,23 @@ Kinetix couples three layers of physics in every device simulation: the electros
 ### Electrostatics (Poisson equation)
 The electric potential $V(\mathbf{x})$ is obtained from the ionic charge density $\rho(\mathbf{x})$:
 
-$$-\nabla \cdot \left(\varepsilon_0 \, \varepsilon_r(\mathbf{x}) \, \nabla V\right) = \rho(\mathbf{x})$$
+$$-\nabla \cdot \left(\varepsilon_0 \varepsilon_r(\mathbf{x}) \nabla V\right) = \rho(\mathbf{x})$$
 
-Charges are spread onto the FEM mesh as Gaussians (`epsilon_gaussian_charge`). When a conductive filament bridges the electrodes, the solver instead enforces current continuity, $-\nabla \cdot (\sigma \, \nabla V) = 0$, using the configurable filament/dielectric conductivities.
+Charges are spread onto the FEM mesh as Gaussians (`epsilon_gaussian_charge`). When a conductive filament bridges the electrodes, the solver instead enforces current continuity, $-\nabla \cdot (\sigma \nabla V) = 0$, using the configurable filament/dielectric conductivities.
 
 ### Joule heating (heat equation)
 The steady-state temperature field $T(\mathbf{x})$ satisfies
 
-$$-\nabla \cdot \left(\kappa(\mathbf{x}) \, \nabla T\right) = Q(\mathbf{x})$$
+$$-\nabla \cdot \left(\kappa(\mathbf{x}) \nabla T\right) = Q(\mathbf{x})$$
 
-with Joule-heating source $Q$ and space-varying thermal conductivity (dielectric vs. metal). Thermal inertia is treated as a capacitor relaxation, $T(t+\Delta t) = T_\mathrm{ss} + \big(T(t) - T_\mathrm{ss}\big)\exp(-\Delta t/\tau)$ with time constant $\tau = \rho \, c_p \, L^2 / \kappa$.
+with Joule-heating source $Q$ and space-varying thermal conductivity (dielectric vs. metal). Thermal inertia is treated as a capacitor relaxation, $T(t+\Delta t) = T_\mathrm{ss} + \big(T(t) - T_\mathrm{ss}\big)\exp(-\Delta t/\tau)$ with time constant $\tau = \rho c_p L^2 / \kappa$.
 
 ### Defect kinetics (Arrhenius rate law)
 Each elementary event $i$ is assigned a first-order transition rate
 
 $$k_i = \nu_0 \exp\left(-\frac{E_{\mathrm{act},i}}{k_\mathrm{B} T}\right)$$
 
-with attempt frequency $\nu_0 = 7\times10^{12}$ s⁻¹ (bond vibration) and activation energies $E_{\mathrm{act},i}$ read from `data/parameters/activation_energies/`. Charged-species barriers may be reduced by the local electric field ($E_\mathrm{act} - q \, \mathbf{E} \cdot \mathbf{d}$). The kMC clock advances by $\Delta t = -\ln U / \sum_i k_i$ with $U \sim \mathrm{Uniform}(0,1)$, and events are selected from a balanced binary tree.
+with attempt frequency $\nu_0 = 7\times10^{12}$ s⁻¹ (bond vibration) and activation energies $E_{\mathrm{act},i}$ read from `data/parameters/activation_energies/`. Charged-species barriers may be reduced by the local electric field ($E_\mathrm{act} - q \mathbf{E} \cdot \mathbf{d}$). The kMC clock advances by $\Delta t = -\ln U / \sum_i k_i$ with $U \sim \mathrm{Uniform}(0,1)$, and events are selected from a balanced binary tree.
 
 ---
 
