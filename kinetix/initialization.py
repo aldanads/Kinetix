@@ -339,7 +339,7 @@ def initialization(n_sim,params, config_name='PZT_ZrTi_PbO3_2.yaml'):
     elif simulation_type == 'electronic_device':        
         
         ### ----------------- PARAMETER SWEEP ----------------- ###
-        config.defects.defects["oxygen_vacancy"].initial_concentration_bulk = params["vo_initial_concentration"]
+        #config.defects.defects["oxygen_vacancy"].initial_concentration_bulk = params["vo_initial_concentration"]
         config.defects.defects["oxygen_vacancy"].initial_concentration_GB = params["vo_initial_concentration"] 
         config.experimental.temperature = params["temperature"]
     
