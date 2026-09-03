@@ -1,4 +1,4 @@
-# data/parameters/presets/PZT_ZrTi(PbO3)2.yaml
+# data/parameters/presets/PZT_ZrTi_PbO3_2.yaml
 # =============================================================================
 # PZT Simulation - ZrPbO3 with hydrogen and oxygen vacancies defects
 # =============================================================================
@@ -8,7 +8,7 @@
 # =============================================================================
 
 metadata:
-  name: "PZT_ZrTi(PbO3)2"
+  name: "PZT_ZrTi_PbO3_2"
   description: "PZT simulation with H and O_vac in ZrTi(PbO3)2"
   author: "Samuel Aldana Delgado"
 
@@ -64,7 +64,7 @@ settings:
   save_data: true                      
   lammps_output: true
   activation_energies: "activation_energies/PZT_ZrPbO3.json"   
-  output_path: '/home/Docs2/samuel.delgado/linuxhome/Documents/Simulators/PZT_outputs/'                
+  output_path: '/sfiwork/samuel.delgado/PZT/Batch 4/'                
   
 # -----------------------------------------------------------------------------
 # Superbasin Acceleration

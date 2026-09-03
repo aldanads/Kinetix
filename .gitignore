@@ -12,3 +12,6 @@ config.json
 .nfs*
 interstitials.xyz
 *.prof
+*_batch_sim.sh
+batch_sim.sh
+.dolfin_cache/
