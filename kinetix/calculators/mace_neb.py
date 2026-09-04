@@ -1,5 +1,5 @@
 # kinetix/calculators/mace_neb.py
-"""mace_neb.py — MACE CI-NEB barrier calculator with model & barrier caching."""
+"""mace_neb.py ï¿½ MACE CI-NEB barrier calculator with model & barrier caching."""
 import hashlib
 import json
 import sqlite3
@@ -72,8 +72,8 @@ class BarrierCache:
 
     The `?` is a parameter placeholder: the value travels separately in
     the tuple, so SQLite handles escaping (no string-concatenation bugs).
-    fetchone() returns the row as a tuple in SELECT order —
-    (barrier, converged, profile) — or None if the key is absent.
+    fetchone() returns the row as a tuple in SELECT order ï¿½
+    (barrier, converged, profile) ï¿½ or None if the key is absent.
     """
     row = self.conn.execute(
         "SELECT barrier, converged, profile FROM barriers WHERE key=?",
@@ -312,9 +312,11 @@ class KinetixMACEAdapter(ActivationEnergyCalculator):
                 "'R_shell': ...} in the calculator options; use "
                 "MACENEBBarrierCalculator directly for periodic reference runs")
       
-    def get_barrier(self, lattice, origin_idx, dest_idx, event_id=None):
+    def get_barrier(self, lattice, origin_idx, dest_idx, event_id=None,
+                    full_output=False):
       start, end, frozen = self.build_pair(lattice, origin_idx, dest_idx)
-      return self.neb.compute_barrier(start, end, frozen=frozen)
+      return self.neb.compute_barrier(start, end, frozen=frozen,
+                                      full_output=full_output)
       
     def build_species_map(self,kx, extra_species=None):
       """
@@ -425,5 +427,5 @@ class KinetixMACEAdapter(ActivationEnergyCalculator):
       end = Atoms(symbols=symbols + moving,
                   positions=positions + [end_pos], cell=self.cell, pbc=self.pbc)
       # frozen indices refer to background atoms only; the moving atom (last)
-      # is never frozen — consistent in both images
+      # is never frozen ï¿½ consistent in both images
       return start, end, frozen

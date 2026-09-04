@@ -24,6 +24,7 @@ class DefectConfig:
   charge: int
   site_type: str  # 'interstitial' or sublattice name
   allowed_sublattices: List[str]
+  physical_element: Optional[str] = None  # element label for atomistic calculators (MACE); None = pseudo-particle (e.g. vacancy)
   initial_concentration_bulk: float = 0.0
   initial_concentration_GB: float = 0.0
   valid_target_species: List[str] = field(default_factory=list)
@@ -46,6 +47,7 @@ class DefectConfig:
     """Convert to dictionary for backwards compatibility"""
     result = {
       'symbol': self.symbol,
+      'physical_element': self.physical_element,
       'charge': self.charge,
       'site_type': self.site_type,
       'allowed_sublattices': self.allowed_sublattices,
@@ -76,6 +78,7 @@ class DefectConfig:
     return cls(
       name=name,
       symbol=data.get('symbol', ''),
+      physical_element=data.get('physical_element'),
       charge=data.get('charge', 0),
       site_type=data.get('site_type', 'interstitial'),
       allowed_sublattices=data.get('allowed_sublattices', []),

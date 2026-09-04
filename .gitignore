@@ -16,3 +16,5 @@ interstitials.xyz
 batch_sim.sh
 .dolfin_cache/
 *.lock
+*.model
+*.extxyz
