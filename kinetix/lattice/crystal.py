@@ -3280,7 +3280,18 @@ class Crystal_Lattice():
       git_info = {"commit": "unknown", "branch": "unknown", "is_clean": False}
       try:
         git_info["commit"] = subprocess.check_output(["git", "rev-parse", "HEAD"], stderr=subprocess.DEVNULL).decode().strip()
-        git_info["branch"] = subprocess.check_output(["git", "branch", "--show-current"], stderr=subprocess.DEVNULL).decode().strip()
+        try:
+          branch = subprocess.check_output(["git", "branch", "--show-current"], stderr=subprocess.DEVNULL).decode().strip()
+        except subprocess.CalledProcessError:
+          branch = subprocess.check_output(
+            ["git", "rev_parse", "--abbrev-ref", "HEAD"], stderr=subprocess.DEVNULL
+          ).decode().strip()
+          
+          if branch == "HEAD":
+            branch = "detached_HEAD"
+            
+        git_info["branch"] = branch if branch else "unknown"
+        
         status = subprocess.check_output(["git", "status", "--porcelain"], stderr=subprocess.DEVNULL).decode().strip()
         git_info["is_clean"] = len(status) == 0
       except subprocess.CalledProcessError:
