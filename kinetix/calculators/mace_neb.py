@@ -1,5 +1,5 @@
 # kinetix/calculators/mace_neb.py
-"""mace_neb.py � MACE CI-NEB barrier calculator with model & barrier caching."""
+"""mace_neb.py -> MACE CI-NEB barrier calculator with model & barrier caching."""
 import hashlib
 import json
 import sqlite3
@@ -234,7 +234,7 @@ class MACENEBBarrierCalculator:
     return h.hexdigest()
     
   def compute_barrier(self, start, end, migrating_index=None, frozen=None, 
-                      use_cache=True, full_output=False):
+                      use_cache=False, full_output=False):
     """Barrier for the hop start->end: cache first, CI-NEB on miss."""
     # --- 1. Cache lookup ---------------------------------------------
     key = self._env_key(start, end)
@@ -333,8 +333,8 @@ class KinetixMACEAdapter(ActivationEnergyCalculator):
       # --- host lattice, from the pristine structure ---------------------
       comp = getattr(getattr(kx, "structure_basic", None), "composition", None)
       if comp is not None:
-        for elm in comp.as_dict():
-          smap[str(elm)] = str(elm)
+        for el in comp.elements:
+          smap[el.symbol] = el.symbol
           
       # --- defects and host-like entries (lattice_oxygen) -----------------
       for name, cfg in (getattr(kx, "defects_config", None) or {}).items():
@@ -364,7 +364,7 @@ class KinetixMACEAdapter(ActivationEnergyCalculator):
       """Elements contributed by the site (list; empty = no atom) """
       label = site.chemical_specie
       if label not in self.species_map:
-        raise KeyError(f"Unknown species {label!r}: add 'element' to "
+        raise KeyError(f"Unknown species {label!r}: add 'physical_element' to "
                        f"defects_config or host composition")
       els = [self.species_map[label]] if self.species_map[label] else []
       lvl = getattr(site, "passivation_level", 0)

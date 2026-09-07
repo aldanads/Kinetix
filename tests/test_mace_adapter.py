@@ -187,9 +187,12 @@ class TestMACEAdapterBarrier:
                                         oi_hop):
         grid = mace_adapter.kx.grid_crystal
         origin_idx, dest_idx = oi_hop
-
         result = mace_adapter.get_barrier(grid, origin_idx, dest_idx,
                                           full_output=True)
+                                          
+        print(f"Profile (eV, rel to IS): {result['profile']}")   # ← ADD THIS
+        print(f"Max along band: {max(result['profile']):.4f} eV")
+
         assert result["converged"] is True
         assert (BARRIER_BOUNDS[0] < result["barrier"]
                 < BARRIER_BOUNDS[1])

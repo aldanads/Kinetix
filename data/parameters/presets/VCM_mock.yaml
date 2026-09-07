@@ -25,7 +25,7 @@ material:
 # Crystal Structure
 # -----------------------------------------------------------------------------
 crystal:
-  size: [20, 20, 20] # Angstroms (x, y, z)
+  size: [30, 30, 30] # Angstroms (x, y, z)
   miller_indices: [0, 0, 1] # Surface orientation
   sites_generation_layer: null #"top_layer" or "bottom_layer"
   affected_site: "Empty"
