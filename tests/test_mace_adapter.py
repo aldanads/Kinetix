@@ -163,6 +163,11 @@ class TestMACEAdapterGeometry:
         print(f"cluster: {len(start)} atoms "
               f"({len(frozen)} frozen in the R_Active={R_ACTIVE} shell)")
 
+        """
+        from ase.io import write
+        write("IS.extxyz", start)
+        write("FS.extxyz", end)
+        """    
 
 # =============================================================================
 # Barrier tests: actual CI-NEB runs (need torch + mace-torch installed).
@@ -188,8 +193,8 @@ class TestMACEAdapterBarrier:
         grid = mace_adapter.kx.grid_crystal
         origin_idx, dest_idx = oi_hop
         result = mace_adapter.get_barrier(grid, origin_idx, dest_idx,
-                                          full_output=True)
-                                          
+                                          use_cache=True, full_output=True)
+
         print(f"Profile (eV, rel to IS): {result['profile']}")   # ← ADD THIS
         print(f"Max along band: {max(result['profile']):.4f} eV")
 

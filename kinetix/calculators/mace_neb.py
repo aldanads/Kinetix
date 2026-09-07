@@ -12,7 +12,7 @@ from ase import Atoms
 from ase.constraints import FixAtoms
 from ase.geometry import get_distances
 from ase.mep import NEB
-from ase.optimize import FIRE
+from ase.optimize import FIRE, BFGS 
 from ase.data import chemical_symbols
 
 
@@ -236,13 +236,39 @@ class MACENEBBarrierCalculator:
   def compute_barrier(self, start, end, migrating_index=None, frozen=None, 
                       use_cache=False, full_output=False):
     """Barrier for the hop start->end: cache first, CI-NEB on miss."""
-    # --- 1. Cache lookup ---------------------------------------------
+    # --- 0. Cache lookup ---------------------------------------------
     key = self._env_key(start, end)
     if use_cache:
       hit = self.cache.get(key)
       if hit is not None:
         return hit if full_output else hit["barrier"]
-    
+
+    # --- 1. Relax endpoints to local minima before NEB -------------------------------------------------
+    if frozen is None and self.cluster is not None:
+      # Derive frozen mask for standalone mode
+      if migrating_index is None:
+        disp = np.linalg.norm(end.positions - start.positions, axis=1)
+        migrating_index = int(np.argmax(disp))
+      center = 0.5 * (start.positions[migrating_index]
+                      + end.positions[migrating_index])
+      r_a = self.cluster['R_active'] # inner region: free to relax
+      r_s = self.cluster['R_shell'] # outer shell : kept but frozen
+      d, _ = get_distances(start.positions, center[None, :],
+                           cell=start.cell, pbc=start.pbc.any()) 
+      
+      d = d[:,0]
+      mask = d <= r_s # atoms kept in the cluster
+      shell = (d > r_a) & mask # kept atoms forming the frozen shell
+      frozen = np.nonzero(shell[mask])[0] # atoms to be frozen during relaxation
+      start, end = start[mask], end[mask]
+
+    for at in (start, end):
+      at.calc = self._new_image_calculator()
+      if len(frozen):
+        at.set_constraint(FixAtoms(indices=frozen))
+      BFGS(at, logfile=None).run(fmax=self.fmax, steps=100)
+      at.calc = None
+
     # --- 2. Run CI-NEB -------------------------------------------------
     images, _ = self.prepare_band(start, end, migrating_index, frozen) 
     neb = NEB(images, climb=True) # climbing image converges on the TS
