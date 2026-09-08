@@ -266,7 +266,7 @@ class MACENEBBarrierCalculator:
       at.calc = self._new_image_calculator()
       if len(frozen):
         at.set_constraint(FixAtoms(indices=frozen))
-      BFGS(at, logfile=None).run(fmax=self.fmax, steps=100)
+      BFGS(at, logfile=None).run(fmax=self.fmax, steps=self.max_steps)
       at.calc = None
 
     # --- 2. Run CI-NEB -------------------------------------------------
@@ -339,10 +339,10 @@ class KinetixMACEAdapter(ActivationEnergyCalculator):
                 "MACENEBBarrierCalculator directly for periodic reference runs")
       
     def get_barrier(self, lattice, origin_idx, dest_idx, event_id=None,
-                    full_output=False):
+                    use_cache=False, full_output=False):
       start, end, frozen = self.build_pair(lattice, origin_idx, dest_idx)
       return self.neb.compute_barrier(start, end, frozen=frozen,
-                                      full_output=full_output)
+                                      use_cache=use_cache, full_output=full_output)
       
     def build_species_map(self,kx, extra_species=None):
       """

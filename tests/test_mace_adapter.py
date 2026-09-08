@@ -77,8 +77,14 @@ def mace_adapter(system_state):
 def oi_hop(system_state):
     """(origin_idx, dest_idx) for an oxygen interstitial hop well inside the
     domain (>= R_SHELL from the z boundaries). Built once per session."""
-    Lz = system_state.crystal_size[2]
-    center = np.array(system_state.crystal_size) / 2.0
+    lattice = system_state.structure.lattice
+    # Geometric center of the supercell (orientation-independent).
+    center = lattice.get_cartesian_coords([0.5, 0.5, 0.5])
+
+    # Fractional threshold: convert R_SHELL (Å) to fractional z units.
+    # Uses the z-component of the c-vector (the film-normal direction).
+    z_height = abs(lattice.matrix[2][2])
+    frac_thr = R_SHELL / z_height
 
     # Empty interstitial closest to the geometric center, away from the
     # z boundaries, so the cluster cut sees bulk-like surroundings.
@@ -86,7 +92,11 @@ def oi_hop(system_state):
     for idx, site in system_state.grid_crystal.items():
         if site.site_type != "interstitial" or site.chemical_specie != "Empty":
             continue
-        if not (R_SHELL <= site.position[2] <= Lz - R_SHELL):
+
+        # Orientation-independent z-boundary check (replaces Cartesian z
+        # vs crystal_size[2]). Site must be >= R_SHELL from top and bottom.
+        frac = lattice.get_fractional_coords(site.position)
+        if not (frac_thr <= frac[2] <= 1.0 - frac_thr):
             continue
         d = np.linalg.norm(np.array(site.position) - center)
         if d < best:
@@ -209,10 +219,13 @@ class TestMACEAdapterBarrier:
         origin_idx, dest_idx = oi_hop
 
         # First call populates the SQLite cache.
-        mace_adapter.get_barrier(grid, origin_idx, dest_idx)
+        mace_adapter.get_barrier(grid, origin_idx, dest_idx,
+                                 use_cache=True)
 
         t0 = time.perf_counter()
-        mace_adapter.get_barrier(grid, origin_idx, dest_idx)
+        mace_adapter.get_barrier(grid, origin_idx, dest_idx, use_cache=True)
         dt = time.perf_counter() - t0
         assert dt < CACHE_MAX_S, f"cache hit too slow: {dt:.4f}s"
         print(f"cache hit time: {dt:.4f} s")
+
+    # def 

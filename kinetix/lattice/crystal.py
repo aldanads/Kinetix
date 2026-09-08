@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 
 from scipy import constants
 import numpy as np
+from itertools import product
 import math
 from matplotlib import cm
 import time
@@ -274,6 +275,21 @@ class Crystal_Lattice():
         
         self._compute_basis_vectors()
 
+    def _is_inside_supercell(self, cart_pos, supercell_lattice):
+        """
+        Check if a Cartesian position is inside the supercell defined by the lattice.
+        
+        Parameters:
+            cart_pos (array-like): Cartesian coordinates of the position
+            supercell_lattice (Lattice): Pymatgen Lattice object of the supercell
+        """
+        # Convert Cartesian to fractional coordinates
+        frac_pos = supercell_lattice.get_fractional_coords(cart_pos)
+        tol = 1e-8
+        # Check if all fractional coordinates are within [0, 1)
+        return np.all((frac_pos >= - tol) & (frac_pos < 1 + tol))
+
+
     def _apply_miller_orientation(self, structure, miller_indices):
         """
         Orient structure so that the specified Miller direction aligns with the z-axis.
@@ -343,12 +359,12 @@ class Crystal_Lattice():
 
         # Check if vectors are opposite (anti-parallel)
         if np.allclose(v1, -v2):
-            # Rotate 180� around any perpendicular axis
+            # Rotate 180� around any perpendicular axis
             # Find a perpendicular vector
             perp = np.array([1, 0, 0]) if abs(v1[0]) < 0.9 else np.array([0, 1, 0])
             perp = np.cross(v1, perp)
             perp = perp / np.linalg.norm(perp)
-            # 180� rotation around perp
+            # 180� rotation around perp
             return 2 * np.outer(perp, perp) - np.eye(3)
         
         # Rodrigues' rotation formula
@@ -424,8 +440,7 @@ class Crystal_Lattice():
         
         # Scale lattice vectors by minimum spacing
         # This gives basis vectors where integer steps land on atomic sites
-        self.basis_vectors = np.array(self.structure_basic.lattice.matrix) * min_non_zero_element
-                 
+        self.basis_vectors = np.array(self.structure_basic.lattice.matrix) * min_non_zero_element                 
     
     def _initialize_migration_pathways(self, radius_neighbors, reset_energies=False):
       """Initialize migration pathways from the COMPLETE grid_crystal."""
@@ -636,51 +651,62 @@ class Crystal_Lattice():
         
       return list(all_neighbor_indices)  
           
-      
     def _generate_periodic_images(self,site_pos,radius):
       """
-      Generate query positions including periodic images for LATERAL boundaries only (x, y).
-      Top and bottom (z) are electrodes with open boundaries.
-      
+      Generate query positions including periodic images for LATERAL boundaries
+      only (x, y). Top and bottom (z) are electrodes with open boundaries.
+
+      Uses fractional coordinates for boundary detection and lattice vectors
+      for PBC translations, so it is correct for any cell shape (including
+      monoclinic), not just orthogonal cells.
+
       Returns:
           List of positions to query (original + lateral periodic images).
       """
-      site_pos = np.array(site_pos)
-      query_positions = [site_pos]
+      site_pos = np.array(site_pos, dtype=float)
+      lattice = self.structure.lattice
+
+      # Lateral lattice vectors (a, b). The c-direction is open (electrodes).
+      a_vec = lattice.matrix[0]  # First lattice vector
+      b_vec = lattice.matrix[1]  # Second lattice vector
+
+      # Fractional position for boundary detection
+      frac = lattice.get_fractional_coords(site_pos)
+
+      # Fractional threshold: approximate conversion of the Cartesian radius
+      # into fractional units along each lateral direction.
+      frac_thr_a = radius / np.linalg.norm(a_vec)
+      frac_thr_b = radius / np.linalg.norm(b_vec)
+
+      # Which lateral boundaries is this site close to?
+      near_lower_a = frac[0] < frac_thr_a
+      near_upper_a = frac[0] > 1.0 - frac_thr_a
+      near_lower_b = frac[1] < frac_thr_b
+      near_upper_b = frac[1] > 1.0 - frac_thr_b
+
+      # Build the list of shifts for each lateral direction.
+      # np.zeros(3) = "no shift in this direction" (keeps the original position).
+
+      a_shifts = [np.zeros(3)]
+      if near_lower_a:
+          a_shifts.append(a_vec)  # Shift by +a_vec
+      if near_upper_a:
+          a_shifts.append(-a_vec)  # Shift by -a_vec
       
-      # Apply PBC to x (dim=0) and y (dim=1), not z (dim=2)
-      for dim in range(2):
-        if site_pos[dim] < radius:
-          # Near lower lateral boundary: add image from upper lateral boundary
-          image_pos = site_pos.copy()
-          image_pos[dim] += self.crystal_size[dim]
-          query_positions.append(image_pos)
-          
-        if site_pos[dim] > self.crystal_size[dim] - radius:
-          # Near upper lateral boundary: add image from lower lateral boundary
-          image_pos = site_pos.copy()
-          image_pos[dim] -= self.crystal_size[dim]
-          query_positions.append(image_pos)  
-          
-      # Handle corners: generate combination images for x+y boundaries
-      if len(query_positions) > 1:
-        base_positions = query_positions.copy()
-        for base_pos in base_positions:
-          for dim in range(2):
-            if base_pos[dim] != site_pos[dim]: # Skip if it has already been shifted in dimension dim
-              continue
-            if site_pos[dim] < radius:
-              image_pos = base_pos.copy()
-              image_pos[dim] += self.crystal_size[dim]
-              if not any(np.allclose(image_pos,qp) for qp in query_positions):
-                query_positions.append(image_pos)
-            if site_pos[dim] > self.crystal_size[dim] - radius:
-              image_pos = base_pos.copy()
-              image_pos[dim] -= self.crystal_size[dim]
-              if not any(np.allclose(image_pos,qp) for qp in query_positions):
-                query_positions.append(image_pos)
-                
-      return query_positions      
+      b_shifts = [np.zeros(3)]
+      if near_lower_b:
+          b_shifts.append(b_vec)  # Shift by +b_vec
+      if near_upper_b:
+          b_shifts.append(-b_vec)  # Shift by -b_vec
+      
+      # All combinations of a- and b-shifts. This automatically produces:
+      #   - the original position       (0, 0)
+      #   - single-axis images          (±a, 0), (0, ±b)
+      #   - corner/diagonal images      (±a, ±b)
+      query_positions = [site_pos + sa + sb
+                        for sa, sb in product(a_shifts, b_shifts)]
+
+      return query_positions
             
     def diagnose_steep_down(self, site_idx, radius_neighbors):
       site = self.grid_crystal[site_idx]
@@ -805,13 +831,13 @@ class Crystal_Lattice():
           
           if is_root:
             print(f"Step 1 (Build host lattice): {time.perf_counter() - start_time:.4f} seconds", flush=True)
-                             
+                   
           # --- STEP 2: Handle boundary sites (if needed) ---
           start_time = time.perf_counter()
           self._handle_missing_neighbors(radius_neighbors, affected_site)
           if is_root:
             print(f"Step 2 (Boundary sites): {time.perf_counter() - start_time:.4f} seconds", flush=True)    
-                
+              
           # --- STEP 3: Add interstitial/hollow sites ---
           start_time = time.perf_counter()
           interstitial_count = 0
@@ -830,12 +856,12 @@ class Crystal_Lattice():
                 )
                 interstitial_count += 1
           
-          # === STEP 3.5: Set interface flags ===
-          self._compute_interface_flags()
-          
           if is_root:
             print(f"Step 3 (Interstitial sites): {time.perf_counter() - start_time:.4f} seconds", flush=True)    
             print(f"Total sites created: {len(self.grid_crystal)} ({len(self.structure)} host + {interstitial_count} interstitial)", flush=True)
+
+          # === STEP 3.5: Set interface flags ===
+          self._compute_interface_flags()
                 
           # --- STEP 4: Initialize migration pathways from grid ---
           start_time = time.perf_counter()
@@ -921,7 +947,7 @@ class Crystal_Lattice():
       for defect_name, defect_cfg in self.defects_config.items():
         site_type_defect = defect_cfg['site_type']
         type_sites = [s for s in self.grid_crystal.values() if s.site_type == site_type_defect]
-        
+      
         z_positions = sorted(set(round(s.position[2], 4) for s in type_sites))
         bottom_z = z_positions[0]
         top_z = z_positions[-1]
@@ -1002,8 +1028,9 @@ class Crystal_Lattice():
       unit_cell_lattice = self.structure_basic.lattice
       supercell_interstitials = []
       repetitions = np.ceil(np.array(self.crystal_size) / np.array(unit_cell_lattice.abc)).astype(int)
-      
-      tol_boundary = 1e-6
+
+      print(f'[GEN INTERSTITIAL] unit_cell_lattice.matrix: {unit_cell_lattice.matrix}')
+
       for cart_pos in base_positions_unit_cell:
         for i in range(repetitions[0]):
           for j in range(repetitions[1]):
@@ -1013,9 +1040,7 @@ class Crystal_Lattice():
                         k * unit_cell_lattice.matrix[2])
               new_pos = cart_pos + offset
               
-              if (-tol_boundary <= new_pos[0] <= self.crystal_size[0] + tol_boundary and
-                  -tol_boundary <= new_pos[1] <= self.crystal_size[1] + tol_boundary and
-                  -tol_boundary <= new_pos[2] <= self.crystal_size[2] + tol_boundary):
+              if self._is_inside_supercell(new_pos, self.structure.lattice):
                   supercell_interstitials.append(new_pos)
                   
       # Remove duplicates
@@ -1054,6 +1079,8 @@ class Crystal_Lattice():
       # Iterate over the generator
       for interstitial in gen.generate(structure, insert_species=[interstitial_species]):
         unique_frac_coords = interstitial.site.frac_coords
+
+        print(f'[INTERSTITIAL] Found interstitial at fractional coordinates: {unique_frac_coords}')
         
         # Generate all symmetry-equivalent positions
         equiv_positions = set()
@@ -1061,6 +1088,9 @@ class Crystal_Lattice():
           new_frac = symm_op.operate(unique_frac_coords)
           new_frac = tuple(np.round(np.mod(new_frac,1.0), 6))
           equiv_positions.add(new_frac)
+
+        print(f'[INTERSTITIAL] Equiv positions: {equiv_positions}')
+
           
         for frac_pos in equiv_positions:
           cart_pos = structure.lattice.get_cartesian_coords(frac_pos)
@@ -1073,6 +1103,8 @@ class Crystal_Lattice():
             
           if not is_duplicate:
             interstitial_positions.append(cart_pos)
+
+        print(f'[INTERSTITIAL] Interstitials found: {interstitial_positions}')
        
       return interstitial_positions
       
@@ -1160,6 +1192,7 @@ class Crystal_Lattice():
         """
         tol = 1e-6
         domain_height = tol
+        lattice = self.structure.lattice
 
         for site in self.structure:
             # Neighbors for each idx in grid_crystal
@@ -1171,31 +1204,36 @@ class Crystal_Lattice():
             for neigh in neighbors:
               pos = neigh.coords
               idx = self.get_idx_coords(pos,self.basis_vectors)
+
+              frac = lattice.get_fractional_coords(pos)
+              # (1) Vertical membership: within the home cell along the film-normal
+              #     direction.
+              if not (-tol <= frac[2] <= 1 + tol):
+                continue  # Skip if outside the z-range of the unit cell
               
-              if (-tol <= pos[2] <= self.crystal_size[2] + tol): 
-                # Select the highest point of the domain
-                if pos[2] > domain_height:
-                  domain_height = pos[2]
+              if pos[2] > domain_height:
+                domain_height = pos[2]
             
-                if idx not in self.grid_crystal:
-                  pos_aux = (pos[0] % self.crystal_size[0], 
-                            pos[1] % self.crystal_size[1], 
-                            pos[2])
+              if idx not in self.grid_crystal:
+                # (2) Home-cell test in the periodic xy plane: fractional x,y in
+                #     [0,1) means this is NOT a wrapped periodic image.
+                is_home_xy = ((-tol <= frac[0] <= 1 + tol) and 
+                              (-tol <= frac[1] <= 1 + tol))
                     
-                  # If not in the boundary region, where we should apply periodic boundary conditions
-                  if tuple(pos) == pos_aux:
-                    site_type = neigh.specie.symbol
-                    is_active = self._is_active_site(site_type)
-                    
-                    self.grid_crystal[idx] = Site(
-                      chemical_specie = site_type,
-                      position = tuple(pos),
-                      site_type = site_type,
-                      Act_E_dict = self._efficient_act_e_copy(self.Act_E_dict) if is_active else {},
-                      defects_config = self.defects_config,
-                      reactions_config = self.reactions_config,
-                      is_active_site=is_active
-                    )
+                # If not in the boundary region, where we should apply periodic boundary conditions
+                if is_home_xy:
+                  site_type = neigh.specie.symbol
+                  is_active = self._is_active_site(site_type)
+                  
+                  self.grid_crystal[idx] = Site(
+                    chemical_specie = site_type,
+                    position = tuple(pos),
+                    site_type = site_type,
+                    Act_E_dict = self._efficient_act_e_copy(self.Act_E_dict) if is_active else {},
+                    defects_config = self.defects_config,
+                    reactions_config = self.reactions_config,
+                    is_active_site=is_active
+                  )
                         
         self.domain_height = domain_height
     
@@ -1524,12 +1562,13 @@ class Crystal_Lattice():
                     aux_edge_facet[0][1] = (1,0,0) facets
             
         """
-        
+        lattice = self.structure.lattice
         for idx,site in self.grid_crystal.items():
-            if ((self.crystal_size[0] * 0.45 < site.position[0] < self.crystal_size[0] * 0.55) 
-                and (self.crystal_size[1] * 0.45 < site.position[1] < self.crystal_size[1] * 0.55)
-                and site.position[2] < self.crystal_size[1] * 0.2):
-                break            # Introduce specie in the site
+          frac = lattice.get_fractional_coords(site.position)
+          if ((0.45 < frac[0] < 0.55) 
+              and (0.45 < frac[1] < 0.55)
+              and frac[2] < 0.2):
+              break            # Introduce specie in the site
         
         # Obtain the different edge in the plane
         # Neighbors only in plane
@@ -1843,16 +1882,25 @@ class Crystal_Lattice():
         # The mass in kg of a unit of the chemical specie
         self.mass_specie = self.mass_specie / constants.Avogadro / 1000
         
-        
+        lattice = self.structure.lattice
         n_sites_layer_0 = 0
+        layer_threshold = 0.05
         for site in self.grid_crystal.values():
-            if site.position[2] <= 1e-6:
+            frac = lattice.get_fractional_coords(site.position)
+            if frac[2] <= layer_threshold:
                 n_sites_layer_0 += 1
 
+        if n_sites_layer_0 == 0:
+          raise ValueError("No sites found in the bottom layer; "
+                          "check layer_threshold or grid construction")
 
-        # Area per site = total area of the crystal / number of sites available at the bottom layer
+        # --- Surface area: correct for any cell shape -------------------------
+        # For the ab face, the area is |a × b|
         # Area in m^2
-        area_specie = 1e-18 *self.crystal_size[0] * self.crystal_size[1] / n_sites_layer_0
+        a_vec, b_vec, _ = lattice.matrix
+        surface_area_A2 = np.linalg.norm(np.cross(a_vec, b_vec))  # in angstroms^2
+        surface_area_m2 = surface_area_A2 * 1e-20  # Convert to m^2
+        area_specie = surface_area_m2 / n_sites_layer_0
         
         # Boltzmann constant (m^2 kg s^-2 K^-1)
         self.TR_gen = sticking_coeff * partial_pressure * area_specie / np.sqrt(2 * constants.pi * self.mass_specie * constants.Boltzmann * T)
@@ -1920,8 +1968,9 @@ class Crystal_Lattice():
         # Single particle in a determined place
         elif test == 1:
             
+            lattice = self.structure.lattice
             # Compute geometric center of the domain
-            center = np.array(self.crystal_size) * [0.5,0.5,0.5]  # assumes crystal_size = [Lx, Ly, Lz]
+            center = lattice.get_cartesian_coords([0.5,0.5,0.5])  # assumes crystal_size = [Lx, Ly, Lz]
             min_dist = float('inf')
             central_idx = None
             
@@ -1956,10 +2005,12 @@ class Crystal_Lattice():
             chemical_specie = self.defects_config[defect]['symbol']  
             site_type = self.defects_config[defect]['site_type']
             
+            lattice = self.structure.lattice
             for idx,site in self.grid_crystal.items():
-              if ((self.crystal_size[0] * 0.45 < site.position[0] < self.crystal_size[0] * 0.55) 
-                and (self.crystal_size[1] * 0.45 < site.position[1] < self.crystal_size[1] * 0.55)
-                and (self.crystal_size[2] * 0.45 < site.position[2] < self.crystal_size[2] * 0.55)) and site.site_type == site_type: 
+              frac = lattice.get_fractional_coords(site.position)
+              if ((0.45 < frac[0] < 0.55) 
+                and (0.45 < frac[1] < 0.55)
+                and (0.45 < frac[2] < 0.55)) and site.site_type == site_type: 
                 break
             
             # Introduce specie in the site
@@ -1987,9 +2038,9 @@ class Crystal_Lattice():
         elif test == 3:
             
             N_HYDROGENS = 3
-            
+            lattice = self.structure.lattice
             # 1. Compute geometric center of the domain
-            center = np.array(self.crystal_size) * [0.5,0.5,0.5]  # assumes crystal_size = [Lx, Ly, Lz]
+            center = lattice.get_cartesian_coords([0.5,0.5,0.5])  # assumes crystal_size = [Lx, Ly, Lz]
             min_dist = float('inf')
             central_idx = None
             
@@ -2060,12 +2111,13 @@ class Crystal_Lattice():
             min_dist_xy = float('inf')
             idx = None
             ion_charge = 0
-          
+            center = self.structure.lattice.get_cartesian_coords([0.5, 0.5, 0.5])
+            
             for site_idx in self.generation_sites:
               pos = np.array(self.grid_crystal[site_idx].position)
               # Compute distance to (center_x, center_y) in xy-plane
-              dx = pos[0] - self.crystal_size[0] * 0.5
-              dy = pos[1] - self.crystal_size[1] * 0.5
+              dx = pos[0] - center[0]
+              dy = pos[1] - center[1]
               dist_xy = np.sqrt(dx**2 + dy**2)
               if dist_xy < min_dist_xy:
                 min_dist_xy = dist_xy
@@ -2089,12 +2141,13 @@ class Crystal_Lattice():
             
             min_dist_xy = float('inf')
             idx = None
-          
+            center = self.structure.lattice.get_cartesian_coords([0.5, 0.5, 0.5])
+
             for site_idx in self.generation_sites:
               pos = np.array(self.grid_crystal[site_idx].position)
               # Compute distance to (center_x, center_y) in xy-plane
-              dx = pos[0] - self.crystal_size[0] * 0.5
-              dy = pos[1] - self.crystal_size[1] * 0.5
+              dx = pos[0] - center[0]
+              dy = pos[1] - center[1]
               dist_xy = np.sqrt(dx**2 + dy**2)
               if dist_xy < min_dist_xy:
                 min_dist_xy = dist_xy
@@ -2120,12 +2173,12 @@ class Crystal_Lattice():
             min_dist_xy = float('inf')
             idx = None
             ion_charge = 0
-          
+            center = self.structure.lattice.get_cartesian_coords([0.5, 0.5, 0.5])
             for site_idx in self.generation_sites:
               pos = np.array(self.grid_crystal[site_idx].position)
               # Compute distance to (center_x, center_y) in xy-plane
-              dx = pos[0] - self.crystal_size[0] * 0.5
-              dy = pos[1] - self.crystal_size[1] * 0.5
+              dx = pos[0] - center[0]
+              dy = pos[1] - center[1]
               dist_xy = np.sqrt(dx**2 + dy**2)
               if dist_xy < min_dist_xy:
                 min_dist_xy = dist_xy
@@ -2166,9 +2219,11 @@ class Crystal_Lattice():
             
             update_supp_av = set()
             update_specie_events = set()
-            
+            lattice = self.structure.lattice
+
             for site_idx in self.generation_sites:
-                if (self.crystal_size[0] * 0.45 < self.grid_crystal[site_idx].position[0] < self.crystal_size[0] * 0.55) and (self.crystal_size[1] * 0.45 < self.grid_crystal[site_idx].position[1] < self.crystal_size[1] * 0.55):
+                frac = lattice.get_fractional_coords(self.grid_crystal[site_idx].position)
+                if (0.45 < frac[0] < 0.55) and (0.45 < frac[1] < 0.55):
                     idx = site_idx
                     break
             # Introduce specie in the site
@@ -2197,8 +2252,10 @@ class Crystal_Lattice():
 
             # Create a deque object for the queue
             queue = deque()
+            lattice = self.structure.lattice
             for site_idx in self.generation_sites:
-                if (self.crystal_size[0] * 0.45 < self.grid_crystal[site_idx].position[0] < self.crystal_size[0] * 0.55) and (self.crystal_size[1] * 0.45 < self.grid_crystal[site_idx].position[1] < self.crystal_size[1] * 0.55):
+                frac = lattice.get_fractional_coords(self.grid_crystal[site_idx].position)
+                if (0.45 < frac[0] < 0.55) and (0.45 < frac[1] < 0.55):
                     idx = site_idx
                     break
             queue.append(idx)
@@ -2212,8 +2269,10 @@ class Crystal_Lattice():
 
             # Create a deque object for the queue
             queue = deque()
+            lattice = self.structure.lattice
             for site_idx in self.generation_sites:
-                if (self.crystal_size[0] * 0.45 < self.grid_crystal[site_idx].position[0] < self.crystal_size[0] * 0.55) and (self.crystal_size[1] * 0.45 < self.grid_crystal[site_idx].position[1] < self.crystal_size[1] * 0.55):
+                frac = lattice.get_fractional_coords(self.grid_crystal[site_idx].position)
+                if (0.45 < frac[0] < 0.55) and (0.45 < frac[1] < 0.55):
                     idx = site_idx
                     break
             queue.append(idx)
@@ -2224,13 +2283,15 @@ class Crystal_Lattice():
             
             ad_sites_aux = self.generation_sites.copy()
             for site_idx in ad_sites_aux:
-                if self.grid_crystal[site_idx].position[2] > 0.1:
-                    update_specie_events,update_supp_av = self.introduce_specie_site(site_idx,update_specie_events,update_supp_av)
-                    self.update_sites(update_specie_events,update_supp_av)
+              frac = lattice.get_fractional_coords(self.grid_crystal[site_idx].position)
+              if frac[2] > 0.02:
+                  update_specie_events,update_supp_av = self.introduce_specie_site(site_idx,update_specie_events,update_supp_av)
+                  self.update_sites(update_specie_events,update_supp_av)
                     
             ad_sites_aux = self.generation_sites.copy()
             for site_idx in ad_sites_aux:
-                if self.grid_crystal[site_idx].position[2] > 2.2:
+                frac = lattice.get_fractional_coords(self.grid_crystal[site_idx].position)
+                if frac[2] > 0.1:
                     update_specie_events,update_supp_av = self.introduce_specie_site(site_idx,update_specie_events,update_supp_av)
                     self.update_sites(update_specie_events,update_supp_av)
             
@@ -4055,7 +4116,7 @@ class Crystal_Lattice():
         # We calculate the cartesian coordinates of the site using the basis vectors
         cart_site = self.idx_to_cart(idx_site)
         # cart_site[2] >= -1e-3 to avoid that some sites in the zero layer get outside
-        if idx_site not in visited and (cart_site[0] >= 0 and cart_site[0] <= self.crystal_size[0]) and (cart_site[1] >= 0 and cart_site[1] <= self.crystal_size[1]) and (cart_site[2] >= -1e-3 and cart_site[2] <= self.crystal_size[2]):
+        if idx_site not in visited and self._is_inside_supercell(cart_site, self.structure.lattice):
             # We track the created sites
             visited.add(idx_site)
             # We create the site with the cartesian coordinates
@@ -4079,11 +4140,7 @@ class Crystal_Lattice():
             cart_site = self.idx_to_cart(current_idx_site)
    
             
-            if (
-                0 <= cart_site[0] <= self.crystal_size[0]
-                and 0 <= cart_site[1] <= self.crystal_size[1]
-                and 0 <= cart_site[2] <= self.crystal_size[2]
-            ):
+            if self._is_inside_supercell(cart_site, self.structure.lattice):
                 # Track the created site
                 visited.add(current_idx_site)
                 # Create the site with the cartesian coordinates
