@@ -56,11 +56,11 @@ class HeatSolverConfig:
       'solve_heat': self.solve_heat,
       'save_heat': self.save_heat,
       'thermal_conductivity': self.thermal_conductivity,
-      'specific_heat': self.heat_capacity,
+      'specific_heat': self.specific_heat,
       'density': self.density,
       'heat_solve_frequency': self.heat_solve_frequency,
       'tau_thermal': self.tau_thermal,
-      'use_thermal_inertia': use_thermal_inertia
+      'use_thermal_inertia': self.use_thermal_inertia
     }
 
 @dataclass

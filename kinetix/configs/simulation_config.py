@@ -5,6 +5,7 @@ from typing import Dict, Any, List, Optional
 from pathlib import Path
 import numpy as np
 import yaml
+import logging
 
 from kinetix.configs.material_config import MaterialConfig, MaterialSelection, CrystalStructure
 from kinetix.configs.defect_config import DefectsConfig
@@ -13,11 +14,14 @@ from kinetix.configs.mesh_config import MeshConfig
 from kinetix.configs.solver_config import PoissonSolverConfig, HeatSolverConfig, SuperbasinConfig
 from kinetix.configs.electrical_config import ElectricalConfig, VoltageConfig, VoltageMode
 from kinetix.configs.grain_boundary_config import GrainBoundariesConfig
+from kinetix.configs.calculator_config import CalculatorConfig, InterstitialRefinementConfig
 
 
 class ConfigValidationError(Exception):
     """Raised when required configuration field is missing"""
     pass
+
+logger = logging.getLogger(__name__)
 
 @dataclass
 class ExperimentalConditions:
@@ -63,6 +67,7 @@ class SimulationConfig:
   poisson: Optional[PoissonSolverConfig] = None  
   heat: Optional[HeatSolverConfig] = None        
   superbasin: Optional[SuperbasinConfig] = None  
+  calculator: Optional[CalculatorConfig] = None  
   electrical: Optional[ElectricalConfig] = None
   grain_boundaries: Optional[GrainBoundariesConfig] = None 
     
@@ -87,15 +92,15 @@ class SimulationConfig:
         'partial_pressure': self.experimental.partial_pressure
       },
       'settings': {
-        'simulation_type': self.simulation_type.simulation_type,
+        'simulation_type': self.settings.simulation_type,
         'technology': self.settings.technology,
         'mode': self.settings.mode,
         'save_data': self.settings.save_data,
         'snapshoots_steps': self.settings.snapshoots_steps,
         'total_steps': self.settings.total_steps,
-        'activation_energies': self.activation_energies,
-        'output_path': self.output_path,
-        'load_state': self.load_state
+        'activation_energies': self.settings.activation_energies,
+        'output_path': self.settings.output_path,
+        'load_state': self.settings.load_state
       },
       'defects_config': self.defects.to_dict(),
       'reactions_config': self.reactions.to_dict(),
@@ -103,7 +108,8 @@ class SimulationConfig:
       'poisson': self.poisson.to_dict(),
       'heat': self.heat.to_dict(),
       'superbasin': self.superbasin.to_dict(),
-      'gb_configurations': self.grain_boundaries.to_dict() if self.grain_boundaries else [],
+      'calculator': self.calculator.to_dict() if self.calculator else None,
+      'gb_configurations': [gb.to_dict() for gb in self.grain_boundaries] if self.grain_boundaries else [],
     }
     
   @classmethod
@@ -169,12 +175,13 @@ class SimulationConfig:
     # --- DEFECTS ---
     defects_path = _get_required(components, 'defects', yaml_path, 'components.defects')
     defects_path = base_path / defects_path
-    try: 
+    try:
       config.defects = DefectsConfig.from_yaml(defects_path)
       print(f"Loaded defects from {defects_path}")
       print(f"{len(config.defects.defects)} defect species")
     except Exception as e:
-      print(f"Failed to load defects: {e}")
+      # Defects are always required - fail loudly instead of continuing with None.
+      raise ConfigValidationError(f"Failed to load defects from {defects_path}: {e}") from e
 
     # --- REACTIONS ---
     if 'reactions' in components:
@@ -183,7 +190,7 @@ class SimulationConfig:
         config.reactions = ReactionsConfig.from_yaml(reactions_path)
         print(f"Loaded reactions from {reactions_path}")
       except Exception as e:
-        print(f"Failed to load reactions: {e}")
+        logger.warning("Failed to load reactions: %s", e)
     # --- GRAIN BOUNDARIES ---
     if 'grain_boundaries' in components:
       gb_path = base_path / components['grain_boundaries']
@@ -192,7 +199,7 @@ class SimulationConfig:
         config.grain_boundaries = gb_config.grain_boundaries
         print(f"Loaded grain boundaries from {gb_path}")
       except Exception as e:
-        print(f"Failed to load grain boundaries: {e}")
+        logger.warning("Failed to load grain boundaries: %s", e)
         
       
     # =========================================================================
@@ -263,7 +270,7 @@ class SimulationConfig:
       print("Heat solver: Not configured")
       
     # =========================================================================
-    # Load Heat Solver Configuration (OPTIONAL)
+    # Load Superbasin Configuration (OPTIONAL)
     # =========================================================================
     superbasin_data = data.get('superbasin')
     if superbasin_data:
@@ -275,6 +282,36 @@ class SimulationConfig:
         energy_step=_get_required(superbasin_data, 'energy_step', yaml_path, 'superbasin.energy_step'),
         time_based_superbasin=_get_required(superbasin_data, 'time_based_superbasin', yaml_path, 'superbasin.time_based_superbasin'),
       )
+      print("Superbasin config loaded")
+    else:
+      print("Superbasin: Not configured")
+      
+    # =========================================================================
+    # Load Calculation Configuration (OPTIONAL)
+    # =========================================================================
+    calculator_data = data.get('calculator')
+    if calculator_data:
+      interstitial_refinement_data = calculator_data.get('interstitial_refinement')
+      config.calculator = CalculatorConfig(
+        type=calculator_data.get('type', 'tabulated'),
+        model=calculator_data.get('model', ''),
+        n_images=calculator_data.get('n_images', 5),
+        fmax=calculator_data.get('fmax', 0.05),
+        max_steps=calculator_data.get('max_steps', 300),
+        device=calculator_data.get('device', 'cpu'),
+        default_dtype=calculator_data.get('default_dtype', 'float64'),
+        cluster=calculator_data.get('cluster'),
+        cache_dir=calculator_data.get('cache_dir', 'data/cache/neb_cache'),
+        interstitial_refinement=(
+          InterstitialRefinementConfig(
+            enabled=interstitial_refinement_data.get('enabled', False),
+            displacement_threshold=interstitial_refinement_data.get('displacement_threshold', 0.5)
+          ) if interstitial_refinement_data else None
+        )
+      )
+      print(f"Calculator config loaded ({config.calculator.type})")
+    else:
+      print("Calculator: Not configured")
       
     # =========================================================================
     # Load Simulation Settings (REQUIRED)
@@ -285,6 +322,7 @@ class SimulationConfig:
       simulation_type=settings_data.get('simulation_type'),
       technology=settings_data.get('technology'),
       mode=settings_data.get('mode'),
+      total_steps=settings_data.get('total_steps'),
       save_data=_get_required(settings_data, 'save_data', yaml_path, 'settings.save_data'),
       snapshoots_steps=settings_data.get('snapshoots_steps'),
       seed_rng=settings_data.get('seed_rng'),

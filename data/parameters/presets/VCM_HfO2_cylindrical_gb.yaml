@@ -64,6 +64,34 @@ settings:
   lammps_output: true
   activation_energies: "activation_energies/VCM_HfO2.json"
   output_path: '/home/Docs2/samuel.delgado/linuxhome/Documents/Simulators/VCM_outputs/'
+
+# -----------------------------------------------------------------------------
+# Activation Energy Calculator (MACE CI-NEB)
+# -----------------------------------------------------------------------------
+calculator:
+  type: "mace_neb" # Calculator type: "mace_neb" or "tabulated"
+  model: "data/cache/neb_cache/HfO2_mh1_F_LONG_cpu.model" # Local path or HF repo ID
+
+  # NEB protocol
+  n_images: 5 # Total NEB images (including endpoints)
+  fmax: 0.05 # Force convergence criterion eV/Angstrom
+  max_steps: 300 # FIRE optimizer step budget
+  device: "cpu" # "cpu" or "cuda"
+  default_dtype: "float64" # Model precision
+
+  # Cluster extraction
+  cluster:
+    R_active: 5.0 # Inner radius: atoms free to relax (angstroms)
+    R_shell: 7.0 # Outer radius: atoms kept but frozen (angstroms)
+
+  # Barrier cache (SQLite database)
+  cache_dir: "data/cache/neb_cache" # Where barrier.db and model files live
+
+  interstitial_refinement:
+    enabled: true # Refine Voronoi sites before grid generation
+    displacement_threshold: 0.5 # Angstroms: max displacement to consider a site stable
+    # Sites that moves more than this during relaxation are still kept,
+    # but their position is updated to the relaxed (true minimum) position
   
 # -----------------------------------------------------------------------------
 # Superbasin Acceleration
@@ -128,3 +156,4 @@ mesh:
   activate_mesh_refinement: true
   fine_mesh_size: 0.2             # Angstroms - Fine mesh size near defects
   refinement_radius: 1.0          # Angstroms - Radius of refinement sphere around each site
+

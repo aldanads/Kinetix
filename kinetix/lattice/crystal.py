@@ -1029,8 +1029,6 @@ class Crystal_Lattice():
       supercell_interstitials = []
       repetitions = np.ceil(np.array(self.crystal_size) / np.array(unit_cell_lattice.abc)).astype(int)
 
-      print(f'[GEN INTERSTITIAL] unit_cell_lattice.matrix: {unit_cell_lattice.matrix}')
-
       for cart_pos in base_positions_unit_cell:
         for i in range(repetitions[0]):
           for j in range(repetitions[1]):
@@ -1080,17 +1078,12 @@ class Crystal_Lattice():
       for interstitial in gen.generate(structure, insert_species=[interstitial_species]):
         unique_frac_coords = interstitial.site.frac_coords
 
-        print(f'[INTERSTITIAL] Found interstitial at fractional coordinates: {unique_frac_coords}')
-        
         # Generate all symmetry-equivalent positions
         equiv_positions = set()
         for symm_op in symm_ops:
           new_frac = symm_op.operate(unique_frac_coords)
           new_frac = tuple(np.round(np.mod(new_frac,1.0), 6))
           equiv_positions.add(new_frac)
-
-        print(f'[INTERSTITIAL] Equiv positions: {equiv_positions}')
-
           
         for frac_pos in equiv_positions:
           cart_pos = structure.lattice.get_cartesian_coords(frac_pos)
@@ -1104,8 +1097,6 @@ class Crystal_Lattice():
           if not is_duplicate:
             interstitial_positions.append(cart_pos)
 
-        print(f'[INTERSTITIAL] Interstitials found: {interstitial_positions}')
-       
       return interstitial_positions
       
     def _validate_interstitial_positions(self, positions, structure):
@@ -1883,12 +1874,22 @@ class Crystal_Lattice():
         self.mass_specie = self.mass_specie / constants.Avogadro / 1000
         
         lattice = self.structure.lattice
-        n_sites_layer_0 = 0
-        layer_threshold = 0.05
-        for site in self.grid_crystal.values():
-            frac = lattice.get_fractional_coords(site.position)
-            if frac[2] <= layer_threshold:
-                n_sites_layer_0 += 1
+
+        # Collect fractional z-coordinates of all sites in the grid
+        frac_z_list = [lattice.get_fractional_coords(site.position)[2] for site in self.grid_crystal.values()]
+        # Cluster the z-values into distinct layers based on a threshold (e.g., 0.02)
+        frac_z_list.sort()
+        layer_tol = 0.02  # Tolerance for clustering
+        layers = []
+        
+        for z in frac_z_list:
+            if not layers or (z - layers[-1][-1]) > layer_tol:
+                layers.append([z])
+            else:
+                layers[-1].append(z)
+
+        # Bottom layer = first cluster; its size is exactly n_sites_layer_0
+        n_sites_layer_0 = len(layers[0]) if layers else 0
 
         if n_sites_layer_0 == 0:
           raise ValueError("No sites found in the bottom layer; "
@@ -1970,7 +1971,7 @@ class Crystal_Lattice():
             
             lattice = self.structure.lattice
             # Compute geometric center of the domain
-            center = lattice.get_cartesian_coords([0.5,0.5,0.5])  # assumes crystal_size = [Lx, Ly, Lz]
+            center = lattice.get_cartesian_coords([0.5,0.5,0.5])
             min_dist = float('inf')
             central_idx = None
             

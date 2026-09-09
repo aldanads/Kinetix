@@ -405,7 +405,8 @@ def initialization(n_sim,params, config_name='PZT_ZrTi_PbO3_2.yaml'):
           'technology': config.settings.technology,
           'rng': rng,
           'cache_dir': cache_dir,
-          'interstitial_generation': config.material.structure.interstitial_generation
+          'interstitial_generation': config.material.structure.interstitial_generation,
+          'calculator_config': config.calculator.to_dict()
         }
         
         # 5. Superbasin parameters

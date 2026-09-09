@@ -262,11 +262,19 @@ class MACENEBBarrierCalculator:
       frozen = np.nonzero(shell[mask])[0] # atoms to be frozen during relaxation
       start, end = start[mask], end[mask]
 
-    for at in (start, end):
+    for at, label in zip((start, end), ("IS", "FS")):
       at.calc = self._new_image_calculator()
+
+      pos_before = at.positions[-1].copy()
+
       if len(frozen):
         at.set_constraint(FixAtoms(indices=frozen))
       BFGS(at, logfile=None).run(fmax=self.fmax, steps=self.max_steps)
+      
+      pos_after = at.positions[-1]
+      disp = np.linalg.norm(pos_after - pos_before)
+      print(f"[{label}] Relaxed energy: {at.get_potential_energy():.4f} eV, O_i displacement: {disp:.4f} angstroms")
+      
       at.calc = None
 
     # --- 2. Run CI-NEB -------------------------------------------------
@@ -285,7 +293,10 @@ class MACENEBBarrierCalculator:
     
     # --- 3. Extract the barrier -----------------------------------------
     # Energies relative to the initial image; barrier = highest point.
-    rel = np.array([im.get_potential_energy() for im in images])
+    abs_energies = [im.get_potential_energy() for im in images]
+    print(f"Absolute band energies: {[f'{e:.3f}' for e in abs_energies]}")
+    
+    rel = np.array(abs_energies)
     rel = (rel - rel[0]).tolist()
     result = {"barrier": float(max(rel)), "converged": converged,
               "profile": rel, "n_atoms": len(images[0]), "wall_time": wall}
@@ -455,3 +466,66 @@ class KinetixMACEAdapter(ActivationEnergyCalculator):
       # frozen indices refer to background atoms only; the moving atom (last)
       # is never frozen � consistent in both images
       return start, end, frozen
+
+
+    def build_site_cluster(self, grid, site_idx):
+      """Build a cluster around a single site (no hop).
+
+      Similar to build_pair, but for one site: the interstitial atom
+      is placed at the site position, surrounded by the host lattice.
+      Returns an Atoms object with the same frozen shell as the NEB
+      calculator would use for hops involving this site.
+      """
+      site = grid[site_idx]
+      p0 = np.asarray(site.position, float)
+
+      r_a = self.neb.cluster["R_active"]
+      r_s = self.neb.cluster["R_shell"]
+      
+      symbols, positions, frozen = [], [], []
+      for k in sorted(self._candidate_keys(p0)):
+        if k == site_idx:
+          continue
+        s = grid[k]
+        els = self._site_elements(s)
+        if not els:
+          continue
+        v = self.kx._minimum_image_vector(np.array(s.position, float) - p0)
+        dm = np.linalg.norm(v)
+        if dm > r_s:
+          continue
+        is_shell = dm > r_a
+        for i, el in enumerate(els):
+          if is_shell:
+            frozen.append(len(symbols))
+          symbols.append(el)
+          positions.append(p0 + v + i * 0.05 * np.array([1., 0., 0.]))
+
+      els_site = self._site_elements(site)
+      atoms = Atoms(symbols=symbols + els_site,
+                    positions=positions + [p0], cell=self.cell, pbc=self.pbc)
+            
+      return atoms, frozen
+
+    def refine_interstitial_site(self, grid, site_idx):
+      """Relax a single interstitial site to its local minimum.
+
+      Returns (refined_position, displacement, energy).
+      The refined_position is the true local minimum near the Voronoi site
+      """
+      atoms, frozen = self.build_site_cluster(grid, site_idx)
+
+      pos_before = atoms.positions[-1].copy()
+
+      atoms.calc = self.neb._new_image_calculator()
+      if len(frozen):
+        atoms.set_constraint(FixAtoms(indices=frozen))
+
+      BFGS(atoms, logfile=None).run(fmax=self.neb.fmax, steps=self.neb.max_steps)
+
+      refined_position = atoms.positions[-1].copy()
+      displacement = np.linalg.norm(refined_position - pos_before)
+      energy = atoms.get_potential_energy()
+      atoms.calc = None  # Detach the calculator to free resources
+      
+      return refined_position, displacement, energy
