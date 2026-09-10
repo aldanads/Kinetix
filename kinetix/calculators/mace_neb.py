@@ -2,6 +2,7 @@
 """mace_neb.py -> MACE CI-NEB barrier calculator with model & barrier caching."""
 import hashlib
 import json
+import logging
 import sqlite3
 import time
 from pathlib import Path
@@ -17,6 +18,8 @@ from ase.data import chemical_symbols
 
 
 from kinetix.calculators.base import ActivationEnergyCalculator
+
+logger = logging.getLogger(__name__)
 
 class BarrierCache:
   """Persistent key-value store for NEB results, backed by a single SQLite file.
@@ -273,7 +276,8 @@ class MACENEBBarrierCalculator:
       
       pos_after = at.positions[-1]
       disp = np.linalg.norm(pos_after - pos_before)
-      print(f"[{label}] Relaxed energy: {at.get_potential_energy():.4f} eV, O_i displacement: {disp:.4f} angstroms")
+      logger.debug("[%s] Relaxed energy: %.4f eV, O_i displacement: %.4f angstroms",
+              label, at.get_potential_energy(), disp)
       
       at.calc = None
 
@@ -294,7 +298,7 @@ class MACENEBBarrierCalculator:
     # --- 3. Extract the barrier -----------------------------------------
     # Energies relative to the initial image; barrier = highest point.
     abs_energies = [im.get_potential_energy() for im in images]
-    print(f"Absolute band energies: {[f'{e:.3f}' for e in abs_energies]}")
+    logger.debug("Absolute band energies: %s", [f'{e:.3f}' for e in abs_energies])
     
     rel = np.array(abs_energies)
     rel = (rel - rel[0]).tolist()
@@ -468,52 +472,64 @@ class KinetixMACEAdapter(ActivationEnergyCalculator):
       return start, end, frozen
 
 
-    def build_site_cluster(self, grid, site_idx):
-      """Build a cluster around a single site (no hop).
-
-      Similar to build_pair, but for one site: the interstitial atom
-      is placed at the site position, surrounded by the host lattice.
-      Returns an Atoms object with the same frozen shell as the NEB
-      calculator would use for hops involving this site.
+    def build_position_cluster(self, grid, position, element):
       """
-      site = grid[site_idx]
-      p0 = np.asarray(site.position, float)
+      Build a frozen-shell cluster around a trial interstitial position.
+
+      Parameters
+      ----------
+      grid:
+          Existing host/boundary grid.
+      position:
+          Cartesian trial interstitial position in the supercell.
+      element:
+          Interstitial element, e.g. "O" or "H".
+
+      Returns
+      -------
+      atoms, frozen
+      """
+      p0 = np.asarray(position, float)
 
       r_a = self.neb.cluster["R_active"]
       r_s = self.neb.cluster["R_shell"]
       
       symbols, positions, frozen = [], [], []
       for k in sorted(self._candidate_keys(p0)):
-        if k == site_idx:
-          continue
-        s = grid[k]
-        els = self._site_elements(s)
+        site = grid[k]
+        els = self._site_elements(site)
         if not els:
           continue
-        v = self.kx._minimum_image_vector(np.array(s.position, float) - p0)
+        
+        v = self.kx._minimum_image_vector(np.array(site.position, float) - p0)
         dm = np.linalg.norm(v)
+
         if dm > r_s:
           continue
+
         is_shell = dm > r_a
+
         for i, el in enumerate(els):
           if is_shell:
             frozen.append(len(symbols))
           symbols.append(el)
           positions.append(p0 + v + i * 0.05 * np.array([1., 0., 0.]))
 
-      els_site = self._site_elements(site)
-      atoms = Atoms(symbols=symbols + els_site,
-                    positions=positions + [p0], cell=self.cell, pbc=self.pbc)
+      
+      atoms = Atoms(symbols=symbols + [element],
+                    positions=positions + [p0], 
+                    cell=self.cell, 
+                    pbc=self.pbc)
             
       return atoms, frozen
 
-    def refine_interstitial_site(self, grid, site_idx):
+    def refine_interstitial_site(self, grid, position, element):
       """Relax a single interstitial site to its local minimum.
 
       Returns (refined_position, displacement, energy).
       The refined_position is the true local minimum near the Voronoi site
       """
-      atoms, frozen = self.build_site_cluster(grid, site_idx)
+      atoms, frozen = self.build_position_cluster(grid, position, element)
 
       pos_before = atoms.positions[-1].copy()
 

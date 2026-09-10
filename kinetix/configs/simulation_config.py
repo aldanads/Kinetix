@@ -40,6 +40,7 @@ class SimulationSettings:
   total_steps: Optional[int] = None  
   seed_rng: Optional[int] = None 
   save_data: bool = True
+  log_level: str = "INFO"  # DEBUG, INFO, WARNING, ERROR
   snapshoots_steps: int = 40
   lammps_output: bool = True
   activation_energies: str = "" # Path relative too data/parameters
@@ -100,7 +101,8 @@ class SimulationConfig:
         'total_steps': self.settings.total_steps,
         'activation_energies': self.settings.activation_energies,
         'output_path': self.settings.output_path,
-        'load_state': self.settings.load_state
+        'load_state': self.settings.load_state,
+        'log_level': self.settings.log_level
       },
       'defects_config': self.defects.to_dict(),
       'reactions_config': self.reactions.to_dict(),
@@ -177,8 +179,8 @@ class SimulationConfig:
     defects_path = base_path / defects_path
     try:
       config.defects = DefectsConfig.from_yaml(defects_path)
-      print(f"Loaded defects from {defects_path}")
-      print(f"{len(config.defects.defects)} defect species")
+      logger.info("Loaded defects from %s", defects_path)
+      logger.info("%d defect species", len(config.defects.defects))
     except Exception as e:
       # Defects are always required - fail loudly instead of continuing with None.
       raise ConfigValidationError(f"Failed to load defects from {defects_path}: {e}") from e
@@ -188,7 +190,7 @@ class SimulationConfig:
       reactions_path = base_path / components['reactions']
       try:
         config.reactions = ReactionsConfig.from_yaml(reactions_path)
-        print(f"Loaded reactions from {reactions_path}")
+        logger.info("Loaded reactions from %s", reactions_path)
       except Exception as e:
         logger.warning("Failed to load reactions: %s", e)
     # --- GRAIN BOUNDARIES ---
@@ -197,7 +199,7 @@ class SimulationConfig:
       try:
         gb_config = GrainBoundariesConfig.from_yaml(gb_path)
         config.grain_boundaries = gb_config.grain_boundaries
-        print(f"Loaded grain boundaries from {gb_path}")
+        logger.info("Loaded grain boundaries from %s", gb_path)
       except Exception as e:
         logger.warning("Failed to load grain boundaries: %s", e)
         
@@ -213,9 +215,9 @@ class SimulationConfig:
           electrical_path,
           crystal_size=crystal_size
         ) 
-        print(f"Loaded electrical from {electrical_path}")
+        logger.info("Loaded electrical from %s", electrical_path)
       except Exception as e:
-        print(f"Failed to load electrical: {e}")
+        logger.warning("Failed to load electrical: %s", e)
         
     # =========================================================================
     # Load mesh configuration
@@ -232,9 +234,9 @@ class SimulationConfig:
         fine_mesh_size=mesh_data.get('fine_mesh_size'), # Angstroms
         refinement_radius=mesh_data.get('refinement_radius'), # Angstroms
       )
-      print("Mesh configuration loaded")
+      logger.info("Mesh configuration loaded")
     else:
-      print("Mesh: Not configured")
+      logger.info("Mesh: Not configured")
     # =========================================================================
     # Load Poisson Solver Configuration (OPTIONAL)
     # =========================================================================
@@ -247,9 +249,9 @@ class SimulationConfig:
         screening_factor=poisson_data.get('screening_factor',0.01),
         conductivity=poisson_data.get('conductivity')
       )
-      print("Poisson solver config loaded")
+      logger.info("Poisson solver config loaded")
     else:
-      print("Poisson solver: Not configured")
+      logger.info("Poisson solver: Not configured")
       
     # =========================================================================
     # Load Heat Solver Configuration (OPTIONAL)
@@ -265,9 +267,9 @@ class SimulationConfig:
         tau_thermal=heat_data.get('tau_thermal'),
         use_thermal_inertia=_get_required(heat_data,'use_thermal_inertia',yaml_path, 'heat.use_thermal_inertia')
       )
-      print("Heat solver config loaded")
+      logger.info("Heat solver config loaded")
     else:
-      print("Heat solver: Not configured")
+      logger.info("Heat solver: Not configured")
       
     # =========================================================================
     # Load Superbasin Configuration (OPTIONAL)
@@ -282,9 +284,9 @@ class SimulationConfig:
         energy_step=_get_required(superbasin_data, 'energy_step', yaml_path, 'superbasin.energy_step'),
         time_based_superbasin=_get_required(superbasin_data, 'time_based_superbasin', yaml_path, 'superbasin.time_based_superbasin'),
       )
-      print("Superbasin config loaded")
+      logger.info("Superbasin config loaded")
     else:
-      print("Superbasin: Not configured")
+      logger.info("Superbasin: Not configured")
       
     # =========================================================================
     # Load Calculation Configuration (OPTIONAL)
@@ -309,9 +311,9 @@ class SimulationConfig:
           ) if interstitial_refinement_data else None
         )
       )
-      print(f"Calculator config loaded ({config.calculator.type})")
+      logger.info("Calculator config loaded (%s)", config.calculator.type)
     else:
-      print("Calculator: Not configured")
+      logger.info("Calculator: Not configured")
       
     # =========================================================================
     # Load Simulation Settings (REQUIRED)
@@ -323,6 +325,7 @@ class SimulationConfig:
       technology=settings_data.get('technology'),
       mode=settings_data.get('mode'),
       total_steps=settings_data.get('total_steps'),
+      log_level=settings_data.get('log_level', "INFO"),
       save_data=_get_required(settings_data, 'save_data', yaml_path, 'settings.save_data'),
       snapshoots_steps=settings_data.get('snapshoots_steps'),
       seed_rng=settings_data.get('seed_rng'),

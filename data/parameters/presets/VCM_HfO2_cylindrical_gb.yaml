@@ -62,6 +62,7 @@ settings:
   seed_rng: null                           
   save_data: true                      
   lammps_output: true
+  log_level: "INFO"  # DEBUG, INFO, WARNING, ERROR
   activation_energies: "activation_energies/VCM_HfO2.json"
   output_path: '/home/Docs2/samuel.delgado/linuxhome/Documents/Simulators/VCM_outputs/'
 

@@ -61,6 +61,7 @@ settings:
   seed_rng: null                           
   save_data: true                      
   lammps_output: true
+  log_level: "INFO"  # DEBUG, INFO, WARNING, ERROR
   activation_energies: "activation_energies/ECM_CeO2_amorphous.json"
   output_path: '/home/Docs2/samuel.delgado/linuxhome/Documents/Simulators/ECM_outputs_2/'
   

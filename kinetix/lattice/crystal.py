@@ -44,6 +44,9 @@ from typing import Dict, List, Any
 import os
 from pathlib import Path
 import platform
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class Crystal_Lattice():
@@ -61,11 +64,14 @@ class Crystal_Lattice():
       **kwargs
     ):
         
-        # Handling MPI
-        self.mpi_ctx = mpi_ctx if mpi_ctx is not None else MPIContext.get_instance()
-        self.rank = self.mpi_ctx.rank
-        self.comm = self.mpi_ctx.comm
-        self.use_mpi = self.mpi_ctx.available
+        # Handling MPI. mpi_ctx=None means TRULY serial: no MPI operations at
+        # all (no barriers, no broadcasts). This is what allows Rank 0 to
+        # create the grid alone in initialize_grid_crystal (Phase 1) while
+        # ranks 1..N wait at an outer barrier.
+        self.mpi_ctx = mpi_ctx
+        self.rank = self.mpi_ctx.rank if self.mpi_ctx is not None else 0
+        self.comm = self.mpi_ctx.comm if self.mpi_ctx is not None else None
+        self.use_mpi = self.mpi_ctx.available if self.mpi_ctx is not None else False
         
         # --- Crystal features ---
         self.id_material = crystal_features['id_material_Material_Project']
@@ -90,7 +96,8 @@ class Crystal_Lattice():
         self.rng = crystal_features.get('rng')
         self.chemical_formula = crystal_features.get('chemical_formula')
         self.cache_dir = crystal_features.get('cache_dir')
-        self.interstitial_generation = crystal_features.get('interstitial_generation')     
+        self.interstitial_generation = crystal_features.get('interstitial_generation') 
+        self.calculator_config = crystal_features.get('calculator_config')    
              
         # --- Experimental conditions ---
         self.sticking_coefficient = experimental_conditions['sticking_coeff']
@@ -233,13 +240,14 @@ class Crystal_Lattice():
               structure_dict = structure.as_dict()
               self._save_mp_cache(cache_key, structure_dict)
             except Exception as e:
-              print('API fetch failed: {e}')
+              logger.warning('API fetch failed: %s', e)
               structure_dict = {'error: {e}'}
           else:
             structure_dict = None
             
-          # Broadcast
-          structure_dict = self.mpi_ctx.bcast(structure_dict, root=0)
+          # Broadcast (skipped when mpi_ctx is None -> truly serial run)
+          if self.mpi_ctx is not None:
+            structure_dict = self.mpi_ctx.bcast(structure_dict, root=0)
           
           if 'error' in structure_dict:
             raise RuntimeError(f"Failed to fetch structure: {structure_dict['error']}")
@@ -557,7 +565,7 @@ class Crystal_Lattice():
           neighbor_counts.append(interstitial_neighbors)
             
       if not migration_distances:
-        print("?  No interstitial-interstitial migration pathways found!")
+        logger.warning("No interstitial-interstitial migration pathways found!")
         return
     
       # Basic distance statistics
@@ -572,35 +580,25 @@ class Crystal_Lattice():
       avg_neighbors = np.mean(neighbor_counts)
       
       
-      print(f"\n{'='*60}")
-      print(f"INTERSTITIAL MIGRATION NETWORK VALIDATION")
-      print(f"{'='*60}")
-      print(f"Total migration pathways: {len(migration_distances)}")
-      print()
-      print(f"MIGRATION DISTANCES:")
-      print(f"  Min: {min_dist:.3f} angstroms")
-      print(f"  Max: {max_dist:.3f} angstroms")
-      print(f"  Avg: {avg_dist:.3f} +- {std_dist:.3f} angstroms")
-      print()
-      print(f"NEIGHBOR STATISTICS:")
-      print(f"  Min neighbors per site: {min_neighbors}")
-      print(f"  Max neighbors per site: {max_neighbors}")
-      print(f"  Avg neighbors per site: {avg_neighbors:.1f}")
-      print()   
-        
+      logger.debug("Migration Network Validation: %d pathways, dist min %.3f / max %.3f / avg %.3f +- %.3f angstroms",
+              len(migration_distances), min_dist, max_dist, avg_dist, std_dist)
+      logger.debug("Neighbor stats: min %d / max %d / avg %.1f per site",
+              min_neighbors, max_neighbors, avg_neighbors)
+      
       # Validation warnings
       if radius is not None:
         if max_dist > radius * 1.05:
-          print(f"\n?  Warning: Max distance ({max_dist:.3f}angstroms) exceeds search radius ({radius:.1f}angstroms)")
+          logger.warning("Max distance (%.3f angstroms) exceeds search radius (%.1f angstroms)",
+              max_dist, radius)
       
       if avg_dist > 4:
-        print(f"\n?  Warning: Average migration distance ({avg_dist:.3f}angstroms) seems high for direct hopping")
+        logger.warning("Average migration distance (%.3f angstroms) seems high for direct hopping", avg_dist)
       
       if avg_neighbors < 4:
-        print(f"\n?  Warning: Low connectivity ({avg_neighbors:.1f} neighbors/site) may limit filament formation")
+        logger.warning("Low connectivity (%.1f neighbors/site) may limit filament formation", avg_neighbors)
       
       if avg_neighbors > 15:
-        print(f"\n?  Warning: High connectivity ({avg_neighbors:.1f} neighbors/site) may include unrealistic pathways")
+        logger.warning("High connectivity (%.1f neighbors/site) may include unrealistic pathways", avg_neighbors)
           
       if min_dist < 1.5:
         positions = np.array(interstitial_positions)
@@ -609,8 +607,7 @@ class Crystal_Lattice():
         min_dist_inters = np.min(distances)
          
         if min_dist_inters < 1.5:
-          print(f"Minimum interstitial-interstitial distance: {min_dist:.3f} angstroms")
-          print("?  WARNING: Very close interstitial sites detected!")
+          logger.warning("Very close interstitial sites detected (min distance %.3f angstroms)", min_dist_inters)
           # Find problematic pairs
           from scipy.spatial.distance import cdist
           dist_matrix = cdist(positions, positions)
@@ -618,9 +615,7 @@ class Crystal_Lattice():
           close_pairs = np.where(dist_matrix < 1.5)
           
           for i, j in zip(close_pairs[0][:5], close_pairs[1][:5]):  # Show first 5
-            print(f"   Sites {i} and {j}: {dist_matrix[i,j]:.3f} angstroms apart")
-      
-      print(f"{'='*60}")      
+            logger.debug("   Sites %d and %d: %.3f angstroms apart", i, j, dist_matrix[i,j])      
                 
             
     
@@ -711,7 +706,7 @@ class Crystal_Lattice():
     def diagnose_steep_down(self, site_idx, radius_neighbors):
       site = self.grid_crystal[site_idx]
       pos = np.array(site.position)
-      print(f"\n=== Site {site_idx} at {site.position} ===")
+      logger.debug("=== Site %s at %s ===", site_idx, site.position)
   
       # Find ALL sites within radius (raw KDTree, no PBC filtering)
       neighbor_indices = self._get_neighbors_for_site(site_idx, radius_neighbors)
@@ -736,19 +731,19 @@ class Crystal_Lattice():
           elif z < -0.5: steep_down.append((n_idx, unit, dist))
           else: shallow.append((n_idx, unit, dist))
   
-      print(f"Steep UP neighbors   (z>+0.5): {len(steep_up)}")
-      for idx,u,d in steep_up:   print(f"   idx={idx} dir={np.round(u,3)} dist={d:.3f} specie={self.grid_crystal[idx].chemical_specie}")
-      print(f"Steep DOWN neighbors (z<-0.5): {len(steep_down)}")
-      for idx,u,d in steep_down: print(f"   idx={idx} dir={np.round(u,3)} dist={d:.3f} specie={self.grid_crystal[idx].chemical_specie}")
-      print(f"Shallow neighbors: {len(shallow)}")
+      logger.debug("Steep UP neighbors   (z>+0.5): %d", len(steep_up))
+      for idx,u,d in steep_up:   logger.debug("   idx=%s dir=%s dist=%.3f specie=%s", idx, np.round(u,3), d, self.grid_crystal[idx].chemical_specie)
+      logger.debug("Steep DOWN neighbors (z<-0.5): %d", len(steep_down))
+      for idx,u,d in steep_down: logger.debug("   idx=%s dir=%s dist=%.3f specie=%s", idx, np.round(u,3), d, self.grid_crystal[idx].chemical_specie)
+      logger.debug("Shallow neighbors: %d", len(shallow))
       
     def diagnose_interstitial_presence(self, site_idx, radius_neighbors, z_window=3.0):
       """Check whether interstitial sites exist above/below the corner site,
       using the KDTree for efficient spatial filtering."""
       site = self.grid_crystal[site_idx]
       pos = np.array(site.position)
-      print(f"\n=== Interstitial inventory near {site_idx} at {np.round(pos,3)} ===")
-      print(f"radius_neighbors = {radius_neighbors}")
+      logger.debug("=== Interstitial inventory near %s at %s ===", site_idx, np.round(pos,3))
+      logger.debug("radius_neighbors = %s", radius_neighbors)
   
       # Use KDTree to get candidates within radius (efficient)
       candidate_indices = self._kdtree.query_ball_point(pos, radius_neighbors)
@@ -777,20 +772,18 @@ class Crystal_Lattice():
           elif -z_window < dz < 0:
               below.append((idx, lat, dz, s.chemical_specie))
   
-      print(f"Interstitial sites ABOVE (0 < dz < {z_window}): {len(above)}")
+      logger.debug("Interstitial sites ABOVE (0 < dz < %s): %d", z_window, len(above))
       for idx, lat, dz, sp in sorted(above, key=lambda x: x[2]):
-          print(f"   idx={idx} lat_dist={lat:.3f} dz=+{dz:.3f} specie={sp}")
-      print(f"Interstitial sites BELOW (-{z_window} < dz < 0): {len(below)}")
+          logger.debug("   idx=%s lat_dist=%.3f dz=+%.3f specie=%s", idx, lat, dz, sp)
+      logger.debug("Interstitial sites BELOW (-%s < dz < 0): %d", z_window, len(below))
       for idx, lat, dz, sp in sorted(below, key=lambda x: -x[2]):
-          print(f"   idx={idx} lat_dist={lat:.3f} dz={dz:.3f} specie={sp}")
+          logger.debug("   idx=%s lat_dist=%.3f dz=%.3f specie=%s", idx, lat, dz, sp)
               
           
             
     def crystal_grid(self,grid_crystal,radius_neighbors,mode,affected_site,api_key):
     
         self.coord_cache = {}
-        rank = self.mpi_ctx.rank if self.mpi_ctx else 0
-        is_root = (rank == 0) 
              
         # Loading existing grid
         if grid_crystal is not None:
@@ -799,17 +792,16 @@ class Crystal_Lattice():
           # Initialize pathways for loaded grids too 
           self._build_kdtree()
           self._initialize_migration_pathways(radius_neighbors, reset_energies=True)   
-          if self.mpi_ctx: self.mpi_ctx.barrier()
         else:
           
-          # Initialize grid_crystal on all ranks  
+          # MPI-agnostic: this method is a pure grid builder/loader. It knows
+          # nothing about ranks - each process that calls it builds/loads its
+          # own grid locally.
           
           
             
-          if is_root:  
-            # We obtain integer idx
-            print(f'Initializing grid_crystal with {len(self.structure)} host sites', flush=True)
-            total_start_time = time.perf_counter()
+          logger.info('Initializing grid_crystal with %d host sites', len(self.structure))
+          total_start_time = time.perf_counter()
                 
           # --- STEP 1: Build host lattice with REAL chemical species ---
           start_time = time.perf_counter()
@@ -829,14 +821,13 @@ class Crystal_Lattice():
               is_active_site=is_active
             )
           
-          if is_root:
-            print(f"Step 1 (Build host lattice): {time.perf_counter() - start_time:.4f} seconds", flush=True)
+          logger.info("Step 1 (Build host lattice): %.4f seconds", time.perf_counter() - start_time)
                    
           # --- STEP 2: Handle boundary sites (if needed) ---
           start_time = time.perf_counter()
+          self._build_kdtree()
           self._handle_missing_neighbors(radius_neighbors, affected_site)
-          if is_root:
-            print(f"Step 2 (Boundary sites): {time.perf_counter() - start_time:.4f} seconds", flush=True)    
+          logger.info("Step 2 (Boundary sites): %.4f seconds", time.perf_counter() - start_time)
               
           # --- STEP 3: Add interstitial/hollow sites ---
           start_time = time.perf_counter()
@@ -856,9 +847,9 @@ class Crystal_Lattice():
                 )
                 interstitial_count += 1
           
-          if is_root:
-            print(f"Step 3 (Interstitial sites): {time.perf_counter() - start_time:.4f} seconds", flush=True)    
-            print(f"Total sites created: {len(self.grid_crystal)} ({len(self.structure)} host + {interstitial_count} interstitial)", flush=True)
+          logger.info("Step 3 (Interstitial sites): %.4f seconds", time.perf_counter() - start_time)
+          logger.info("Total sites created: %d (%d host + %d interstitial)",
+                      len(self.grid_crystal), len(self.structure), interstitial_count)
 
           # === STEP 3.5: Set interface flags ===
           self._compute_interface_flags()
@@ -868,18 +859,13 @@ class Crystal_Lattice():
           self._build_kdtree()
           self._initialize_migration_pathways(radius_neighbors, reset_energies=False)
 
-          if is_root:
-            print(f"Step 4 (Migration pathways): {time.perf_counter() - start_time:.4f} seconds", flush=True)
+          logger.info("Step 4 (Migration pathways): %.4f seconds", time.perf_counter() - start_time)
             
           # --- STEP 5: Neighbor analysis (uses FULL grid) ---
           start_time = time.perf_counter()
           self._sequencial_neighbors_analysis()
-          if is_root:
-            print(f"Step 5 (Neighbor analysis): {time.perf_counter() - start_time:.4f} seconds", flush=True) 
-            total_time = time.perf_counter() - total_start_time
-            print(f"\n{'='*60}", flush=True)
-            print(f"TOTAL INITIALIZATION TIME: {total_time:.4f} seconds", flush=True)
-            print(f"{'='*60}", flush=True)
+          logger.info("Step 5 (Neighbor analysis): %.4f seconds", time.perf_counter() - start_time)
+          logger.info("TOTAL INITIALIZATION TIME: %.4f seconds", time.perf_counter() - total_start_time)
            
         # --- STEP 6: Grain Boundaries (if applicable) ---
         start_time = time.perf_counter()
@@ -895,16 +881,10 @@ class Crystal_Lattice():
           for i, site in enumerate(sites_list):
             self.gb_model.modify_act_energy_GB(site, mig_paths, defects_cfg, reactions_cfg)
                 
-          if is_root:
-            print(f"Step 6 (Grain boundaries): {time.perf_counter() - start_time:.4f} seconds", flush=True) 
+          logger.info("Step 6 (Grain boundaries): %.4f seconds", time.perf_counter() - start_time)
           
             
-        print('Finished grid initialization', flush=True)  
-        
-            
-        # Synchronize all ranks before starting kMC steps
-        if self.mpi_ctx:
-          self.mpi_ctx.barrier()
+        logger.info('Finished grid initialization')  
             
     def _efficient_act_e_copy(self, base_dict):
       """
@@ -987,7 +967,7 @@ class Crystal_Lattice():
             chgcar = mpr.get_charge_density_from_material_id(self.id_material)
             
             if chgcar is not None:
-              print(f" Charge density retrieved (grid: {chgcar.data.shape})")
+              logger.info("Charge density retrieved (grid: %s)", chgcar.data.shape)
               cig = ChargeInterstitialGenerator()
               defects = cig.generate(chgcar, insert_species=[interstitial_species])
             
@@ -998,21 +978,24 @@ class Crystal_Lattice():
                   base_positions_unit_cell.append(site.coords)
                   break
             else:
-              print(f" MP returned None (data not available)")
+              logger.info(" MP returned None (data not available)")
         
           
         except Exception as e:
-          print(f'Warning: MP method failed: {type(e).__name__}: {e}')
+          logger.warning('Warning: MP method failed: %s: %s', type(e).__name__, e)
         
       # =========================================================================
       # METHOD 2: Voronoi tessellation (PRIMARY - reliable)
       # =========================================================================
       if not base_positions_unit_cell:
-        print(f"\n Using Voronoi tesellation")
+        logger.info("\n Using Voronoi tesellation")
         base_positions_unit_cell = self._find_interstitials_voronoi(
           interstitial_species,
           min_distance=MIN_DISTANCE_FROM_ATOMS
         )
+
+      if self.calculator_config and self.calculator_config.interstitial_refinement.enabled:
+        base_positions_unit_cell = self._refine_interstitial_positions(base_positions_unit_cell, interstitial_species)
         
       # Validate interstitial spacing in the unit cell
       if self.rank == 0:
@@ -1098,39 +1081,174 @@ class Crystal_Lattice():
             interstitial_positions.append(cart_pos)
 
       return interstitial_positions
+
+    def _refine_interstitial_positions(self, voronoi_positions, interstitial_species):
+      """Refine Voronoi positions to true energy minima using MACE.
       
+      Only runs on the unit-cell positions (typically 4 sites), not the
+      full supercell. The refined positions are then replicated normally.
+      """
+      from kinetix.calculators.mace_neb import KinetixMACEAdapter
+      cfg = self.calculator_config
+      adapter = KinetixMACEAdapter(
+        model_source=cfg.model, 
+        kx=self,
+        cache_dir=cfg.cache_dir,
+        device=cfg.device,
+        default_dtype=cfg.default_dtype,
+        n_images=cfg.n_images,
+        fmax=cfg.fmax,
+        max_steps=cfg.max_steps,
+        cluster=cfg.cluster # dict: {"R_active": 5.0, "R_shell": 7.0}
+        )
+      
+      refined_positions = []
+      unit_cell_lattice = self.structure_basic.lattice
+      supercell_lattice = self.structure.lattice
+
+      # Get the Cartesian center of the unit cell and the supercell
+      unit_center_cart = unit_cell_lattice.get_cartesian_coords([0.5, 0.5, 0.5])
+      super_center_cart = supercell_lattice.get_cartesian_coords([0.5, 0.5, 0.5])
+
+      # Find the center of the supercell in fractional coords
+      # This is where we'll place the interstitial for refinement
+      for i, pos in enumerate(voronoi_positions):
+        # Shift the trial position so it sits in the middle of the supercell
+        supercell_pos = super_center_cart + (pos - unit_center_cart)
+
+        # Build a small temporary structure around this Voronoi site
+        # Place O_i at pos, relax, get the true position
+        refined_pos, disp, energy = adapter.refine_interstitial_site(self.grid_crystal,
+          supercell_pos, element=interstitial_species
+        )
+
+        logger.debug(f"Voronoi site {i}: displacement = {disp:.3f} angstroms (from ({supercell_pos}) to ({refined_pos})), "
+                    f"energy = {energy:.3f} eV")
+
+        # --- Map Back to Unit Cell ---
+        # Fractional coordinates are invariant to the size of the cell for periodic wrapping.
+        # Getting the fractional coords of the relaxed position relative to the supercell
+        refined_frac = supercell_lattice.get_fractional_coords(refined_pos)   
+
+        # Folding it back to [0, 1)] to obtain the exact unit cell fractional coordinates
+        refined_frac_wrapped = np.mod(refined_frac, 1.0)   
+
+        # Convert back to unit-cell Cartesian for the replicator
+        refined_unit_cart = unit_cell_lattice.get_cartesian_coords(refined_frac_wrapped)
+
+        refined_positions.append(refined_unit_cart)
+
+      # Cluster nearby sites and average their positions to find true pockets
+      unique_positions = self._cluster_and_average(refined_positions, threshold=1.0)
+            
+      return unique_positions
+    
+    def _cluster_and_average(self, positions, threshold=0.7):
+      """Cluster positions within threshold distance and average each cluster.
+      
+      Parameters
+      ----------
+      positions : list of array-like
+          Positions to cluster (e.g., refined interstitial sites)
+      threshold : float
+          Maximum distance (Å) to consider two sites as the same cluster
+      
+      Returns
+      -------
+      list of np.ndarray
+          Centroid positions for each cluster
+      """
+      if not positions:
+        return []
+
+      # Start with each position as its own cluster
+      # Each cluster is a list of original Cartesian positions
+      clusters = [[np.array(pos)] for pos in positions]
+
+      while True:
+        if len(clusters) <= 1:
+          break
+
+        # 1. Find the closest pair of cluster centroids
+        min_dist = np.inf
+        merge_i, merge_j = -1, -1
+
+        for i in range(len(clusters)):
+          c_i = np.mean(clusters[i], axis=0)
+          for j in range(i + 1, len(clusters)):
+            c_j = np.mean(clusters[j], axis=0)
+            dist = np.linalg.norm(c_i - c_j)
+            if dist < min_dist:
+              min_dist = dist
+              merge_i, merge_j = i, j
+
+        # 2. If the closest pair is within the threshold, merge them
+        if min_dist < threshold:
+          logger.debug(f"Merging cluster {merge_i} and {merge_j} "
+                       f"(distance {min_dist:.3f} angstroms < {threshold} angstroms)")
+
+          # Combine the atoms from both clusters
+          clusters[merge_i].extend(clusters[merge_j])
+
+          # Remove the merged cluster from the list
+          del clusters[merge_j]
+        else:
+          # No more merges possible; the closest pair is to far apart
+          break
+      
+      # 3. Calculate final centroids for the remaining clusters
+      final_positions = [np.mean(c, axis=0) for c in clusters]
+
+      logger.debug(f"Clustered {len(positions)} refined sites into "
+                   f"{len(final_positions)} unique interstitial pockets.")
+
+      return final_positions
+
+        
     def _validate_interstitial_positions(self, positions, structure):
       from scipy.spatial.distance import cdist, pdist
       
       # Get all atomic positions
-      atom_positions = [site.coords for site in structure]
-      atom_positions = np.array(atom_positions)
+      atom_positions = np.array([site.coords for site in structure])
       interstitial_positions = np.array(positions)
       
       #Calculate minimum distances to atoms
       distances = cdist(interstitial_positions, atom_positions)
       min_distances = np.min(distances,axis=1)
-      
-      distances_interstitial = pdist(interstitial_positions)
-      min_dist_inters = np.min(distances_interstitial)
-      max_dist_inters = np.max(distances_interstitial)
-      avg_dist_inters = np.mean(distances_interstitial)
-      
-      print(f"\n{'='*60}")
-      print(f"INTERSTITIAL SPACING VALIDATION")
-      print(f"{'='*60}")
-      print('Interstitial-atoms distances:', flush=True)
-      print(f'Min distance to atoms: {np.min(min_distances):.3f} angstroms', flush=True)
-      print(f'Max distance to atoms: {np.max(min_distances):.3f} angstroms', flush=True)
-      print(f'Avg distance to atoms: {np.mean(min_distances):.3f} angstroms', flush=True)
+
+      logger.info("Interstitial-Host spacing: min %.3f, max %.3f, avg %.3f angstroms",
+            np.min(min_distances), np.max(min_distances), np.mean(min_distances))
       
       assert np.min(min_distances) >= 0.4
-        
-      print('Interstitial-Interstitial distances:', flush=True)
-      print(f'Min Interstitial-Interstitial: {min_dist_inters:.3f} angstroms', flush=True)
-      print(f'Max Interstitial-Interstitial: {max_dist_inters:.3f} angstroms', flush=True)
-      print(f'Avg Interstitial-Interstitial: {avg_dist_inters:.3f} angstroms', flush=True)
-      print(f"\n{'='*60}")
+
+      # 2. Calculate Interstitial-Interstitial distances (accounting for PBC)
+      # Replicate the unit cell positions into a 3x3x3 grid of cells 
+      lattice = structure.lattice
+      replicated_positions = []
+      for i in [-1, 0, 1]:
+        for j in [-1, 0, 1]:
+          for k in [-1, 0, 1]:
+            offset = i * lattice.matrix[0] + j * lattice.matrix[1] + k * lattice.matrix[2]
+            replicated_positions.extend(interstitial_positions + offset)
+                
+      replicated_positions = np.array(replicated_positions)
+
+      min_inter_distances = []
+      for site in interstitial_positions:
+          # Distance from this central site to ALL 27 replicated cells
+          dists = np.linalg.norm(replicated_positions - site, axis=1)
+          
+          # Filter out the site itself (distance ~ 0.0)
+          neighbor_dists = dists[dists > 0.1] 
+          
+          if len(neighbor_dists) > 0:
+              min_inter_distances.append(np.min(neighbor_dists))
+      
+      if min_inter_distances:
+        logger.info("Interstitial-Interstitial spacing: min %.3f, max %.3f, avg %.3f angstroms",
+                np.min(min_inter_distances), np.max(min_inter_distances), np.mean(min_inter_distances))
+      else:
+        logger.warning("Could not compute interstitial-interstitial distances.")
     
     def create_ovito_xyz_file(self,interstitial_species,base_positions_unit_cell, filename="interstitials.xyz"):
       """Create XYZ file for OVITO visualization."""
@@ -1168,7 +1286,7 @@ class Crystal_Lattice():
           for interstitial in interstitials:
               f.write(f"{interstitial['element']} {interstitial['x']:.6f} {interstitial['y']:.6f} {interstitial['z']:.6f}\n")
       
-      print(f"XYZ file saved: {filename}")
+      logger.info("XYZ file saved: %s", filename)
     
            
     def _handle_missing_neighbors(self,radius_neighbors, affected_site):
@@ -1420,7 +1538,8 @@ class Crystal_Lattice():
         payload = None
         
       # === Step 2: Broadcast to all ranks
-      payload = self.mpi_ctx.bcast(payload, root=0)
+      if self.mpi_ctx is not None:
+        payload = self.mpi_ctx.bcast(payload, root=0)
       
       # === Step 3: Unpack and return ===
       particle_locations, charges, evaluation_points = payload
@@ -1487,7 +1606,8 @@ class Crystal_Lattice():
         payload = None
       
       # === Step 2: Broadcast to all ranks
-      clusters = self.mpi_ctx.bcast(payload, root=0)
+      if self.mpi_ctx is not None:
+        clusters = self.mpi_ctx.bcast(payload, root=0)
       
       return clusters  
       
@@ -1652,7 +1772,7 @@ class Crystal_Lattice():
           
           # Find interstitial sites within interface proximity
           if sites_generation_layer not in ['top_layer', 'bottom_layer']:
-            print(f"Warning: Unknown sites_generation_layer: {sites_generation_layer}")
+            logger.warning("Unknown sites_generation_layer: %s", sites_generation_layer)
                             
           generation_sites_set = set(self.generation_sites)
           
@@ -1992,11 +2112,11 @@ class Crystal_Lattice():
             # Update sites availables, the support to each site and available migrations
             self.update_sites(update_specie_events,support_update_sites)
                 
-            print('Particle in position: ',central_site.position, ' is a ', central_site.chemical_specie)
-            print('Neighbors of that particle: ', central_site.nearest_neighbors_idx)
-            print('Neighbors are supported by: ')
+            logger.debug('Particle in position: %s is a %s', central_site.position, central_site.chemical_specie)
+            logger.debug('Neighbors of that particle: %s', central_site.nearest_neighbors_idx)
+            logger.debug('Neighbors are supported by:')
             for idx_3 in central_site.nearest_neighbors_idx:
-                print(self.grid_crystal[idx_3].supp_by)
+                logger.debug(self.grid_crystal[idx_3].supp_by)
                 
                 
         # Two adjacent particles
@@ -2098,13 +2218,13 @@ class Crystal_Lattice():
             self.update_sites(support_update_sites, event_update_sites)
              
             # 6. Verification output
-            print(f"=== Test Case 3: V_O Passivation ===")
-            print(f"V_O site index: {central_idx}")
-            print(f"V_O passivation_level: {site.passivation_level}")
-            print(f"V_O charge: {site.ion_charge}")
-            print(f"H atoms placed: {n_placed}")
-            print(f"Expected charge after {n_placed} H: {central_config['charge'] + n_placed * central_config['charge_per_passivation']}")
-            print(f"=====================================")  
+            logger.debug("=== Test Case 3: V_O Passivation ===")
+            logger.debug("V_O site index: %s", central_idx)
+            logger.debug("V_O passivation_level: %s", site.passivation_level)
+            logger.debug("V_O charge: %s", site.ion_charge)
+            logger.debug("H atoms placed: %s", n_placed)
+            logger.debug("Expected charge after %s H: %s", n_placed, central_config['charge'] + n_placed * central_config['charge_per_passivation'])
+            logger.debug("=====================================")  
 
         # Cluster - particles in plane, one on bottom
         elif test == 4:
@@ -2339,7 +2459,8 @@ class Crystal_Lattice():
         payload = None
       
       # === Step 2: Broadcast to all ranks
-      payload = self.mpi_ctx.bcast(payload, root=0)
+      if self.mpi_ctx is not None:
+        payload = self.mpi_ctx.bcast(payload, root=0)
       
       # === Step 3: Unpack and update
       self.time = payload
@@ -2432,7 +2553,7 @@ class Crystal_Lattice():
         
         return time_step, chosen_event
       else:
-        print(f'[KMC STEP] No event within time step. Time step: {time_step}, time step limit: {timestep_limit}', flush=True)  
+        logger.debug('[KMC STEP] No event within time step. Time step: %s, time step limit: %s', time_step, timestep_limit)  
         
         # No event within timestep limit
         self.track_time(timestep_limit)
@@ -2467,8 +2588,9 @@ class Crystal_Lattice():
         else:
           evaluation_points = np.empty((0,3), dtype=np.float64)
       
-      # Step 2: Broadcast evaluation points to all ranks
-      evaluation_points = self.mpi_ctx.bcast(evaluation_points, root=0)
+      # Step 2: Broadcast evaluation points to all ranks (skipped when mpi_ctx is None)
+      if self.mpi_ctx is not None:
+        evaluation_points = self.mpi_ctx.bcast(evaluation_points, root=0)
       
       # Step 3: All ranks participate in field evaluation
       if len(evaluation_points) > 0:
@@ -2533,8 +2655,8 @@ class Crystal_Lattice():
       if elapsed_time > 300 and self.E_min_lim_superbasin > self.energy_step:
         self.E_min -= self.energy_step
         
-      print(f"Elapsed time superbasin: {elapsed_time} seconds")
-      print("Superbasins generated: ", len(self.superbasin_dict))
+      logger.debug("Elapsed time superbasin: %s seconds", elapsed_time)
+      logger.debug("Superbasins generated: %s", len(self.superbasin_dict))
    
    
     def update_superbasin(self,chosen_event):
@@ -3251,7 +3373,8 @@ class Crystal_Lattice():
               else:
                 summary_dict = None
               
-              summary_dict = self.mpi_ctx.bcast(summary_dict, root=0)
+              if self.mpi_ctx is not None:
+                summary_dict = self.mpi_ctx.bcast(summary_dict, root=0)
               
             if summary_dict:        
               symm = summary_dict.get('symmetry',{})
@@ -3262,16 +3385,16 @@ class Crystal_Lattice():
                 "space_group": symm.get('symbol', 'Unknown'),
                 "space_group_number": symm.get('number',0),
               })
-              print(f"? MP data fetched for {self.id_material}: {crystal_data['space_group']} ({crystal_data['crystal_system']})")
+              logger.info("MP data fetched for %s: %s (%s)", self.id_material, crystal_data['space_group'], crystal_data['crystal_system'])
             else:
-              print(f"??  MP query returned no results for {self.id_material}")
+              logger.warning("MP query returned no results for %s", self.id_material)
               crystal_data.update({
               "crystal_system": "Unknown",
               "space_group": "Unknown",
               "space_group_number": 0,
               })
       except Exception as e:
-            print(f"??  MP query failed: {e}")
+            logger.warning("MP query failed: %s", e)
             crystal_data.update({
               "crystal_system": "Unknown",
               "space_group": "Unknown",

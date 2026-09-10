@@ -8,6 +8,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import platform
 import shutil
+import logging
 
 from kinetix.lattice.crystal import Crystal_Lattice
 from kinetix.solvers.electrical import ElectricalController
@@ -21,6 +22,9 @@ from kinetix.configs.reaction_config import ReactionsConfig, ReactionConfig, Rea
 from kinetix.configs.solver_config import PoissonSolverConfig, SuperbasinConfig, HeatSolverConfig
 from kinetix.configs.simulation_config import SimulationConfig, ExperimentalConditions, SimulationSettings
 from kinetix.configs.grain_boundary_config import GrainBoundariesConfig
+from kinetix.logging_config import setup_logging
+
+logger = logging.getLogger(__name__)
 
 from pymatgen.ext.matproj import MPRester
 # from mp_api.client import MPRester
@@ -65,6 +69,11 @@ def initialization(n_sim,params, config_name='PZT_ZrTi_PbO3_2.yaml'):
         f"Searched in: {parameters_root / 'presets'}"
       )
     config = SimulationConfig.from_yaml(config_path)
+    
+    # Read log level from config (default INFO) and configure logging
+    log_level_str = config.settings.log_level if hasattr(config.settings, 'log_level') else "INFO"
+    log_level = getattr(logging, log_level_str.upper(), logging.INFO)
+    setup_logging(level=log_level)
     
     seed = config.settings.seed_rng
     # Random seed as time
@@ -292,12 +301,13 @@ def initialization(n_sim,params, config_name='PZT_ZrTi_PbO3_2.yaml'):
         
         
         filename = 'grid_'+ formula + "_" + str(int(max(crystal_size) / 10)) + "nm"
-        System_state = initialize_grid_crystal(filename,crystal_features,experimental_conditions,Act_E_list, 
-              lammps_file,superbasin_parameters,save_data)  
+        System_state = initialize_grid_crystal(filename, mpi_ctx, crystal_features, experimental_conditions, Act_E_list, 
+              lammps_file, superbasin_parameters, save_data)  
 
         # The minimum energy to select transition pathways to create a superbasin should be smaller
         # than the adsorption energy
-        print(f"Minimum energy for superbasin {superbasin_parameters[2]} and activation energy for adsorption {System_state.Act_E_gen}")
+        logger.info("Minimum energy for superbasin %s and activation energy for adsorption %s",
+              superbasin_parameters[2], System_state.Act_E_gen)
         if superbasin_parameters[2] > System_state.Act_E_gen:
             raise ValueError(f"Minimum energy for superbasin {superbasin_parameters[2]} is greater than activation energy for adsorption {System_state.Act_E_ad}")
             import sys
@@ -406,7 +416,7 @@ def initialization(n_sim,params, config_name='PZT_ZrTi_PbO3_2.yaml'):
           'rng': rng,
           'cache_dir': cache_dir,
           'interstitial_generation': config.material.structure.interstitial_generation,
-          'calculator_config': config.calculator.to_dict()
+          'calculator_config': config.calculator
         }
         
         # 5. Superbasin parameters
@@ -498,11 +508,6 @@ def initialization(n_sim,params, config_name='PZT_ZrTi_PbO3_2.yaml'):
         Elec_controller.crystal_size = System_state.crystal_size #  The crystal_size after the generation of the lattice may differ from the parameter provided in a NN points separation
         System_state.timestep_limits = Elec_controller.voltage_update_time  
 
-        
-       
-        
-        
-
     return System_state,rng,paths,Results, simulation_parameters,Elec_controller
     
 @contextmanager
@@ -565,10 +570,26 @@ def initialize_grid_crystal(
 ):
         """
         Initialize or load a crystal lattice state for kMC simulation.
-        
-        Thread-safe: handles concurrent access from multiple HPC jobs.
-        The first job to arrive creates the grid; subsequent jobs wait and load it.
-        
+
+        MPI-safe / HPC-job-safe 4-phase architecture. The file lock prevents
+        race conditions when several jobs are submitted simultaneously to an
+        HPC cluster: the first job to arrive takes the lock, creates the grid
+        and saves it; the others wait at the barrier until the grid exists on
+        disk and then load it.
+
+        Phase 1 (Rank 0 only): Rank 0 tries to load the grid. If it does not
+          exist, Rank 0 acquires the file lock, creates the grid and saves it
+          to disk. Crystal_Lattice is called with mpi_ctx=None so it runs
+          TRULY serial (no internal barriers/broadcasts) - any internal
+          collective against the live communicator would deadlock against
+          ranks 1..N waiting at the Phase-2 barrier.
+        Phase 2 (All ranks): mpi_ctx.barrier() - ranks 1..N wait for Rank 0
+          to finish saving the file.
+        Phase 3 (All ranks): every rank without a grid loads it from disk.
+          RuntimeError if the grid is still missing.
+        Phase 4 (All ranks): every rank instantiates Crystal_Lattice passing
+          the loaded grid_crystal (fast loading path) and the real mpi_ctx.
+
         Parameters
         ----------
         filename : str
@@ -581,66 +602,71 @@ def initialize_grid_crystal(
         -------
         Crystal_Lattice
         """
-        # If grid_crystal exists: we loaded
-        # Otherwise: we create it (very expensive for larger systems ~100 anstrongs)
         grid_directory = get_grids_root()
         lock_path = grid_directory / f"{filename}.lock"
 
-        # === Fast path: try to load existing grid (no locking needed) ===
-        grid_crystal = _try_load_grid(grid_directory, filename)
-            
-        # === Slow path: grid doesn't exist, need to create it ===
-        if grid_crystal is None:
-          print(f'Grid {filename} not found. Acquiring lock to create it...')
-        
-          with _file_lock(lock_path):
-            # Double-check: another process might have created it
-            # while we waited for the lock
-            grid_crystal = _try_load_grid(grid_directory, filename)
-                
-            if grid_crystal is None:
-              # We're the first: create the grid
-              print(f'Creating grid {filename}... '
-                    f'this may take several minutes for large systems.')
-                
-              # Prepare keyword arguments
-              crystal_kwargs = {}
-              if poissonSolver_parameters is not None:
-                crystal_kwargs['poissonSolver_parameters'] = poissonSolver_parameters
-              
-              if heat_parameters is not None:
-                crystal_kwargs['heat_parameters'] = heat_parameters
-                  
-              # Instantiate system (loads or creates grid internally)
-              System_state = Crystal_Lattice(
-                crystal_features = crystal_features,
-                experimental_conditions = experimental_conditions,
-                Act_E_dict = Act_E_dict,
-                lammps_file = lammps_file,
-                superbasin_parameters = superbasin_parameters,
-                mpi_ctx = mpi_ctx,
-                **crystal_kwargs 
-              )
-            
-              # Save with atomic write
-              if save_data:
-                _save_grid_atomic(
-                  grid_directory, filename, System_state.grid_crystal
-                )
+        # === Phase 1: Rank 0 only - load or create+save the grid =============
+        grid_crystal = None
+        if mpi_ctx is None or mpi_ctx.rank == 0:
+          grid_crystal = _try_load_grid(grid_directory, filename)
 
-      
-              return System_state
-            
-            
-        # === Normal path: grid was loaded successfully ===
+          if grid_crystal is None:
+            logger.info('Grid %s not found. Acquiring lock to create it...', filename)
+
+            with _file_lock(lock_path):
+              # Double-check: another HPC job may have created the grid
+              # while we waited for the lock.
+              grid_crystal = _try_load_grid(grid_directory, filename)
+
+              if grid_crystal is None:
+                # We're the first: create the grid. mpi_ctx=None makes
+                # Crystal_Lattice fully serial - CRITICAL to avoid internal
+                # barriers while Rank 0 is working alone.
+                logger.info('Creating grid %s... this may take several minutes for large systems.', filename)
+
+                creator_kwargs = {}
+                if poissonSolver_parameters is not None:
+                  creator_kwargs['poissonSolver_parameters'] = poissonSolver_parameters
+                if heat_parameters is not None:
+                  creator_kwargs['heat_parameters'] = heat_parameters
+
+                creator = Crystal_Lattice(
+                  crystal_features=crystal_features,
+                  experimental_conditions=experimental_conditions,
+                  Act_E_dict=Act_E_dict,
+                  lammps_file=lammps_file,
+                  superbasin_parameters=superbasin_parameters,
+                  mpi_ctx=None,
+                  **creator_kwargs
+                )
+                grid_crystal = creator.grid_crystal
+
+                # Save with atomic write so ranks 1..N never read a partial file
+                if save_data:
+                  _save_grid_atomic(grid_directory, filename, grid_crystal)
+
+        # === Phase 2: Synchronization (ranks 1..N wait for the saved file) ===
+        if mpi_ctx is not None:
+          mpi_ctx.barrier()
+
+        # === Phase 3: All ranks load the grid from disk ======================
+        if grid_crystal is None:
+          grid_crystal = _try_load_grid(grid_directory, filename)
+        if grid_crystal is None:
+          raise RuntimeError(
+            f"Grid '{filename}' could not be loaded from {grid_directory} "
+            f"after synchronization. Rank 0 should have created and saved it "
+            f"during Phase 1 (check save_data and the grids directory)."
+          )
+
+        # === Phase 4: All ranks instantiate Crystal_Lattice (fast path) ======
         crystal_kwargs = {}
         if poissonSolver_parameters is not None:
             crystal_kwargs['poissonSolver_parameters'] = poissonSolver_parameters
-        if grid_crystal is not None:
-            crystal_kwargs['grid_crystal'] = grid_crystal
+        crystal_kwargs['grid_crystal'] = grid_crystal
         if heat_parameters is not None:
             crystal_kwargs['heat_parameters'] = heat_parameters
-        
+
         System_state = Crystal_Lattice(
             crystal_features=crystal_features,
             experimental_conditions=experimental_conditions,
@@ -650,7 +676,7 @@ def initialize_grid_crystal(
             mpi_ctx=mpi_ctx,
             **crystal_kwargs
         )
-        
+
         return System_state
           
 
@@ -742,23 +768,23 @@ def save_simulation(files_copy,dst,n_sim,simulation_type):
         dest_path = program_directory / item
         
         if not source_path.exists():
-          print(f"SKIP: {item} not found at {source_path}")
+          logger.warning("SKIP: %s not found at %s", item, source_path)
           continue
         
         # === Check for symlinks (common cause of this error) ===
         if source_path.is_symlink():
-          print(f"SKIP: {item} is a symlink")
+          logger.warning("SKIP: %s is a symlink", item)
           continue
           
         dest_path.parent.mkdir(parents=True, exist_ok=True)
         
         if source_path.is_file():
           shutil.copy2(source_path, dest_path)  # Copy the file
-          print(f"Copied file: {item}")
+          logger.info("Copied file: %s", item)
         elif source_path.is_dir():
           if dest_path.exists():
             shutil.rmtree(dest_path)
-            print(f"Removed existing: {item}")
+            logger.info("Removed existing: %s", item)
             
           try:
             shutil.copytree(
@@ -767,13 +793,13 @@ def save_simulation(files_copy,dst,n_sim,simulation_type):
               ignore=ignore_patterns('__pycache__', '*.pyc', '.git'),
               dirs_exist_ok=False
             )
-            print(f"Copied directory: {item}")
+            logger.info("Copied directory: %s", item)
           except shutil.Error as e:
-            print(f"Failed to copy {item}: {e}")
+            logger.error("Failed to copy %s: %s", item, e)
             # List what was copied before failure
             if dest_path.exists():
               files = list(dest_path.rglob('*'))
-              print(f"Partially copied {len(files)} items")
+              logger.warning("Partially copied %d items", len(files))
             raise
           
     
@@ -798,22 +824,20 @@ def _try_load_grid(grid_directory: Path, filename: str):
   
   if dat_path.exists():
     try:
-      print(f'Loading {filename}.dat')
+      logger.info('Loading %s.dat', filename)
       with shelve.open(str(grid_directory / filename)) as shelf:
         return shelf.get(filename)
     except Exception as e:
-      print(f'⚠ Failed to load {dat_path}: {e}. '
-            f'File may be corrupted.')
+      logger.warning('Failed to load %s: %s. File may be corrupted.', dat_path, e)
       return None
   elif pkl_path.exists():
     try:
-      print(f'Loading {filename}.pkl')
+      logger.info('Loading %s.pkl', filename)
       with open(pkl_path, 'rb') as f:
         data = pickle.load(f)
         return data.get(filename)
     except Exception as e:
-      print(f'⚠ Failed to load {pkl_path}: {e}. '
-            f'File may be corrupted.')
+      logger.warning('Failed to load %s: %s. File may be corrupted.', pkl_path, e)
       return None
       
   return None
@@ -833,7 +857,7 @@ def _save_grid_atomic(grid_directory: Path, filename: str, grid_crystal):
       # os.replace() is atomic on BOTH POSIX and Windows
       # (unlike Path.rename() which fails on Windows if dest exists)
       os.replace(str(temp_path), str(pkl_path))
-      print(f'Grid saved to {pkl_path}')
+      logger.info('Grid saved to %s', pkl_path)
       
     except Exception as e:
       # Clean up temp file on failure

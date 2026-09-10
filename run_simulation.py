@@ -11,6 +11,11 @@ from kinetix.initialization import initialization,save_variables
 import numpy as np
 import time
 import platform
+import logging
+
+from kinetix.logging_config import setup_logging
+
+logger = logging.getLogger(__name__)
 
 def get_parameters_from_sim_id(sim_id: int) -> dict:
    """Map SIM_ID to simulation parameters."""
@@ -135,11 +140,13 @@ def _enforce_single_rank_profiling(args):
 
 def main(sim_id, config_name='PZT_ZrTi_PbO3_2.yaml'):
         
+        # Configure logging with defaults before config is loaded
+        setup_logging()
         params = get_parameters_from_sim_id(sim_id)
         System_state,rng,paths,Results,simulation_parameters,Elec_controller = initialization(sim_id, params, config_name)
         
         if System_state.rank == 0:
-          print(f'System size: {System_state.crystal_size}')
+          logger.info('System size: %s', System_state.crystal_size)
           total_start_time = time.time()
           System_state.plot_crystal(45,45,paths['data'],0)    
           
@@ -152,6 +159,8 @@ def main(sim_id, config_name='PZT_ZrTi_PbO3_2.yaml'):
         save_data = simulation_parameters['save_data']
         
         starting_time = time.time()
+
+        exit()
     # =============================================================================
     #     Deposition
     # 
@@ -199,7 +208,7 @@ def main(sim_id, config_name='PZT_ZrTi_PbO3_2.yaml'):
                     
                     j+=1
                     System_state.measurements_crystal()
-                    print(str(System_state.thickness/thickness_limit * 100) + ' %','| Thickness: ', System_state.thickness, '| Total time: ',System_state.list_time[-1])
+                    logger.info('%s %% | Thickness: %s | Total time: %s', str(System_state.thickness/thickness_limit * 100), System_state.thickness, System_state.list_time[-1])
                     end_time = time.time()
                     if save_data:
                         Results.measurements_crystal(System_state.list_time[-1],System_state.mass_gained,System_state.fraction_sites_occupied,
@@ -260,7 +269,7 @@ def main(sim_id, config_name='PZT_ZrTi_PbO3_2.yaml'):
                     System_state.add_time()
                     j+=1
                     System_state.measurements_crystal()
-                    print(str(j)+"/"+str(int(total_steps/snapshots_steps)),'| Total time: ',System_state.list_time[-1])
+                    logger.info('%s/%s | Total time: %s', str(j), str(int(total_steps/snapshots_steps)), System_state.list_time[-1])
                     end_time = time.time()
                     if save_data:
                         Results.measurements_crystal(System_state.list_time[-1],System_state.mass_gained,System_state.fraction_sites_occupied,
@@ -342,7 +351,7 @@ def main(sim_id, config_name='PZT_ZrTi_PbO3_2.yaml'):
                         uh = poisson_solver.solve(particle_locations,charges) 
                         run_time = MPI.Wtime() - run_start_time
                         
-                        if System_state.rank == 0: print(f'Run time to solve Poisson: {run_time}')
+                        if System_state.rank == 0: logger.info('Run time to solve Poisson: %s', run_time)
 
                         if save_Poisson:
                           poisson_solver.save_potential(System_state.time,j+1)
@@ -364,8 +373,8 @@ def main(sim_id, config_name='PZT_ZrTi_PbO3_2.yaml'):
                          
                          Avg_T = heat_solver.get_average_temperature()
                          if System_state.rank == 0: 
-                           print(f'Run time to solve Heat: {heat_run_time}', flush=True)
-                           print(f'Avg temperature: {Avg_T:.10f} K', flush=True)
+                           logger.info('Run time to solve Heat: %s', heat_run_time)
+                           logger.info('Avg temperature: %.10f K', Avg_T)
                          
                          # Save temperature
                          if save_heat:
@@ -384,11 +393,11 @@ def main(sim_id, config_name='PZT_ZrTi_PbO3_2.yaml'):
                         System_state.add_time()
     
                         # System_state.measurements_crystal()
-                        print(str(j)+"/"+str(int(Elec_controller.total_simulation_time/Elec_controller.voltage_update_time)),'| Total time: ',System_state.list_time[-1],'| Voltage: ',V_top, flush=True)
-                        print(f'Events at step {j}: {System_state.events_tracking}', flush=True)
-                        print(f'Scavenged ions: {System_state.scavenged_ions}', flush=True)
+                        logger.info('%s/%s | Total time: %s | Voltage: %s', str(j), str(int(Elec_controller.total_simulation_time/Elec_controller.voltage_update_time)), System_state.list_time[-1], V_top)
+                        logger.info('Events at step %s: %s', j, System_state.events_tracking)
+                        logger.info('Scavenged ions: %s', System_state.scavenged_ions)
                         if Elec_controller.current_enabled:
-                          print(f"Current: {Elec_controller.measurements['current'][-1]}", flush=True)
+                          logger.info("Current: %s", Elec_controller.measurements['current'][-1])
     
                         end_time = time.time()
                         System_state.plot_crystal(45,45,paths['data'],j)        
@@ -397,9 +406,7 @@ def main(sim_id, config_name='PZT_ZrTi_PbO3_2.yaml'):
         if System_state.rank == 0:
           
           total_end_time = time.time()
-          print(f"==================================================")
-          print(f"SUCCESS: Simulation {sim_id} completed in {total_end_time - total_start_time:.2f} seconds.")
-          print(f"==================================================")
+          logger.info("SUCCESS: Simulation %s completed in %.2f seconds.", sim_id, total_end_time - total_start_time)
           
           # Variables to save
           
@@ -431,7 +438,7 @@ if __name__ == '__main__':
     profile_mode = args.profile
     
     if args.dry_run:
-      print(f"[DRY RUN] sim_id={sim_id}, config={config_name}, profile={profile_mode}")
+      logger.info("[DRY RUN] sim_id=%s, config=%s, profile=%s", sim_id, config_name, profile_mode)
       sys.exit(0)
       
     _enforce_single_rank_profiling(args)
@@ -452,10 +459,8 @@ if __name__ == '__main__':
         
         stats = pstats.Stats(profiler)
         stats.sort_stats('cumulative')
-        print("\n" + "="*60)
-        print("PROFILING RESULTS (top 15 functions by cumulative time)")
-        print("="*60)
+        logger.info("PROFILING RESULTS (top 15 functions by cumulative time)")
         stats.print_stats(15)
-        print("Full profile saved to 'kmc_profile.prof'")
+        logger.info("Full profile saved to 'kmc_profile.prof'")
     else:
         System_state = main(sim_id, config_name)

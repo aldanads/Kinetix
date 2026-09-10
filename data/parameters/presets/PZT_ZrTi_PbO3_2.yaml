@@ -63,6 +63,7 @@ settings:
   seed_rng: null                           
   save_data: true                      
   lammps_output: true
+  log_level: "INFO"  # DEBUG, INFO, WARNING, ERROR
   activation_energies: "activation_energies/PZT_ZrPbO3.json"   
   output_path: '/sfiwork/samuel.delgado/PZT/Batch 4/'                
   
