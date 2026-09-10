@@ -18,7 +18,7 @@ metadata:
 material:
   name: "HfO2"
   mp_id: "mp-352"
-  radius_neighbors: 4.9
+  radius_neighbors: 5.1
   epsilon_r: 23.0
   
 # -----------------------------------------------------------------------------

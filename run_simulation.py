@@ -160,7 +160,6 @@ def main(sim_id, config_name='PZT_ZrTi_PbO3_2.yaml'):
         
         starting_time = time.time()
 
-        exit()
     # =============================================================================
     #     Deposition
     # 

@@ -19,6 +19,15 @@ def setup_logging(level=logging.INFO, log_file=None):
 
     root = logging.getLogger("kinetix")
     root.setLevel(level)
+
+    # Prevent duplicate output: child loggers (kinetix.lattice.crystal, ...)
+    # propagate up to 'kinetix' where our handler emits once. Without stopping
+    # propagation here, records would keep climbing to the real root logger ""
+    # and, if a third-party library installed a handler there (e.g. via
+    # logging.basicConfig()), every message would be printed a second time
+    # with Python's default '%(levelname)s:%(name)s:%(message)s' format.
+    root.propagate = False
+
     root.handlers.clear()  # Prevent duplicate handlers when called multiple times (or across MPI ranks)
 
     console = logging.StreamHandler(sys.stdout)
