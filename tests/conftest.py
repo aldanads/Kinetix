@@ -16,3 +16,12 @@ if str(src_path) not in sys.path:
 # Also add project root (for imports like: from utils.mpi_context import ...)
 if str(root_path) not in sys.path:
     sys.path.insert(0, str(root_path))
+
+
+def pytest_configure(config):
+    """Register custom markers to avoid PytestUnknownMarkWarning."""
+    config.addinivalue_line(
+        "markers",
+        "slow: tests that run many CI-NEB calculations; deselect during "
+        "development with `pytest -m \"not slow\"`",
+    )

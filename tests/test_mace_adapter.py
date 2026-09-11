@@ -8,6 +8,8 @@ Run from the repository root::
 Skips cleanly when the MACE model file or the optional mace-torch stack
 (torch + mace) is unavailable.
 """
+import csv
+import os
 import time
 from pathlib import Path
 
@@ -116,11 +118,33 @@ def oi_hop(system_state):
 
     # Destination: a neighboring empty interstitial.
     origin = system_state.grid_crystal[origin_idx]
-    dest_idx = next(
-        n for n in origin.nearest_neighbors_idx
-        if system_state.grid_crystal[n].site_type == "interstitial"
-        and system_state.grid_crystal[n].chemical_specie == "Empty"
-    )
+    dest_idx = None
+    for n in origin.nearest_neighbors_idx:
+        neighbor = system_state.grid_crystal[n]
+        if neighbor.site_type == "interstitial" and neighbor.chemical_specie == "Empty":
+            dest_idx = n
+            break
+
+    # Fallback: search the whole grid for the nearest empty interstitial
+    if dest_idx is None:
+        origin_pos = np.array(origin.position)
+        best_dist = np.inf
+        for idx, neighbor in system_state.grid_crystal.items():
+            if idx == origin_idx:
+                continue
+            if neighbor.site_type != "interstitial":
+                continue
+            if neighbor.chemical_specie != "Empty":
+                continue
+            # Use minimum image distance
+            v = system_state._minimum_image_vector(np.array(neighbor.position) - origin_pos)
+            dist = np.linalg.norm(v)
+            if dist < best_dist:
+                best_dist = dist
+                dest_idx = idx
+
+        if dest_idx is None:
+            pytest.skip("No neighboring empty interstitial found for the hop test")
 
     system_state.update_sites_topology(support_update_sites,
                                        event_update_sites)
@@ -228,4 +252,164 @@ class TestMACEAdapterBarrier:
         assert dt < CACHE_MAX_S, f"cache hit too slow: {dt:.4f}s"
         print(f"cache hit time: {dt:.4f} s")
 
-    # def 
+    # def
+
+
+# =============================================================================
+# Comprehensive pathway tests: barriers for ALL migration pathways from
+# representative bulk-like sites (SLOW: many CI-NEB calculations, hours).
+# Run with: pytest tests/test_mace_adapter.py -k AllPathways -v
+# Skip with: pytest tests/test_mace_adapter.py -m "not slow"
+# =============================================================================
+def _representative_site(system_state, wanted_types, wanted_specie=None):
+    """Site of one of wanted_types closest to the supercell center, away from
+    the z boundaries (>= R_SHELL fractional check, as in oi_hop)."""
+    lattice = system_state.structure.lattice
+    center = lattice.get_cartesian_coords([0.5, 0.5, 0.5])
+    z_height = abs(lattice.matrix[2][2])
+    frac_thr = R_SHELL / z_height
+
+    candidates = []
+    for idx, site in system_state.grid_crystal.items():
+        if site.site_type not in wanted_types:
+            continue
+        if wanted_specie is not None and site.chemical_specie != wanted_specie:
+            continue
+        frac = lattice.get_fractional_coords(site.position)
+        if not (frac_thr <= frac[2] <= 1.0 - frac_thr):
+            continue
+        d = np.linalg.norm(np.array(site.position, float) - center)
+        candidates.append((d, idx))
+
+    if not candidates:
+        pytest.skip(f"No bulk-like {wanted_types} site found in the mock grid")
+
+    candidates.sort(key=lambda x: x[0])
+    return candidates[0][1]
+
+
+@pytest.mark.slow
+class TestMACEAdapterAllPathways:
+    """Comprehensive barrier calculations for ALL pathways from representative
+    bulk-like sites. Each hop runs a full CI-NEB relaxation, so this class
+    takes hours; deselect during rapid development with `pytest -m "not slow"`.
+    """
+
+    @pytest.fixture(scope="class")
+    def representative_interstitial(self, system_state):
+        """Bulk-like EMPTY interstitial closest to the supercell center."""
+        return _representative_site(system_state, ("interstitial",), "Empty")
+
+    @pytest.fixture(scope="class")
+    def representative_vacancy(self, system_state):
+        """Host oxygen site closest to the supercell center."""
+        return _representative_site(system_state, ("O",), "O")
+
+    @staticmethod
+    def _calculate_all_pathways(system_state, mace_adapter, origin_idx,
+                                dest_site_types, csv_path):
+        """Barriers for all eligible neighbors of origin_idx (defect already
+        introduced by the caller). Prints results and saves them to csv_path."""
+        grid = system_state.grid_crystal
+        origin_site = grid[origin_idx]
+        origin_pos = np.array(origin_site.position, float)
+
+        results = []
+        for neighbor_idx in origin_site.nearest_neighbors_idx:
+            neighbor_site = grid[neighbor_idx]
+            if neighbor_site.site_type not in dest_site_types:
+                continue
+
+            # Distance under the minimum image convention.
+            dest_pos = np.array(neighbor_site.position, float)
+            v = system_state._minimum_image_vector(dest_pos - origin_pos)
+            distance = np.linalg.norm(v)
+
+            try:
+                barrier = mace_adapter.get_barrier(
+                    grid, origin_idx, neighbor_idx, use_cache=True)
+            except Exception as exc:  # non-converging NEB must not kill sweep
+                barrier = None
+                print(f"FAILED barrier for hop {origin_idx} -> {neighbor_idx}: {exc}")
+
+            specie = neighbor_site.chemical_specie
+            results.append({
+                "origin_idx": origin_idx,
+                "dest_idx": neighbor_idx,
+                "origin_pos": " ".join(f"{c:.4f}" for c in origin_pos),
+                "dest_pos": " ".join(f"{c:.4f}" for c in dest_pos),
+                "distance": f"{distance:.4f}",
+                "barrier": f"{barrier:.4f}" if barrier is not None else "",
+                "chemical_specie": specie,
+            })
+
+            barrier_str = f"{barrier:.3f} eV" if barrier is not None else "FAILED"
+            print(f"Hop {origin_idx} -> {neighbor_idx}: "
+                  f"origin_pos={origin_pos} final_pos={dest_pos} "
+                  f"distance={distance:.3f} Ang barrier={barrier_str} "
+                  f"specie={specie}")
+
+        if results:
+            os.makedirs(os.path.dirname(csv_path), exist_ok=True)
+            with open(csv_path, "w", newline="") as f:
+                writer = csv.DictWriter(f, fieldnames=list(results[0].keys()))
+                writer.writeheader()
+                writer.writerows(results)
+            print(f"Results saved to {csv_path}")
+
+        n_ok = sum(1 for r in results if r["barrier"])
+        print(f"Pathway sweep from site {origin_idx}: {len(results)} pathways, "
+              f"{n_ok} barriers OK, {len(results) - n_ok} failed")
+        return results
+
+    def test_all_interstitial_pathways(self, system_state, mace_adapter,
+                                       representative_interstitial):
+        """Barriers for ALL interstitial hops from a representative O_i site."""
+        origin_idx = representative_interstitial
+
+        # Introduce an oxygen interstitial at the representative site.
+        cfg = system_state.defects_config["oxygen_interstitial"]
+        support_update_sites = set()
+        event_update_sites = set()
+        system_state._introduce_specie_site(
+            origin_idx, support_update_sites, event_update_sites,
+            cfg["symbol"], cfg["charge"],
+        )
+        system_state.update_sites_topology(support_update_sites,
+                                           event_update_sites)
+
+        csv_path = REPO_ROOT / "test_output" / "interstitial_pathways.csv"
+        results = self._calculate_all_pathways(
+            system_state, mace_adapter, origin_idx, ("interstitial",),
+            str(csv_path))
+
+        assert len(results) > 0, "No interstitial neighbor pathways found"
+
+    def test_all_vacancy_pathways(self, system_state, mace_adapter,
+                                  representative_vacancy):
+        """Barriers for ALL oxygen hops from a representative V_O site.
+
+        V_O is represented by the host oxygen site becoming an Empty space;
+        _introduce_specie_site with the oxygen_vacancy config marks it V_O and
+        the MACE adapter then builds the IS/FS pair with the oxygen REMOVED
+        (build_pair skips the vacant site's atom), so no special handling is
+        needed here beyond the standard introduction.
+        """
+        origin_idx = representative_vacancy
+
+        # Introduce an oxygen vacancy at the representative host site.
+        cfg = system_state.defects_config["oxygen_vacancy"]
+        support_update_sites = set()
+        event_update_sites = set()
+        system_state._introduce_specie_site(
+            origin_idx, support_update_sites, event_update_sites,
+            cfg["symbol"], cfg["charge"],
+        )
+        system_state.update_sites_topology(support_update_sites,
+                                           event_update_sites)
+
+        csv_path = REPO_ROOT / "test_output" / "vacancy_pathways.csv"
+        results = self._calculate_all_pathways(
+            system_state, mace_adapter, origin_idx, ("O",), str(csv_path))
+
+        assert len(results) > 0, "No oxygen neighbor pathways found"
