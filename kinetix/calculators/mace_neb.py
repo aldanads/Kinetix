@@ -276,7 +276,7 @@ class MACENEBBarrierCalculator:
       
       pos_after = at.positions[-1]
       disp = np.linalg.norm(pos_after - pos_before)
-      logger.debug("[%s] Relaxed energy: %.4f eV, O_i displacement: %.4f angstroms",
+      logger.debug("[%s] Relaxed energy: %.4f eV, relaxation displacement: %.4f angstroms",
               label, at.get_potential_energy(), disp)
       
       at.calc = None

@@ -489,6 +489,20 @@ class Crystal_Lattice():
       
       if self.rank == 0:
         self._validate_migration_network(radius_neighbors)
+        
+        # NEW: Percolation sanity check
+        percolated, n_connected = self._check_percolation_at_radius(
+          radius_neighbors, site_type="interstitial"
+        )
+        if percolated:
+          logger.info("Percolation check: PASSED (%d connected sites)", n_connected)
+        else:
+          logger.warning(
+            "Percolation check: FAILED at radius=%.2f Å. "
+            "No connected path from bottom to top electrode. "
+            "Filament formation will not be possible.",
+            radius_neighbors
+          )
       
       # Electric field-dependent barriers
       if (self.poissonSolver_parameters and
@@ -703,6 +717,147 @@ class Crystal_Lattice():
 
       return query_positions
             
+    def _check_percolation_at_radius(self, radius, site_type="interstitial"):
+      """Check whether `site_type` sites percolate bottom<->top at a radius.
+
+      The bottom and top electrode bands are taken as the OUTERMOST ROW of
+      the sublattice on each side (at least one full row of `site_type`
+      sites is included in each band), so the check works even when the
+      sublattice does not reach the cell faces - e.g. the interstitial
+      sublattice of a thin film. A DFS from all bottom-row sites then
+      follows same-`site_type` neighbors found with the KD-tree
+      (`_get_neighbors_for_site`), so no brute-force O(N^2) search is
+      needed.
+
+      Parameters
+      ----------
+      radius : float
+          Neighbor search radius (Å).
+      site_type : str
+          Site type to analyze ("interstitial", "O", ...).
+
+      Returns
+      -------
+      (bool, int)
+          (whether a bottom-row site connects to a top-row site, number of
+          sites visited by the DFS starting from all bottom-row sites).
+      """
+      # Lazily build the k-d tree if it is not already available (e.g. when
+      # these helpers are called directly on a loaded grid).
+      if getattr(self, "_kdtree", None) is None:
+        self._build_kdtree()
+
+      lattice = self.structure.lattice
+
+      # Fractional z of every site of the requested type
+      frac_z = {}
+      for idx, site in self.grid_crystal.items():
+        if site.site_type != site_type:
+          continue
+        frac_z[idx] = lattice.get_fractional_coords(site.position)[2]
+
+      if len(frac_z) < 2:
+        return False, 0
+
+      # Electrode bands from the actual rows of the sublattice, so that at
+      # least one full row of sites is always included on each side. Each
+      # band edge is the midpoint between the outermost row and its neighbor.
+      z_planes = sorted({round(z, 4) for z in frac_z.values()})
+      if len(z_planes) < 2:
+        return False, 0
+
+      bottom_edge = z_planes[0] + (z_planes[1] - z_planes[0]) / 2.0
+      top_edge = z_planes[-1] - (z_planes[-1] - z_planes[-2]) / 2.0
+
+      bottom_sites = {idx for idx, z in frac_z.items() if z <= bottom_edge}
+      top_sites = {idx for idx, z in frac_z.items() if z >= top_edge}
+
+      if not bottom_sites or not top_sites:
+        return False, 0
+
+      # DFS from all bottom sites, following only same-site_type neighbors
+      visited = set()
+      stack = list(bottom_sites)
+
+      while stack:
+        current = stack.pop()
+        if current in visited:
+          continue
+        visited.add(current)
+
+        if current in top_sites:
+          return True, len(visited)
+
+        # Use KD-tree for efficient neighbor search
+        neighbor_indices = self._get_neighbors_for_site(current, radius)
+
+        for neighbor_idx in neighbor_indices:
+          if neighbor_idx in visited:
+            continue
+          neighbor = self.grid_crystal[neighbor_idx]
+          if neighbor.site_type != site_type:
+            continue
+          stack.append(neighbor_idx)
+
+      return False, len(visited)
+
+    def find_optimal_radius(self, site_type="interstitial",
+                            min_radius=1.5, max_radius=6.0, step=0.25,
+                            safety_margin=0.5):
+      """Find the minimum radius_neighbors that gives percolation.
+
+      Uses binary search with the existing KD-tree for efficient neighbor
+      lookup (see `_check_percolation_at_radius`).
+
+      Parameters
+      ----------
+      site_type : str
+          Site type to check percolation for ("interstitial" or "O").
+      min_radius : float
+          Lower bound for the search (Å).
+      max_radius : float
+          Upper bound for the search (Å).
+      step : float
+          Precision of the search (Å).
+      safety_margin : float
+          Extra margin added to the percolation threshold (Å).
+
+      Returns
+      -------
+      float
+          Optimal radius_neighbors value.
+      """
+      # First check if percolation is even possible at max_radius
+      percolated, _ = self._check_percolation_at_radius(max_radius, site_type)
+      if not percolated:
+        logger.warning(
+          "No percolation even at max_radius=%.1f Å for site_type=%s. "
+          "Grid may be too sparse. Using max_radius.",
+          max_radius, site_type
+        )
+        return max_radius
+
+      # Binary search for the minimum percolation radius
+      lo, hi = min_radius, max_radius
+      while hi - lo > step:
+        mid = (lo + hi) / 2.0
+        percolated, _ = self._check_percolation_at_radius(mid, site_type)
+        if percolated:
+          hi = mid
+        else:
+          lo = mid
+
+      # Add safety margin to ensure robust connectivity
+      optimal_radius = hi + safety_margin
+
+      logger.info(
+        "Optimal radius_neighbors: %.2f Å (%s, "
+        "percolation threshold at %.2f Å, +%.2f Å margin)",
+        optimal_radius, site_type, hi, safety_margin
+      )
+
+      return optimal_radius
+
     def diagnose_steep_down(self, site_idx, radius_neighbors):
       site = self.grid_crystal[site_idx]
       pos = np.array(site.position)
@@ -791,6 +946,16 @@ class Crystal_Lattice():
           self._compute_interface_flags()
           # Initialize pathways for loaded grids too 
           self._build_kdtree()
+
+          if mode == "interstitial":
+            optimal_radius = self.find_optimal_radius(
+                site_type="interstitial",
+                min_radius=1.5,
+                max_radius=radius_neighbors,
+                safety_margin=0.5
+            )
+            radius_neighbors = optimal_radius
+            
           self._initialize_migration_pathways(radius_neighbors, reset_energies=True)   
         else:
           
@@ -854,6 +1019,23 @@ class Crystal_Lattice():
           # === STEP 3.5: Set interface flags ===
           self._compute_interface_flags()
                 
+          # --- STEP 3.75: Automated radius_neighbors selection (creation only) ---
+          # Rebuild the KD-tree with the interstitial sites added in Step 3,
+          # then find the minimum radius that percolates bottom<->top. This
+          # only runs during grid CREATION (loading a cached grid keeps the
+          # preset radius). The preset radius_neighbors is the search upper
+          # bound and the returned optimal value overrides it below.
+          self._build_kdtree()
+          if mode == "interstitial":
+            optimal_radius = self.find_optimal_radius(
+              site_type="interstitial",
+              min_radius=1.5,
+              max_radius=radius_neighbors,  # Use preset value as upper bound
+              safety_margin=0.5
+            )
+            # Override the preset radius with the optimal one
+            radius_neighbors = optimal_radius
+
           # --- STEP 4: Initialize migration pathways from grid ---
           start_time = time.perf_counter()
           self._build_kdtree()
