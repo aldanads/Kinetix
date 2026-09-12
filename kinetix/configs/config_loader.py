@@ -3,6 +3,7 @@
 Configuration file loader for runtime settings (API keys, paths, etc.)
 """
 
+import os
 from pathlib import Path
 import json
 from typing import Any, Dict
@@ -11,9 +12,27 @@ from typing import Any, Dict
 # Path Helpers
 # =============================================================================
 
+#: Environment variable overriding the top-level Kinetix data directory.
+#: When set, it must mirror the repository layout: it contains ``data/``
+#: (with ``parameters/``, ``grids/``, ``mesh/``, ...) and the optional
+#: ``config.json`` file. This keeps the package functional when it is
+#: installed into site-packages, where the source-tree fallback below is
+#: not meaningful.
+ENV_DATA_DIR = 'KINETIX_DATA_DIR'
+
+
 def get_project_root() -> Path:
-  """Get the project root directory (parent of kinetix/)"""
-  return Path(__file__).parent.parent.parent
+  """Get the Kinetix data root directory.
+
+  Resolution order:
+    1. ``$KINETIX_DATA_DIR`` environment variable (install-safe override).
+    2. Fallback (development): the repository root, resolved from this file
+       (``kinetix/configs/config_loader.py`` -> up three levels).
+  """
+  env_root = os.environ.get(ENV_DATA_DIR)
+  if env_root:
+    return Path(env_root)
+  return Path(__file__).resolve().parent.parent.parent
   
 def get_data_root() -> Path:
   """Get the data directory where parameter files are stored"""
@@ -36,7 +55,7 @@ def get_mesh_root() -> Path:
 # =============================================================================
   
 def get_config_path() -> Path:
-  """Get the path to config.json"""
+  """Get the path to config.json (top of the resolved data root)."""
   return get_project_root() / 'config.json'
   
 def load_config() -> Dict[str, Any]:
@@ -46,7 +65,8 @@ def load_config() -> Dict[str, Any]:
   if not config_path.exists():
     raise FileNotFoundError(
       f'Config file not found at {config_path}\n'
-      f'Please create config.json in the project root with your API key'
+      f'Please create config.json with your API key, or set the '
+      f'MP_API_KEY environment variable instead.'
     )
     
   with open(config_path, 'r') as f:
@@ -61,7 +81,16 @@ def load_config() -> Dict[str, Any]:
   return config
   
 def get_api_key() -> str:
-    """Convenience function to get just the API key"""
+    """Get the Materials Project API key.
+
+    Resolution order:
+      1. ``$MP_API_KEY`` environment variable (highest priority).
+      2. ``api_key`` field of ``config.json`` (via :func:`get_config_path`).
+    """
+    env_key = os.environ.get('MP_API_KEY')
+    if env_key:
+        return env_key.strip()
+
     config = load_config()
     return config['api_key']
     

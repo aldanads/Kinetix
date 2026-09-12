@@ -158,14 +158,9 @@ def initialization(n_sim,params, config_name='PZT_ZrTi_PbO3_2.yaml'):
         sites_generation_layer = ['bottom_layer','top_layer']
 
 
-        script_directory = Path(__file__).parent        # Get the config path from the environment variable or fallback to the current directory
-        config_path = script_directory / 'config.json'
-        
-        
-        # Create a config.json file with the API key -> To avoid uploading to Github
-        with open(config_path) as config_file:
-            config = json.load(config_file)
-            api_key = config['api_key']
+        # Resolve the Materials Project API key through the unified loader
+        # (env MP_API_KEY first, then config.json via get_config_path()).
+        api_key = get_api_key()
         
 
         # Retrieve material data
