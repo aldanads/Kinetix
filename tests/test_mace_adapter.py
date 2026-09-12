@@ -362,6 +362,7 @@ class TestMACEAdapterAllPathways:
               f"{n_ok} barriers OK, {len(results) - n_ok} failed")
         return results
 
+    @pytest.mark.slow
     def test_all_interstitial_pathways(self, system_state, mace_adapter,
                                        representative_interstitial):
         """Barriers for ALL interstitial hops from a representative O_i site."""
@@ -385,6 +386,7 @@ class TestMACEAdapterAllPathways:
 
         assert len(results) > 0, "No interstitial neighbor pathways found"
 
+    @pytest.mark.slow
     def test_all_vacancy_pathways(self, system_state, mace_adapter,
                                   representative_vacancy):
         """Barriers for ALL oxygen hops from a representative V_O site.

@@ -7,8 +7,8 @@ import numpy as np
 from pathlib import Path
 from scipy.constants import epsilon_0
 
-from solvers.poisson import PoissonSolver
-from utils.mpi_context import MPIContext
+from kinetix.solvers.poisson import PoissonSolver
+from kinetix.utils.mpi_context import MPIContext
 
 class MockCluster:
     """Mock Cluster object for testing."""
@@ -31,21 +31,31 @@ class TestPoissonSolver:
         params = {
             'mesh_file': 'test_mock_mesh.msh',
             'epsilon_r': 25.0,
-            'conductivity_CF': 1e6,
-            'conductivity_dielectric': 1e-10,
+            'conductivity': {
+                'conductive_filament': 1e6,
+                'dielectric': 1e-10,
+            },
             'metal_valence': 4,
             'd_metal_O': 2.0,
             'chem_env_symmetry': 'Octahedron',
             'active_dipoles': 1.0,
-            'defects_config': {}
+            'defects_config': {},
+            'mesh_config': {
+                'mesh_size': 2.0,
+                'fine_mesh_size': 0.5,
+                'refinement_radius': 3.0,
+                'bounding_box_padding': 3.0,
+                'epsilon_gaussian_charge': 0.8,
+                'activate_mesh_refinement': True,
+                'gdim': 3,
+                'gmsh_model_rank': 0,
+            }
         }
         
         return PoissonSolver(
             params,
             mpi_ctx=mpi_ctx,
-            path_results=Path('./test_output'),
-            mesh_size=2.0,
-            fine_mesh_size=0.5
+            path_results=Path('./test_output')
         )
     
     def test_initialization(self, poisson_solver):
@@ -67,7 +77,8 @@ class TestPoissonSolver:
         charge_locations = np.array([[5.0, 5.0, 5.0]])
         charges = np.array([1.602e-19])  # Elementary charge
         
-        rho = poisson_solver.charge_density(charge_locations, charges)
+        rho = poisson_solver.charge_density(charge_locations, charges,
+                                            tolerance=10.0)
         
         assert rho is not None
         assert len(rho.x.array) > 0
@@ -82,7 +93,8 @@ class TestPoissonSolver:
         ])
         charges = np.array([1.602e-19, -1.602e-19, 1.602e-19])
         
-        rho = poisson_solver.charge_density(charge_locations, charges)
+        rho = poisson_solver.charge_density(charge_locations, charges,
+                                            tolerance=10.0)
         
         assert rho is not None
         print("? Multiple charge density calculated")
@@ -157,7 +169,7 @@ class TestPoissonSolver:
         uh = poisson_solver.solve([], [])
         
         points = np.array([[5.0, 5.0, 5.0]])
-        E_field = poisson_solver.evaluate_electric_field_at_points(uh, points)
+        E_field = poisson_solver.evaluate_electric_field_at_points(points)
         
         assert len(E_field) > 0
         assert tuple(np.round(points[0], 6)) in E_field
@@ -171,10 +183,10 @@ class TestPoissonSolver:
         points = np.array([[5.0, 5.0, 5.0]])
         
         # First evaluation (computes)
-        E1 = poisson_solver.evaluate_electric_field_at_points(uh, points)
+        E1 = poisson_solver.evaluate_electric_field_at_points(points)
         
         # Second evaluation (should use cache)
-        E2 = poisson_solver.evaluate_electric_field_at_points(uh, points)
+        E2 = poisson_solver.evaluate_electric_field_at_points(points)
         
         # Should be identical
         key = tuple(np.round(points[0], 6))
@@ -183,9 +195,13 @@ class TestPoissonSolver:
     
     def test_conductivity_in_system(self, poisson_solver):
         """Test conductivity field setup."""
-        metal_atoms = [(5.0, 5.0, 5.0),(6.0, 6.0, 6.0)]
-        
-        poisson_solver.conductivity_in_system(metal_atoms)
+        # Conductivity values now come from params['conductivity'] (fixture);
+        # the method no longer takes cluster positions as an argument.
+        # set_boundary_conditions() must run first: it initializes the
+        # contact-resistance state that conductivity_in_system() relies on
+        # (same order as in the production solve() flow).
+        poisson_solver.set_boundary_conditions(top_value=1.0, bottom_value=0.0)
+        poisson_solver.conductivity_in_system()
         
         # Check that sigma was updated
         assert poisson_solver.sigma is not None
