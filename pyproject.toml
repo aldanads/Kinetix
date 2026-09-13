@@ -1,0 +1,57 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "kinetix"
+version = "0.1.0"
+description = "Kinetic Monte Carlo simulator for materials deposition, annealing, and memristive device modeling"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+authors = [
+    { name = "Dr. Samuel Aldana Delgado", email = "samuel.delgado@tyndall.ie" },
+]
+dependencies = [
+    "numpy",
+    "scipy",
+    "pandas",
+    "pyyaml",
+    "mpi4py",
+    "pymatgen",
+    "scikit-learn",
+    "matplotlib",
+    "seaborn",
+    "fenics-dolfinx",
+    "gmsh",
+    "petsc4py",
+]
+
+[project.optional-dependencies]
+mace = [
+    "ase",
+    "mace-torch",
+    "torch",
+]
+dev = [
+    "pytest",
+    "ruff",
+    "pre-commit",
+]
+
+# ---------------------------------------------------------------------------
+# Hatchling build configuration
+#
+# Flat layout: the importable package stays at kinetix/ in the repository
+# root. The top-level data/parameters directory (simulation presets + defect/
+# reaction/electrical/grain-boundary parameter files) is listed as an
+# artifact so it ships in the wheel at the same relative path it occupies in
+# the repository. This keeps get_parameters_root()'s fallback resolution
+# correct for both a source checkout and an installed package.
+# ---------------------------------------------------------------------------
+[tool.hatch.build.targets.wheel]
+packages = ["kinetix"]
+force-include = { "data/parameters" = "data/parameters" }
+
+[tool.hatch.build.targets.sdist]
+include = ["data/parameters/**"]
