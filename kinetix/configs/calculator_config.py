@@ -4,17 +4,27 @@
 Pure dataclasses only - no torch/mace imports at module level.
 Actual MACE model loading happens lazily in kinetix/calculators/mace_neb.py.
 """
+from __future__ import annotations
+
 from dataclasses import dataclass
-from typing import Dict, Optional
 
 @dataclass
 class InterstitialRefinementConfig:
-  """Parameters for refining interstitial sites before grid generation."""
+  """Parameters for refining interstitial sites before grid generation.
+
+  Attributes:
+      enabled: Whether interstitial refinement is performed.
+      displacement_threshold: Displacement cutoff in Angstroms.
+  """
   enabled: bool = False
   displacement_threshold: float = 0.5  # Angstroms
 
-  def to_dict(self) -> Dict[str, object]:
-    """Convert to dictionary for backwards compatibility"""
+  def to_dict(self) -> dict[str, object]:
+    """Convert to a plain dictionary for backwards compatibility.
+
+    Returns:
+        Dictionary with the keys "enabled" and "displacement_threshold".
+    """
     return {
       'enabled': self.enabled,
       'displacement_threshold': self.displacement_threshold,
@@ -24,9 +34,18 @@ class InterstitialRefinementConfig:
 class CalculatorConfig:
   """Activation-energy calculator parameters.
 
-  type: "mace_neb" or "tabulated"
-  model: Local path or HF repo ID
-  cluster: {"R_active": 5.0, "R_shell": 7.0} or None for full periodic NEB
+  Attributes:
+      type: Calculator type, either "mace_neb" or "tabulated".
+      model: Local model path or Hugging Face repository ID.
+      n_images: Number of NEB images.
+      fmax: Force convergence criterion in eV/Angstrom.
+      max_steps: Maximum optimizer steps for the NEB relaxation.
+      device: Torch device, "cpu" or "cuda".
+      default_dtype: Torch default dtype name (e.g. "float64").
+      cluster: Cluster radii such as {"R_active": 5.0, "R_shell": 7.0},
+          or None for a full periodic NEB.
+      cache_dir: Directory for caching computed barriers.
+      interstitial_refinement: Optional interstitial refinement settings.
   """
   type: str = "tabulated"              # "mace_neb" or "tabulated"
   model: str = ""                      # Local path or HF repo ID
@@ -35,12 +54,17 @@ class CalculatorConfig:
   max_steps: int = 300
   device: str = "cpu"                  # "cpu" or "cuda"
   default_dtype: str = "float64"
-  cluster: Optional[Dict[str, float]] = None  # {"R_active": 5.0, "R_shell": 7.0}
+  cluster: dict[str, float] | None = None  # {"R_active": 5.0, "R_shell": 7.0}
   cache_dir: str = "data/cache/neb_cache"
-  interstitial_refinement: Optional[InterstitialRefinementConfig] = None
+  interstitial_refinement: InterstitialRefinementConfig | None = None
 
-  def to_dict(self) -> Dict[str, object]:
-    """Convert to dictionary for backwards compatibility"""
+  def to_dict(self) -> dict[str, object]:
+    """Convert to a plain dictionary for backwards compatibility.
+
+    Returns:
+        Dictionary with all calculator fields; `interstitial_refinement`
+        is nested as its own dictionary (or None).
+    """
     return {
       'type': self.type,
       'model': self.model,

@@ -3,10 +3,17 @@
 Configuration file loader for runtime settings (API keys, paths, etc.)
 """
 
+from __future__ import annotations
+
 import os
 from pathlib import Path
 import json
-from typing import Any, Dict
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    # Type-checking only: simulation_config pulls in the full configuration
+    # stack (numpy, yaml, and every sub-config module).
+    from kinetix.configs.simulation_config import SimulationSettings
 
 # =============================================================================
 # Path Helpers
@@ -58,8 +65,17 @@ def get_config_path() -> Path:
   """Get the path to config.json (top of the resolved data root)."""
   return get_project_root() / 'config.json'
   
-def load_config() -> Dict[str, Any]:
-  """Load and return the configuration dictionary"""
+def load_config() -> dict[str, Any]:
+  """Load and return the configuration dictionary.
+
+  Returns:
+      Parsed contents of ``config.json``.
+
+  Raises:
+      FileNotFoundError: If ``config.json`` does not exist at the resolved
+          data root.
+      KeyError: If required keys (``api_key``) are missing from the file.
+  """
   config_path = get_config_path()
   
   if not config_path.exists():
@@ -98,7 +114,7 @@ def get_api_key() -> str:
 # =============================================================================
 # Activation Energy Loading
 # =============================================================================
-def load_activation_energies(preset_path: Path, config_settings) -> Dict[str, Any]:
+def load_activation_energies(preset_path: Path, config_settings: SimulationSettings) -> dict[str, Any]:
   """
     Load activation energies from the file specified in the simulation settings.
     
@@ -108,6 +124,10 @@ def load_activation_energies(preset_path: Path, config_settings) -> Dict[str, An
     
   Returns:
     Dictionary with structure: {"PZT": [{"specie": "H", ...}, ...]}
+
+  Raises:
+    ValueError: If no activation-energies file is specified in the settings.
+    FileNotFoundError: If the resolved activation-energies file does not exist.
   """
   if not config_settings.activation_energies:
     raise ValueError("No activation energies file specified in settings")

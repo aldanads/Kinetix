@@ -1,7 +1,9 @@
 # kinetix/configs/simulation_config.py
 """Master simulation configuration combining all sub-configs."""
+from __future__ import annotations
+
 from dataclasses import dataclass, field
-from typing import Dict, Any, List, Optional
+from typing import Any
 from pathlib import Path
 import numpy as np
 import yaml
@@ -27,8 +29,8 @@ logger = logging.getLogger(__name__)
 class ExperimentalConditions:
   """Experimental environment parameters."""
   temperature: float = 300.0  # K
-  sticking_coeff: Optional[float] = None
-  partial_pressure: Optional[float] = None # Pa
+  sticking_coeff: float | None = None
+  partial_pressure: float | None = None # Pa
 
 @dataclass
 class SimulationSettings:
@@ -37,15 +39,15 @@ class SimulationSettings:
   simulation_type: str
   technology: str = ""
   mode: str = ""  # or 'vacancy'
-  total_steps: Optional[int] = None  
-  seed_rng: Optional[int] = None 
+  total_steps: int | None = None  
+  seed_rng: int | None = None 
   save_data: bool = True
   log_level: str = "INFO"  # DEBUG, INFO, WARNING, ERROR
   snapshoots_steps: int = 40
   lammps_output: bool = True
   activation_energies: str = "" # Path relative too data/parameters
   output_path: str = ""
-  load_state: Dict[str, Any] = field(default_factory=dict)
+  load_state: dict[str, Any] = field(default_factory=dict)
 
 @dataclass
 class SimulationConfig:
@@ -59,26 +61,33 @@ class SimulationConfig:
   author: str = ""
   
   # Core configurations
-  material: Optional[MaterialConfig] = None
-  experimental: Optional[ExperimentalConditions] = None
-  settings: Optional[SimulationSettings] = None  
-  defects: Optional[DefectsConfig] = None        
-  reactions: Optional[ReactionsConfig] = None 
-  mesh: Optional[MeshConfig] = None   
-  poisson: Optional[PoissonSolverConfig] = None  
-  heat: Optional[HeatSolverConfig] = None        
-  superbasin: Optional[SuperbasinConfig] = None  
-  calculator: Optional[CalculatorConfig] = None  
-  electrical: Optional[ElectricalConfig] = None
-  grain_boundaries: Optional[GrainBoundariesConfig] = None 
+  material: MaterialConfig | None = None
+  experimental: ExperimentalConditions | None = None
+  settings: SimulationSettings | None = None  
+  defects: DefectsConfig | None = None        
+  reactions: ReactionsConfig | None = None 
+  mesh: MeshConfig | None = None   
+  poisson: PoissonSolverConfig | None = None  
+  heat: HeatSolverConfig | None = None        
+  superbasin: SuperbasinConfig | None = None  
+  calculator: CalculatorConfig | None = None  
+  electrical: ElectricalConfig | None = None
+  grain_boundaries: GrainBoundariesConfig | None = None 
     
   # Runtime objects
   rng: Any = None
   mpi_ctx: Any = None
-  base_path: Optional[Path] = None # For resolving relative component paths
+  base_path: Path | None = None # For resolving relative component paths
     
-  def to_dict(self) -> Dict[str, Any]:
-    """Convert entire config to dictionary for backwards compatibility"""
+  def to_dict(self) -> dict[str, Any]:
+    """Convert entire config to dictionary for backwards compatibility.
+
+    Returns:
+        Dictionary keyed by section name (``material``, ``experimental``,
+        ``settings``, ``defects_config``, ``reactions_config``, ``mesh``,
+        ``poisson``, ``heat``, ``superbasin``, ``calculator``,
+        ``gb_configurations``).
+    """
     return {
       'material': {
         'formula': self.material.formula,
@@ -115,7 +124,7 @@ class SimulationConfig:
     }
     
   @classmethod
-  def from_yaml(cls, yaml_path: Path) -> 'SimulationConfig':
+  def from_yaml(cls, yaml_path: Path) -> SimulationConfig:
     """
     Load complete simulation configuration from YAML preset file.
     Automatically loads referenced component files (defects first, reactions/GB later).
@@ -125,6 +134,11 @@ class SimulationConfig:
         
     Returns:
       SimulationConfig with all components loaded
+
+    Raises:
+      FileNotFoundError: If ``yaml_path`` does not exist.
+      ConfigValidationError: If a required field is missing or the defects
+        component file fails to load.
     """
     yaml_path = Path(yaml_path)
     

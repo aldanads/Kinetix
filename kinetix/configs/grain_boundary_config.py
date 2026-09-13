@@ -1,6 +1,15 @@
+"""Configuration dataclasses for grain boundaries.
+
+Defines :class:`GrainBoundaryConfig` (a single grain boundary) and
+:class:`GrainBoundariesConfig` (a container loaded from one YAML file),
+plus the strict-field helper :func:`_get_required`.
+"""
+
 # kinetix/configs/grain_boundary_config.py
+from __future__ import annotations
+
 from dataclasses import dataclass, field
-from typing import Dict, Any, List, Optional
+from typing import Any
 from pathlib import Path
 import yaml
 
@@ -19,24 +28,28 @@ class GrainBoundaryConfig:
   enabled: bool = True
   
   # Geometry parameters
-  orientation: Optional[str] = None # [REQUIRED for planar] - 'xz', 'xy', 'yz'
-  position: Optional[float] = None # [REQUIRED for planar] - Position in Å
-  width: Optional[float] = None # [REQUIRED for planar] - GB width in Å
-  outer_width: Optional[float] = None # [OPTIONAL] - Transition region width
+  orientation: str | None = None # [REQUIRED for planar] - 'xz', 'xy', 'yz'
+  position: float | None = None # [REQUIRED for planar] - Position in ï¿½
+  width: float | None = None # [REQUIRED for planar] - GB width in ï¿½
+  outer_width: float | None = None # [OPTIONAL] - Transition region width
   
   # Cylindrical GB parameters
-  center: Optional[List[float]] = None # [REQUIRED for cylindrical] - [x, y] center position
-  radius: Optional[float] = None # [REQUIRED for cylindrical] - Inner radius in Å
-  outer_radius: Optional[float] = None # [OPTIONAL for cylindrical] - Outer radius
+  center: list[float] | None = None # [REQUIRED for cylindrical] - [x, y] center position
+  radius: float | None = None # [REQUIRED for cylindrical] - Inner radius in ï¿½
+  outer_radius: float | None = None # [OPTIONAL for cylindrical] - Outer radius
   
   # Event modifications (affect migration/reaction barriers)
-  event_modifications: Dict[str, Any] = field(default_factory=dict)
+  event_modifications: dict[str, Any] = field(default_factory=dict)
   
   # Description
   description: str = ""
   
-  def to_dict(self) -> Dict[str, Any]:
-    """Convert to dictionary for backwards compatibility"""
+  def to_dict(self) -> dict[str, Any]:
+    """Convert to a plain dictionary for backwards compatibility.
+
+    Returns:
+      Mapping with all configuration fields keyed by their YAML names.
+    """
     return {
       'type': self.type,
       'enabled': self.enabled,
@@ -52,10 +65,21 @@ class GrainBoundaryConfig:
     }
     
   @classmethod
-  def from_dict(cls, data: Dict[str, Any]) -> 'GrainBoundaryConfig':
+  def from_dict(cls, data: dict[str, Any]) -> GrainBoundaryConfig:
     """
     Create GrainBoundaryConfig from dictionary (loaded from YAML).
-    Validates required fields based on GB type.
+    Validates required fields based on GB type: planar types require
+    'orientation', 'position' and 'width'; 'cylindrical' requires
+    'center' and 'radius'.
+
+    Args:
+      data: Mapping describing a single grain boundary.
+
+    Returns:
+      GrainBoundaryConfig populated from ``data``.
+
+    Raises:
+      ValueError: If a required field is missing or the type is unknown.
     """
     gb_type = _get_required(data, 'type', None, 'grain_boundary.type')
     enabled = data.get('enabled', True)
@@ -107,19 +131,27 @@ class GrainBoundariesConfig:
   Container for multiple grain boundary configurations.
   Loaded from a single YAML file.
   """
-  grain_boundaries: List[GrainBoundaryConfig] = field(default_factory=list)
+  grain_boundaries: list[GrainBoundaryConfig] = field(default_factory=list)
   description: str = ""
   
-  def add_gb(self, gb: GrainBoundaryConfig):
-    """Add a grain boundary configuration"""
+  def add_gb(self, gb: GrainBoundaryConfig) -> None:
+    """Add a grain boundary configuration to the container.
+
+    Args:
+      gb: The grain boundary configuration to append.
+    """
     self.grain_boundaries.append(gb)
     
-  def to_dict(self) -> List[Dict[str, Any]]:
-    """Convert all GBs to list of dictionaries"""
+  def to_dict(self) -> list[dict[str, Any]]:
+    """Convert all grain boundaries to a list of dictionaries.
+
+    Returns:
+      One dictionary per configured grain boundary, in order.
+    """
     return [gb.to_dict() for gb in self.grain_boundaries]
     
   @classmethod
-  def from_yaml(cls, yaml_path: Path) -> 'GrainBoundariesConfig':
+  def from_yaml(cls, yaml_path: Path) -> GrainBoundariesConfig:
     """
     Load grain boundary configurations from YAML file.
         
@@ -128,6 +160,9 @@ class GrainBoundariesConfig:
         
     Returns:
       GrainBoundariesConfig with all GBs loaded
+
+    Raises:
+      FileNotFoundError: If ``yaml_path`` does not exist.
     """
     yaml_path = Path(yaml_path)
     if not yaml_path.exists():
@@ -151,9 +186,21 @@ class GrainBoundariesConfig:
 # =============================================================================
 # Helper Function: Strict Field Validation
 # =============================================================================
-def _get_required(data: dict, key: str, yaml_path: Optional[Path], field_name: str) -> Any:
-  """
-  Get required field from dictionary, raise clear error if missing.
+def _get_required(data: dict[str, Any], key: str, yaml_path: Path | None, field_name: str) -> Any:
+  """Get a required field from a dictionary, raising a clear error if missing.
+
+  Args:
+    data: Mapping loaded from a YAML configuration file.
+    key: Key to look up in ``data``.
+    yaml_path: Optional path of the source file, included in the error
+      message when provided.
+    field_name: Human-readable field name used in the error message.
+
+  Returns:
+    The value stored under ``key``.
+
+  Raises:
+    ValueError: If the key is missing or its value is None.
   """
   
   value = data.get(key)

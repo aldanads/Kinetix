@@ -1,7 +1,9 @@
 # kinetix/configs/solver_config.py
 """Poisson and Heat solver configuration."""
+from __future__ import annotations
+
 from dataclasses import dataclass, field
-from typing import Dict, Any, Optional
+from typing import Any
 from pathlib import Path
 
 @dataclass
@@ -17,12 +19,16 @@ class PoissonSolverConfig:
   solve_Poisson: bool = True
   save_Poisson: bool = False
   screening_factor: float = 0.01
-  conductivity: Dict[str, float] = field(default_factory=dict)
+  conductivity: dict[str, float] = field(default_factory=dict)
   epsilon_r: float = 23.0
-  defects_config: Dict[str, Any] = field(default_factory=dict)
+  defects_config: dict[str, Any] = field(default_factory=dict)
     
-  def to_dict(self) -> Dict[str, Any]:
-    """Convert to dictionary for backwards compatibility"""
+  def to_dict(self) -> dict[str, Any]:
+    """Convert to a plain dictionary for backwards compatibility.
+
+    Returns:
+      Mapping with all Poisson solver parameters keyed by their YAML names.
+    """
     return {
       'mesh_file': self.mesh_file,
       'epsilon_r': self.epsilon_r,
@@ -43,15 +49,19 @@ class HeatSolverConfig:
   """Heat equation solver parameters."""
   solve_heat: bool = False
   save_heat: bool = False
-  thermal_conductivity: Dict[str, float] = field(default_factory=dict)  # W/m-K
+  thermal_conductivity: dict[str, float] = field(default_factory=dict)  # W/m-K
   specific_heat: float = 500.0  # J/kg-K
-  density: float = 5000.0  # kg/m³
+  density: float = 5000.0  # kg/mï¿½
   heat_solve_frequency: int = 100
   tau_thermal: float = 1.0 # s
   use_thermal_inertia: bool = True
     
-  def to_dict(self) -> Dict[str, Any]:
-    """Convert to dictionary"""
+  def to_dict(self) -> dict[str, Any]:
+    """Convert to a plain dictionary.
+
+    Returns:
+      Mapping with all heat solver parameters keyed by their YAML names.
+    """
     return {
       'solve_heat': self.solve_heat,
       'save_heat': self.save_heat,
@@ -73,8 +83,12 @@ class SuperbasinConfig:
   energy_step: float = 0.05
   time_based_superbasin: bool = True
     
-  def to_dict(self) -> Dict[str, Any]:
-    """Convert to dictionary"""
+  def to_dict(self) -> dict[str, Any]:
+    """Convert to a plain dictionary.
+
+    Returns:
+      Mapping with all superbasin parameters keyed by their YAML names.
+    """
     return {
       'enabled_superbasin': self.enabled_superbasin,
       'n_search_superbasin': self.n_search_superbasin,

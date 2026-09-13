@@ -1,16 +1,20 @@
 # kinetix/configs/defect_config.py
 """Defect configuration dataclasses."""
+from __future__ import annotations
+
 from dataclasses import dataclass, field
-from typing import List, Dict, Optional, Any
+from typing import Any
 from enum import Enum
 from pathlib import Path
 import yaml
 
 class SiteType(Enum):
+  """Type of lattice site a defect can occupy."""
   INTERSTITIAL = "interstitial"
   SUBLATTICE = "sublattice"
 
 class EventType(Enum):
+  """KMC event types a defect can participate in."""
   MIGRATION = "migration"
   REACTION = "reaction"
   REDUCTION = "reduction"
@@ -18,33 +22,61 @@ class EventType(Enum):
     
 @dataclass
 class DefectConfig:
-  """Configuration for a single defect species."""
+  """Configuration for a single defect species.
+
+  Attributes:
+    name: Unique identifier for the defect species.
+    symbol: Short symbol used to identify the defect in state keys.
+    charge: Charge of the defect in units of the elementary charge.
+    site_type: Either 'interstitial' or the name of a sublattice.
+    allowed_sublattices: Sublattice names the defect is allowed to occupy.
+    physical_element: Element label for atomistic calculators (MACE);
+      None means a pseudo-particle such as a vacancy.
+    initial_concentration_bulk: Initial bulk occupancy fraction.
+    initial_concentration_GB: Initial grain-boundary occupancy fraction.
+    valid_target_species: Symbols of species this defect can react with.
+    activation_energies_key: Key into the activation-energies JSON file.
+    enabled_events: Event types (EventType values) enabled for this defect.
+    CN_matters: Whether coordination number affects this defect's rates.
+    sites_generation_layer: Layer in which interstitial sites are generated.
+    interface_tolerance_generation: Tolerance (nm) for interface site
+      generation.
+    migrating_attributes: Site attributes tracked for migrating defects.
+    field_dependent_generation: Whether generation depends on the E-field.
+    electrode_scavenging: Whether the defect is scavenged at electrodes.
+    description: Free-text description taken from the YAML file.
+  """
   name: str
   symbol: str
   charge: int
   site_type: str  # 'interstitial' or sublattice name
-  allowed_sublattices: List[str]
-  physical_element: Optional[str] = None  # element label for atomistic calculators (MACE); None = pseudo-particle (e.g. vacancy)
+  allowed_sublattices: list[str]
+  physical_element: str | None = None  # element label for atomistic calculators (MACE); None = pseudo-particle (e.g. vacancy)
   initial_concentration_bulk: float = 0.0
   initial_concentration_GB: float = 0.0
-  valid_target_species: List[str] = field(default_factory=list)
+  valid_target_species: list[str] = field(default_factory=list)
   activation_energies_key: str = ""
-  enabled_events: List[str] = field(default_factory=list)
+  enabled_events: list[str] = field(default_factory=list)
   CN_matters: bool = False
-  sites_generation_layer: Optional[str] = None
-  interface_tolerance_generation: Optional[float] = 0.0
-  migrating_attributes: List[str] = field(default_factory=list)
+  sites_generation_layer: str | None = None
+  interface_tolerance_generation: float | None = 0.0
+  migrating_attributes: list[str] = field(default_factory=list)
   field_dependent_generation: bool = False
   electrode_scavenging: bool = False
   description: str = ""
     
   # Passivation (for vacancies) - OPTIONAL: only for defects that can be passivated
-  passivation_level: Optional[int] = None
-  max_passivation_level: Optional[int] = None
-  charge_per_passivation: Optional[int] = None
+  passivation_level: int | None = None
+  max_passivation_level: int | None = None
+  charge_per_passivation: int | None = None
     
-  def to_dict(self) -> Dict[str, Any]:
-    """Convert to dictionary for backwards compatibility"""
+  def to_dict(self) -> dict[str, Any]:
+    """Convert the defect configuration to a plain dictionary.
+
+    Returns:
+      Dictionary of all scalar and list fields. Passivation fields are
+      included only when ``charge_per_passivation`` is set.
+    """
     result = {
       'symbol': self.symbol,
       'physical_element': self.physical_element,
@@ -73,8 +105,16 @@ class DefectConfig:
     return result
     
   @classmethod
-  def from_dict(cls, name: str, data: Dict[str, Any]) -> 'DefectConfig':
-    """Create DefectConfig from dictionary (e.g., loaded YAML)"""
+  def from_dict(cls, name: str, data: dict[str, Any]) -> DefectConfig:
+    """Create a DefectConfig from a dictionary (e.g. loaded YAML).
+
+    Args:
+      name: Name to assign to the resulting defect.
+      data: Mapping of defect fields; missing keys fall back to defaults.
+
+    Returns:
+      The populated DefectConfig instance.
+    """
     return cls(
       name=name,
       symbol=data.get('symbol', ''),
@@ -101,27 +141,42 @@ class DefectConfig:
 
 @dataclass
 class DefectsConfig:
-  """Collection of all defect configurations."""
-  defects: Dict[str, DefectConfig] = field(default_factory=dict)
+  """Collection of all defect configurations.
+
+  Attributes:
+    defects: Mapping from defect name to its configuration.
+  """
+  defects: dict[str, DefectConfig] = field(default_factory=dict)
     
-  def add_defect(self, defect: DefectConfig):
-    """Add a defect configuration"""
+  def add_defect(self, defect: DefectConfig) -> None:
+    """Register a defect configuration.
+
+    Args:
+      defect: Defect configuration to add, keyed by ``defect.name``.
+    """
     self.defects[defect.name] = defect
     
-  def to_dict(self) -> Dict[str, Dict[str, Any]]:
-    """Convert all defects to dictionary"""
+  def to_dict(self) -> dict[str, dict[str, Any]]:
+    """Convert all defects to a dictionary.
+
+    Returns:
+      Mapping from defect name to that defect's dictionary form.
+    """
     return {name: defect.to_dict() for name, defect in self.defects.items()}
     
   @classmethod
-  def from_yaml(cls, yaml_path: Path) -> 'DefectsConfig':
+  def from_yaml(cls, yaml_path: Path) -> DefectsConfig:
     """
     Load defect configurations from YAML file.
-        
+
     Args:
-      yaml_path: Path to defects_config.yaml
-        
+      yaml_path: Path to defects_config.yaml.
+
     Returns:
-      DefectsConfig object with all defects loaded
+      DefectsConfig object with all defects loaded.
+
+    Raises:
+      FileNotFoundError: If the YAML file does not exist.
     """
     yaml_path = Path(yaml_path)
         

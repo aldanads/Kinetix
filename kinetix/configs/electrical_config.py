@@ -1,11 +1,21 @@
+"""Configuration classes for the electrical (voltage/current) subsystem.
+
+Defines the voltage protocol (:class:`VoltageConfig`, :class:`VoltageMode`),
+the current measurement model (:class:`CurrentConfig`, :class:`CurrentModel`)
+and the aggregate :class:`ElectricalConfig` consumed by
+:class:`kinetix.solvers.electrical.ElectricalController`.
+"""
+
 # =============================================================================
 # config.py
 # Configuration classes for Kinetic Monte Carlo Resistive Switching Simulator
 # =============================================================================
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 from enum import Enum, auto
-from typing import Dict, Any, Tuple, Optional
+from typing import Any
 from pathlib import Path
 import yaml
 
@@ -17,6 +27,8 @@ class VoltageMode(Enum):
   CONSTANT = auto()     # Constant V  
   
 class CurrentModel(Enum):
+  """Supported conduction models for current measurement."""
+
   OHMIC = auto()
   SCHOTTKY = auto()
   
@@ -34,12 +46,26 @@ class VoltageConfig:
   
   # CONSTANT / ZERO_HOLD parameters
   constant_voltage: float = 0.0
-  total_time: Optional[float] = None # Optional: auto-calculated from RAMP, explicit for others
+  total_time: float | None = None # Optional: auto-calculated from RAMP, explicit for others
   voltage_update_time: float = 0.1
   
   @classmethod
-  def from_dict(cls, data: Dict[str, Any]) -> 'VoltageConfig':
-    """Create from dictionary (loaded from YAML) """
+  def from_dict(cls, data: dict[str, Any]) -> VoltageConfig:
+    """Create a config from a dictionary (loaded from YAML).
+
+    Missing keys fall back to the dataclass defaults.
+
+    Args:
+      data: Mapping with optional keys 'mode', 'initial_voltage',
+        'max_voltage', 'min_voltage', 'ramp_rate', 'constant_voltage',
+        'total_time', 'num_cycles' and 'voltage_update_time'.
+
+    Returns:
+      VoltageConfig populated from ``data``.
+
+    Raises:
+      KeyError: If 'mode' is missing or not a name of :class:`VoltageMode`.
+    """
     mode_str = data.get('mode')
     mode = VoltageMode[mode_str]
     
@@ -65,8 +91,21 @@ class CurrentConfig:
   epsilon_r: float = 23.0
   
   @classmethod
-  def from_dict(cls, data: Dict[str,Any]) -> 'CurrentConfig':
-    """Create from dictionary (loaded from YAML)"""
+  def from_dict(cls, data: dict[str, Any]) -> CurrentConfig:
+    """Create a config from a dictionary (loaded from YAML).
+
+    Missing keys fall back to the dataclass defaults.
+
+    Args:
+      data: Mapping with optional keys 'model', 'barrier_height',
+        'temperature', 'area' and 'epsilon_r'.
+
+    Returns:
+      CurrentConfig populated from ``data``.
+
+    Raises:
+      KeyError: If 'model' is missing or not a name of :class:`CurrentModel`.
+    """
     model_str = data.get('model')
     model = CurrentModel[model_str]
     
@@ -86,13 +125,26 @@ class ElectricalConfig:
   """
   initial_time: float = 0.0
   series_resistance: float = 0.0
-  crystal_size: tuple = (50,50,50)
+  crystal_size: tuple[int, int, int] = (50,50,50)
   voltage: VoltageConfig = field(default_factory=VoltageConfig)
-  current: Optional[CurrentConfig] = None
+  current: CurrentConfig | None = None
   
   @classmethod
-  def from_yaml(cls, yaml_path: Path, crystal_size: Optional[Tuple[float, float, float]] = None) -> 'ElectricalConfig':
-    """Load electrical configuration from YAML file."""
+  def from_yaml(cls, yaml_path: Path, crystal_size: tuple[float, float, float] | None = None) -> ElectricalConfig:
+    """Load an electrical configuration from a YAML file.
+
+    Args:
+      yaml_path: Path to the electrical configuration YAML file.
+      crystal_size: Accepted for API compatibility; not used when loading.
+
+    Returns:
+      ElectricalConfig built from the YAML contents. The 'voltage' section
+      is parsed into a VoltageConfig; the 'current' section (when present)
+      into a CurrentConfig, otherwise ``current`` stays None.
+
+    Raises:
+      FileNotFoundError: If ``yaml_path`` does not exist.
+    """
     yaml_path = Path(yaml_path)
     
     if not yaml_path.exists():

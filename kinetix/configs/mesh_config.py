@@ -1,7 +1,11 @@
+"""Mesh generation parameters for Gmsh (:class:`MeshConfig`)."""
+
 # kinetix/configs/mesh_config.py
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
-from typing import Dict, Any, Optional
+from typing import Any
 from pathlib import Path
 import yaml
 
@@ -25,8 +29,15 @@ class MeshConfig:
   fine_mesh_size: float = 1.0 # Angstroms
   refinement_radius: float = 2.5 # Angstroms
   
-  def __post_init__(self):
-    """Validate mesh parameters after initialization."""
+  def __post_init__(self) -> None:
+    """Validate mesh parameters after initialization.
+
+    Raises:
+      ValueError: If ``fine_mesh_size`` exceeds twice
+        ``epsilon_gaussian_charge``, or if ``refinement_radius`` is
+        smaller than ``fine_mesh_size``. Non-fatal issues (coarse
+        ``mesh_size``, small ``refinement_radius``) only print warnings.
+    """
     # Charge spreading vs mesh resolution
     if self.fine_mesh_size > 2.0 * self.epsilon_gaussian_charge:
       raise ValueError(
@@ -50,8 +61,12 @@ class MeshConfig:
         f"({self.fine_mesh_size} Angstroms)"
       )
       
-  def to_dict(self) -> Dict[str, Any]:
-    """Convert to dictionary for serialization."""
+  def to_dict(self) -> dict[str, Any]:
+    """Convert to a plain dictionary for serialization.
+
+    Returns:
+      Mapping with all mesh parameters keyed by their YAML names.
+    """
     return {
       'gdim': self.gdim,
       'gmsh_model_rank': self.gmsh_model_rank,
@@ -64,8 +79,21 @@ class MeshConfig:
     }
     
   @classmethod
-  def from_dict(cls, data: Dict[str, Any]) -> 'MeshConfig':
-    """Create MeshConfig from dictionary (e.g., loaded YAML)."""
+  def from_dict(cls, data: dict[str, Any]) -> MeshConfig:
+    """Create a MeshConfig from a dictionary (e.g., loaded from YAML).
+
+    Missing keys fall back to the dataclass defaults; the resulting
+    instance is validated by ``__post_init__``.
+
+    Args:
+      data: Mapping with optional mesh parameter keys.
+
+    Returns:
+      MeshConfig populated from ``data``.
+
+    Raises:
+      ValueError: If validation in ``__post_init__`` fails.
+    """
     return cls(
       gdim=data.get('gdim', 3),
       gmsh_model_rank=data.get('gmsh_model_rank', 0),
@@ -78,8 +106,21 @@ class MeshConfig:
     )
     
   @classmethod
-  def from_yaml(cls, yaml_path: Path) -> 'MeshConfig':
-    """Load mesh config from YAML file."""
+  def from_yaml(cls, yaml_path: Path) -> MeshConfig:
+    """Load the mesh configuration from a YAML file.
+
+    Only the top-level 'mesh' section of the file is used.
+
+    Args:
+      yaml_path: Path to a YAML file containing a 'mesh' section.
+
+    Returns:
+      MeshConfig built from the 'mesh' section.
+
+    Raises:
+      FileNotFoundError: If ``yaml_path`` does not exist.
+      ValueError: If the resulting MeshConfig fails ``__post_init__`` validation.
+    """
     yaml_path = Path(yaml_path)
     
     with open(yaml_path, 'r') as f:
