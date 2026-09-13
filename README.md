@@ -23,7 +23,7 @@ Kinetix is a Python-based, open-source simulation framework (**MIT License**) th
 ---
 
 ## 🔄 Simulation Workflow
-Each simulation is driven by [`run_simulation.py`](run_simulation.py), which calls `System_state.step_kmc()` ([`kinetix/lattice/crystal.py`](kinetix/lattice/crystal.py)) in the following loop:
+Each simulation is driven by the command-line interface in [`kinetix/cli.py`](kinetix/cli.py), which calls `System_state.step_kmc()` ([`kinetix/lattice/crystal.py`](kinetix/lattice/crystal.py)) in the following loop:
 
 1. **Lattice Generation:** Constructs the 3D atomic grid (lattice, interfaces, and grain boundaries) with `pymatgen`, generates interstitial sites using a Voronoi method, and builds the finite-element mesh with `gmsh`.
 2. **FEM Solvers:** Computes the electric potential (Poisson) and, when enabled, the temperature field (heat equation) for the current defect configuration and electrode potentials using DOLFINx/FEniCS.
@@ -32,7 +32,7 @@ Each simulation is driven by [`run_simulation.py`](run_simulation.py), which cal
 5. **Loop:** Repeats steps 2–4 — re-solving the fields at every voltage update for device simulations — until the deposition/annealing target or the applied voltage protocol is completed.
 
 > [!NOTE]
-> The Poisson/heat solvers only run on **Linux** (guarded by `platform.system() == 'Linux'` in `run_simulation.py`). On other platforms there is no FEM field feedback, while pure deposition/annealing simulations continue to run.
+> The Poisson/heat solvers only run on **Linux** (guarded by `platform.system() == 'Linux'` in `kinetix/cli.py`). On other platforms there is no FEM field feedback, while pure deposition/annealing simulations continue to run.
 
 ---
 
@@ -184,6 +184,22 @@ Kinetix relies on a heavy scientific stack (DOLFINx, gmsh, MPI, pymatgen) that i
    python -c "import dolfinx, gmsh, pymatgen, mpi4py; print('Environment OK')"
    ```
 
+### Installing the Python package (pip)
+The conda environment above is the **recommended way to obtain the full scientific stack** (FEniCS/DOLFINx, PETSc, MPI, gmsh) — `pip` alone cannot provide these builds reliably. Once the environment exists, install Kinetix itself as a proper Python package:
+
+```bash
+conda activate Kinetix
+
+# Development install (editable, includes pytest/ruff/pre-commit)
+pip install -e ".[dev]"
+
+# ... or, for end users, a regular install
+pip install .
+
+# Optional: MACE-NEB calculator extras (ase, mace-torch, torch)
+pip install -e ".[mace]"
+```
+
 ## 🔑 Materials Project API Key
 Kinetix fetches crystal structures and material properties (density, dielectric constants, etc.) directly from the [Materials Project](https://next-gen.materialsproject.org/) via `pymatgen`. This requires a free personal API key.
 
@@ -202,15 +218,26 @@ Kinetix fetches crystal structures and material properties (density, dielectric 
 > [!IMPORTANT]
 > `config.json` is listed in [`.gitignore`](.gitignore) and must **never** be committed — it holds your personal, secret API key. Only the placeholder file, `config.template.json`, is tracked in the repository.
 
-Kinetix loads this file automatically at runtime (`kinetix/configs/config_loader.py` → `get_api_key()`), so no environment variables or extra command-line flags are needed once `config.json` exists in the project root.
+Kinetix loads this file automatically at runtime (`kinetix/configs/config_loader.py` → `get_api_key()`), so no extra command-line flags are needed once `config.json` exists in the project root. Alternatively, export `MP_API_KEY` as an environment variable (it takes priority over `config.json`) — convenient on clusters and for installed copies of the package.
 
 ---
 
 ## ▶️ Running a Simulation
-Simulations are launched from the project root with [`run_simulation.py`](run_simulation.py), which drives the kMC loop for the material/defect/reaction/electrical setup described in a preset (see `data/parameters/presets/`). To see all available options:
+Kinetix is installed as a Python package and can be launched in three ways:
+
+| Invocation | When to use |
+|---|---|
+| `kinetix <sim_id>` | **Recommended** — console script created by `pip install` (entry point `kinetix.cli:main`) |
+| `python -m kinetix <sim_id>` | Module invocation — equivalent behavior, useful when the console script is not on `PATH` |
+| `python -m kinetix.cli <sim_id>` | Direct CLI module — handy for debugging |
+
+> [!NOTE]
+> The package must be installed first (see [Installation](#️-installation)): `pip install -e ".[dev]"` for development, or `pip install .` for end users.
+
+The CLI drives the kMC loop for the material/defect/reaction/electrical setup described in a preset (see `data/parameters/presets/`). To see all available options:
 
 ```bash
-python run_simulation.py --help
+kinetix --help
 ```
 
 ### Command-line interface
@@ -228,39 +255,39 @@ python run_simulation.py --help
 ### Basic run (single process)
 ```bash
 conda activate Kinetix
-python run_simulation.py 0 --config PZT_ZrTi_PbO3_2.yaml
+kinetix 0 --config PZT_ZrTi_PbO3_2.yaml
 ```
 
 ### Parameter sweeps and preset selection
 `sim_id` indexes the sweep array defined in `get_parameters_from_sim_id()` (initial vacancy concentration × temperature × hydrogen-generation rate; edit that function to customize the mapping). Use `--config` to select a different preset:
 
 ```bash
-python run_simulation.py 4 --config VCM_HfO2_cylindrical_gb.yaml
+kinetix 4 --config VCM_HfO2_cylindrical_gb.yaml
 ```
 
 ### Running in parallel (MPI)
 The DOLFINx-based Poisson/heat solvers run across MPI ranks, while the kMC lattice is evolved on rank 0 and synchronized through broadcasts (`kinetix/utils/mpi_context.py`). To run on multiple ranks:
 
 ```bash
-mpiexec -n 8 python run_simulation.py 4 --config PZT_ZrTi_PbO3_2.yaml
+mpiexec -n 8 kinetix 4 --config PZT_ZrTi_PbO3_2.yaml
 ```
 
 ### Profiling a run
 Use the `--profile` flag to wrap the execution in `cProfile`. This prints the top 15 functions by cumulative time and saves the full profile to `kmc_profile.prof`.
 
 > [!WARNING]
-> **Single-core enforcement:** `cProfile` is a single-process profiler. If `--profile` is used with more than one MPI rank, only rank 0 is instrumented, and the profiler's overhead creates artificial MPI wait times that distort the bottleneck analysis. Kinetix therefore **automatically aborts** multi-rank profiling runs (see `_enforce_single_rank_profiling()` in `run_simulation.py`).
+> **Single-core enforcement:** `cProfile` is a single-process profiler. If `--profile` is used with more than one MPI rank, only rank 0 is instrumented, and the profiler's overhead creates artificial MPI wait times that distort the bottleneck analysis. Kinetix therefore **automatically aborts** multi-rank profiling runs (see `_enforce_single_rank_profiling()` in `kinetix/cli.py`).
 
 Profile on a single core:
 
 ```bash
-python run_simulation.py 0 --config PZT_ZrTi_PbO3_2.yaml --profile
+kinetix 0 --config PZT_ZrTi_PbO3_2.yaml --profile
 ```
 
 If you explicitly want to profile a multi-rank run despite the distortion, use the override flag:
 
 ```bash
-mpiexec -n 4 python run_simulation.py 0 --profile --allow-multi-rank-profile
+mpiexec -n 4 kinetix 0 --profile --allow-multi-rank-profile
 ```
 
 > [!NOTE]
@@ -270,7 +297,7 @@ mpiexec -n 4 python run_simulation.py 0 --profile --allow-multi-rank-profile
 To verify your command-line arguments without initializing the heavy FEM meshes or the kMC lattice:
 
 ```bash
-python run_simulation.py 4 --config PZT_ZrTi_PbO3_2.yaml --dry-run
+kinetix 4 --config PZT_ZrTi_PbO3_2.yaml --dry-run
 ```
 
 ### Running on an HPC cluster (PBS)
@@ -291,12 +318,14 @@ The test suite lives in [`tests/`](tests/) and covers the FEM Poisson and heat s
 
 ```text
 tests/
-├── conftest.py                          # Adds the project root to sys.path
+├── conftest.py                          # Pytest configuration (markers, --runslow opt-in flag)
 ├── test_FEMSolver.py                    # FEM solver base class
 ├── test_poisson_solver.py               # Poisson solve, charge spreading, boundary conditions
 ├── test_heat_solver.py                  # Steady-state heat + thermal relaxation
 ├── test_gb_charge_and_state_transfer.py # GB barriers and defect state transfer
-└── test_migration_pathways.py           # PBC neighbor finding and pathway keys
+├── test_migration_pathways.py           # PBC neighbor finding and pathway keys
+├── test_mace_adapter.py                 # MACE-NEB calculator adapter (slow pathway sweeps need --runslow)
+└── test_percolation.py                  # Island percolation analysis
 ```
 
 Run the suite from the project root (inside the `Kinetix` environment):
@@ -313,27 +342,30 @@ The tests use lightweight mocks and do not require an MPI cluster or GPU hardwar
 ## 📁 Project Structure
 ```text
 Kinetix/
-├── run_simulation.py          # CLI entry point: argparse + kMC driver loop
-├── environment.yml            # Conda environment (pinned builds)
-├── config.template.json       # Template for the Materials Project API key
-├── LICENSE                    # MIT license
-├── kinetix/                   # Core Python package
-│   ├── initialization.py      # Builds crystal, configs, solvers, output paths
-│   ├── material_fetcher.py    # Materials Project structure/property retrieval
-│   ├── configs/               # Typed YAML loaders (simulation, defects, electrical, ...)
-│   ├── lattice/               # Crystal_Lattice, Site, GrainBoundary, island, cluster
-│   ├── solvers/               # FEM solvers: Poisson, heat, electrical (IV)
-│   ├── calculators/           # Pluggable activation-energy providers (MACE-NEB)
-│   └── utils/                 # mpi_context, balanced_tree, superbasin, analysis
+├── pyproject.toml               # Package metadata, dependencies, CLI entry point
+├── environment.yml              # Conda environment (pinned builds)
+├── config.template.json         # Template for the Materials Project API key
+├── LICENSE                      # MIT license
+├── kinetix/                     # Core Python package
+│   ├── cli.py                   # CLI entry point: argparse + kMC driver loop
+│   ├── __main__.py              # Enables `python -m kinetix`
+│   ├── __init__.py              # Package version and public API re-exports
+│   ├── initialization.py        # Builds crystal, configs, solvers, output paths
+│   ├── material_fetcher.py      # Materials Project structure/property retrieval
+│   ├── configs/                 # Typed YAML loaders (simulation, defects, electrical, ...)
+│   ├── lattice/                 # Crystal_Lattice, Site, GrainBoundary, island, cluster
+│   ├── solvers/                 # FEM solvers: Poisson, heat, electrical (IV)
+│   ├── calculators/             # Pluggable activation-energy providers (MACE-NEB)
+│   └── utils/                   # mpi_context, balanced_tree, superbasin, analysis
 ├── data/
-│   ├── parameters/            # All user-facing YAML/JSON parameter files
-│   ├── grids/                 # Saved crystal grids (.pkl, generated locally)
-│   ├── mesh/                  # gmsh meshes (.msh, generated locally)
-│   ├── cache/                 # Materials Project cache (git-ignored)
-│   └── experimental/          # Experimental I–V data for comparison
+│   ├── parameters/              # All user-facing YAML/JSON parameter files
+│   ├── grids/                   # Saved crystal grids (.pkl, generated locally)
+│   ├── mesh/                    # gmsh meshes (.msh, generated locally)
+│   ├── cache/                   # Materials Project cache (git-ignored)
+│   └── experimental/            # Experimental I–V data for comparison
 ├── scripts/
-│   └── hpc/                   # PBS templates and HPC deployment notes
-└── tests/                     # pytest suite
+│   └── hpc/                     # PBS templates and HPC deployment notes
+└── tests/                       # pytest suite
 ```
 
 ---
