@@ -39,6 +39,9 @@ dev = [
     "pre-commit",
 ]
 
+[project.scripts]
+kinetix = "kinetix.cli:main"
+
 # ---------------------------------------------------------------------------
 # Hatchling build configuration
 #

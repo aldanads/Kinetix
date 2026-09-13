@@ -95,8 +95,10 @@ def initialization(n_sim,params, config_name='PZT_ZrTi_PbO3_2.yaml'):
     plt.rcParams["figure.dpi"] = 100 # Default value of dpi = 300
     
     if save_data:
-        files_copy = ['run_simulation.py', 
-                      'data/parameters','kinetix']
+        # NOTE: the CLI driver is archived as part of the `kinetix` package
+        # copy below (kinetix/cli.py); there is no standalone driver script
+        # at the repository root anymore.
+        files_copy = ['data/parameters','kinetix']
         
         output_path = Path(config.settings.output_path)
             

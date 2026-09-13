@@ -78,7 +78,7 @@ echo "Time: $(date)"
 echo "=================================================="
 
 # Run simulation
-$MPI_EXEC -n $CORES $PYTHON_EXEC run_simulation.py $SIM_ID --config "$CONFIG_FILE"
+$MPI_EXEC -n $CORES $PYTHON_EXEC -m kinetix $SIM_ID --config "$CONFIG_FILE"
 
 echo "=================================================="
 echo "Completed at $(date)"

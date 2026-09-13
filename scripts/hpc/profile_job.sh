@@ -44,7 +44,7 @@ echo "Time: $(date)"
 echo "=================================================="
 
 # Run with profiling flag (no MPI!)
-$PYTHON_EXEC run_simulation.py "$SIM_ID" --profile --config "$CONFIG_FILE"
+$PYTHON_EXEC -m kinetix "$SIM_ID" --profile --config "$CONFIG_FILE"
 
 echo "=================================================="
 echo "Profiling completed at $(date)"

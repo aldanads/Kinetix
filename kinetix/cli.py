@@ -3,6 +3,11 @@
 Created on Mon Jan 15 15:12:23 2024
 
 @author: samuel.delgado
+
+Command-line interface for Kinetix, moved verbatim from run_simulation.py in
+the repository root. The argparse interface and dispatch behavior are
+unchanged; main() additionally serves as the console-script entry point
+(`kinetix` / `python -m kinetix`) when called without arguments.
 """
 
 import sys
@@ -43,10 +48,10 @@ def parse_arguments():
     formatter_class=argparse.RawDescriptionHelpFormatter,
     epilog="""
 Examples:
-  python run_simulation.py 42
-  python run_simulation.py 42 --config PZT_ZrTi(PbO3)2.yaml
-  python run_simulation.py 42 --config VCM_HfO2_cylindrical_gb.yaml --profile
-  python run_simulation.py --config PZT_ZrTi(PbO3)2_annealing.yaml     
+  python -m kinetix 42
+  python -m kinetix 42 --config PZT_ZrTi(PbO3)2.yaml
+  python -m kinetix 42 --config VCM_HfO2_cylindrical_gb.yaml --profile
+  python -m kinetix --config PZT_ZrTi(PbO3)2_annealing.yaml     
     """
   )
   
@@ -126,8 +131,8 @@ def _enforce_single_rank_profiling(args):
             f"  - Wasted compute resources\n"
             f"\n"
             f"Recommendation: rerun with a single core:\n"
-            f"  python run_simulation.py {args.sim_id} --profile --config {args.config}\n"
-            f"  mpiexec -n 1 python run_simulation.py {args.sim_id} --profile\n"
+            f"  python -m kinetix {args.sim_id} --profile --config {args.config}\n"
+            f"  mpiexec -n 1 python -m kinetix {args.sim_id} --profile\n"
             f"\n"
             f"To override (not recommended), add --allow-multi-rank-profile.\n"
             f"{'='*60}\n"
@@ -138,7 +143,53 @@ def _enforce_single_rank_profiling(args):
         comm.Abort(1)
    
 
-def main(sim_id, config_name='PZT_ZrTi_PbO3_2.yaml'):
+def main(sim_id=None, config_name='PZT_ZrTi_PbO3_2.yaml'):
+        # ------------------------------------------------------------------
+        # CLI dispatch: when called without an explicit sim_id (console
+        # script `kinetix` or `python -m kinetix`), parse the command line
+        # exactly as run_simulation.py did in its __main__ block.
+        # ------------------------------------------------------------------
+        if sim_id is None:
+            import atexit
+
+            args = parse_arguments()
+
+            sim_id = args.sim_id
+            config_name = args.config
+            profile_mode = args.profile
+
+            if args.dry_run:
+                logger.info("[DRY RUN] sim_id=%s, config=%s, profile=%s", sim_id, config_name, profile_mode)
+                sys.exit(0)
+
+            _enforce_single_rank_profiling(args)
+
+            if profile_mode:
+                import pstats
+                import cProfile
+
+                profiler = cProfile.Profile()
+                profiler.enable()
+
+                atexit.register(lambda: profiler.dump_stats('kmc_profile.prof'))
+
+                try:
+                    System_state = main(sim_id)
+                finally:
+                    profiler.disable()
+
+                stats = pstats.Stats(profiler)
+                stats.sort_stats('cumulative')
+                logger.info("PROFILING RESULTS (top 15 functions by cumulative time)")
+                stats.print_stats(15)
+                logger.info("Full profile saved to 'kmc_profile.prof'")
+            else:
+                System_state = main(sim_id, config_name)
+
+            # Entry-point wrappers invoke this function as sys.exit(main());
+            # a returned Crystal_Lattice object would be read as a truthy
+            # non-int status, so end CLI mode explicitly with code 0.
+            sys.exit(0)
         
         # Configure logging with defaults before config is loaded
         setup_logging()
@@ -427,39 +478,6 @@ def main(sim_id, config_name='PZT_ZrTi_PbO3_2.yaml'):
     
         return System_state
 
+
 if __name__ == '__main__':
-    import atexit
-    
-    args = parse_arguments()
-    
-    sim_id = args.sim_id
-    config_name = args.config
-    profile_mode = args.profile
-    
-    if args.dry_run:
-      logger.info("[DRY RUN] sim_id=%s, config=%s, profile=%s", sim_id, config_name, profile_mode)
-      sys.exit(0)
-      
-    _enforce_single_rank_profiling(args)
-    
-    if profile_mode:
-        import pstats
-        import cProfile
-        
-        profiler = cProfile.Profile()
-        profiler.enable()
-        
-        atexit.register(lambda: profiler.dump_stats('kmc_profile.prof'))
-        
-        try:
-          System_state = main(sim_id)
-        finally:
-          profiler.disable()
-        
-        stats = pstats.Stats(profiler)
-        stats.sort_stats('cumulative')
-        logger.info("PROFILING RESULTS (top 15 functions by cumulative time)")
-        stats.print_stats(15)
-        logger.info("Full profile saved to 'kmc_profile.prof'")
-    else:
-        System_state = main(sim_id, config_name)
+    main()
