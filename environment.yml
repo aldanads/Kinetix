@@ -448,4 +448,11 @@ dependencies:
       - pymatgen-analysis-defects==2025.1.18
       - scikit-image==0.25.0
       - tifffile==2025.1.10
-prefix: /local/anaconda3/envs/Kinetix
+      # --- MACE calculator stack -------------------------------------------
+      # Required for the MACE/NEB activation-energy calculator presets
+      # (declared as the optional `mace` extra in pyproject.toml). Pinned to
+      # the tested versions. For a CPU-only torch build, install torch from
+      # the official PyTorch CPU index instead of PyPI.
+      - ase==3.29.0
+      - mace-torch==0.3.16
+      - torch==2.14.0
