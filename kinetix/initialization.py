@@ -4,6 +4,8 @@ Created on Wed Jan 10 15:03:03 2024
 
 @author: samuel.delgado
 """
+from __future__ import annotations
+
 import numpy as np
 import matplotlib.pyplot as plt
 import platform
@@ -298,6 +300,16 @@ def initialization(n_sim,params, config_name='PZT_ZrTi_PbO3_2.yaml'):
         
         
         filename = 'grid_'+ formula + "_" + str(int(max(crystal_size) / 10)) + "nm"
+
+        # TODO(config-objects): deposition branch is legacy/broken. It passes
+        # list-shaped configs (experimental_conditions, superbasin_parameters)
+        # that cannot satisfy Crystal_Lattice's typed-object contract (would
+        # raise AttributeError in crystal.py), and its crystal_features dict
+        # lacks keys read there with hard [] access ('miller_indices',
+        # 'gb_configurations' -> KeyError). It also does not pass the new
+        # simulation_type argument. A restore-or-remove decision is required
+        # before this path can use typed config objects; the electronic_device
+        # path is the actively maintained one.
         System_state = initialize_grid_crystal(filename, mpi_ctx, crystal_features, experimental_conditions, Act_E_list, 
               lammps_file, superbasin_parameters, save_data)  
 
@@ -374,13 +386,9 @@ def initialization(n_sim,params, config_name='PZT_ZrTi_PbO3_2.yaml'):
           
         Elec_controller = ElectricalController.from_config(config.electrical)
         
-        # 3. Experimental conditions
-        experimental_conditions = {
-          'sticking_coeff': config.experimental.sticking_coeff,
-          'partial_pressure':config.experimental.partial_pressure,
-          'T':config.experimental.temperature,
-          'simulation_type':simulation_type
-        }
+        # 3. Experimental conditions (typed object; simulation_type stays a
+        # separate argument - it is not a field of ExperimentalConditions).
+        experimental_config = config.experimental
         
         # 4. Prepare parameters for grid initialization
         crystal_size = config.material.structure.size # (angstrom)
@@ -416,8 +424,8 @@ def initialization(n_sim,params, config_name='PZT_ZrTi_PbO3_2.yaml'):
           'calculator_config': config.calculator
         }
         
-        # 5. Superbasin parameters
-        superbasin_parameters = config.superbasin.to_dict()
+        # 5. Superbasin configuration (typed object)
+        superbasin_config = config.superbasin
         
         # 6. Poisson solver parameters
         mesh_file = f"{formula}_{int(max(crystal_size) / 10)}nm_mesh.msh"
@@ -471,13 +479,14 @@ def initialization(n_sim,params, config_name='PZT_ZrTi_PbO3_2.yaml'):
           filename,
           mpi_ctx,
           crystal_features,
-          experimental_conditions,
+          experimental_config,
           Act_E_dict, 
           lammps_file,
-          superbasin_parameters,
+          superbasin_config,
           save_data,
           poissonSolver_parameters,
-          heat_parameters
+          heat_parameters,
+          simulation_type=simulation_type
         ) 
         
         # Load state for annealing simulation
@@ -557,13 +566,14 @@ def initialize_grid_crystal(
   filename,
   mpi_ctx,
   crystal_features,
-  experimental_conditions,
+  experimental_config: ExperimentalConditions,
   Act_E_dict, 
   lammps_file,
-  superbasin_parameters,
+  superbasin_config: SuperbasinConfig,
   save_data, 
   poissonSolver_parameters = None,
-  heat_parameters = None
+  heat_parameters = None,
+  simulation_type: str | None = None
 ):
         """
         Initialize or load a crystal lattice state for kMC simulation.
@@ -629,11 +639,12 @@ def initialize_grid_crystal(
 
                 creator = Crystal_Lattice(
                   crystal_features=crystal_features,
-                  experimental_conditions=experimental_conditions,
+                  experimental_config=experimental_config,
                   Act_E_dict=Act_E_dict,
                   lammps_file=lammps_file,
-                  superbasin_parameters=superbasin_parameters,
+                  superbasin_config=superbasin_config,
                   mpi_ctx=None,
+                  simulation_type=simulation_type,
                   **creator_kwargs
                 )
                 grid_crystal = creator.grid_crystal
@@ -666,11 +677,12 @@ def initialize_grid_crystal(
 
         System_state = Crystal_Lattice(
             crystal_features=crystal_features,
-            experimental_conditions=experimental_conditions,
+            experimental_config=experimental_config,
             Act_E_dict=Act_E_dict,
             lammps_file=lammps_file,
-            superbasin_parameters=superbasin_parameters,
+            superbasin_config=superbasin_config,
             mpi_ctx=mpi_ctx,
+            simulation_type=simulation_type,
             **crystal_kwargs
         )
 

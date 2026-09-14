@@ -4,6 +4,8 @@ Created on Wed Jan 10 15:19:06 2024
 
 @author: samuel.delgado
 """
+from __future__ import annotations
+
 import matplotlib.pyplot as plt
 
 
@@ -40,7 +42,15 @@ from pymatgen.core import Structure, PeriodicSite
 
 import json
 import subprocess
-from typing import Dict, List, Any
+from typing import Dict, List, Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    # Type-checking only: the config classes appear solely in annotations, so
+    # importing them here at runtime would pull the full config stack into this
+    # hot lattice module for no benefit.
+    from kinetix.configs.solver_config import SuperbasinConfig
+    from kinetix.configs.simulation_config import ExperimentalConditions
+
 import os
 from pathlib import Path
 import platform
@@ -56,11 +66,12 @@ class Crystal_Lattice():
     def __init__(
       self,
       crystal_features,
-      experimental_conditions,
+      experimental_config: ExperimentalConditions,
       Act_E_dict,
       lammps_file,
-      superbasin_parameters,
+      superbasin_config: SuperbasinConfig,
       mpi_ctx = None,
+      simulation_type: str | None = None,
       **kwargs
     ):
         
@@ -100,24 +111,24 @@ class Crystal_Lattice():
         self.calculator_config = crystal_features.get('calculator_config')    
              
         # --- Experimental conditions ---
-        self.sticking_coefficient = experimental_conditions['sticking_coeff']
-        self.partial_pressure = experimental_conditions['partial_pressure']
-        self.temperature = experimental_conditions['T']
-        self.simulation_type = experimental_conditions['simulation_type']
+        self.sticking_coefficient = experimental_config.sticking_coeff
+        self.partial_pressure = experimental_config.partial_pressure
+        self.temperature = experimental_config.temperature  # dataclass field is `temperature` (dict key was 'T')
+        self.simulation_type = simulation_type
         
         # --- Activation energies (structured by defect name) ---
         self.Act_E_dict = Act_E_dict
         
          # --- Superbasin ---
-        self.enabled_superbasin = superbasin_parameters['enabled_superbasin']
-        self.n_search_superbasin = superbasin_parameters['n_search_superbasin']
-        self.time_step_limits = superbasin_parameters['time_step_limits']
-        self.E_min = superbasin_parameters['E_min']
-        self.energy_step = superbasin_parameters['energy_step']
+        self.enabled_superbasin = superbasin_config.enabled_superbasin
+        self.n_search_superbasin = superbasin_config.n_search_superbasin
+        self.time_step_limits = superbasin_config.time_step_limits
+        self.E_min = superbasin_config.E_min
+        self.energy_step = superbasin_config.energy_step
         self.superbasin_dict = {}
         self.superbasin_tracker = []
         self.nothing_happen_count = 0
-        self.time_based_superbasin = superbasin_parameters['time_based_superbasin']
+        self.time_based_superbasin = superbasin_config.time_based_superbasin
         self.allow_specie_removal = True # We need this variable to desactivate specie removal during superbasin creation
         
         # --- Poisson solver ---
@@ -152,7 +163,7 @@ class Crystal_Lattice():
         
         #Transition rate for adsortion of chemical species
         if self.simulation_type != 'electronic_device':
-            self.transition_rate_adsorption(experimental_conditions)
+            self.transition_rate_adsorption(experimental_config)
             # self.E_min_lim_superbasin = self.Act_E_gen * 0.9 # Don't create superbasin that include the deposition process
             self.E_min_lim_superbasin = 0.25 # Don't create superbasin that include the deposition process
             # Wulff shape and edge types for this kind of material
@@ -2181,7 +2192,7 @@ class Crystal_Lattice():
     
         
                     
-    def transition_rate_adsorption(self,experimental_conditions):
+    def transition_rate_adsorption(self, experimental_config: ExperimentalConditions):
 # =============================================================================
 #         Kim, S., An, H., Oh, S., Jung, J., Kim, B., Nam, S. K., & Han, S. (2022).
 #         Atomistic kinetic Monte Carlo simulation on atomic layer deposition of TiN thin film. 
@@ -2189,7 +2200,7 @@ class Crystal_Lattice():
 # =============================================================================
         
         # Maxwell-Boltzman statistics for transition rate of adsorption rate
-        sticking_coeff, partial_pressure, T = experimental_conditions['sticking_coeff'], experimental_conditions['partial_pressure'], experimental_conditions['T'] 
+        sticking_coeff, partial_pressure, T = experimental_config.sticking_coeff, experimental_config.partial_pressure, experimental_config.temperature 
         self.mass_specie = Element(self.chemical_specie).atomic_mass
 
         # The mass in kg of a unit of the chemical specie
