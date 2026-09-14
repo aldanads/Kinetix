@@ -20,6 +20,9 @@ Kinetix is a Python-based, open-source simulation framework (**MIT License**) th
 * **Multiphysics Coupling:** Real-time feedback between electrostatics (Poisson), Joule heating (heat equation), and stochastic defect kinetics, with field-assisted migration barriers for charged species.
 * **Superbasin Acceleration:** Local-superbasin event grouping to escape rare-event bottlenecks in deposition, annealing, and device simulations.
 
+> [!CAUTION]
+> **Simulation-type maintenance status:** the **electronic device** path (`simulation_type: "electronic_device"`, used by the resistive-switching presets) is the actively maintained code path and the one exercised by the test suite. **Deposition** and **annealing** remain available but are legacy paths that are not covered by the automated tests — they may require restoration before production use (they still pass configuration as plain containers rather than typed config objects).
+
 ---
 
 ## 🔄 Simulation Workflow
