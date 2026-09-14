@@ -79,50 +79,6 @@ class SimulationConfig:
   mpi_ctx: Any = None
   base_path: Path | None = None # For resolving relative component paths
     
-  def to_dict(self) -> dict[str, Any]:
-    """Convert entire config to dictionary for backwards compatibility.
-
-    Returns:
-        Dictionary keyed by section name (``material``, ``experimental``,
-        ``settings``, ``defects_config``, ``reactions_config``, ``mesh``,
-        ``poisson``, ``heat``, ``superbasin``, ``calculator``,
-        ``gb_configurations``).
-    """
-    return {
-      'material': {
-        'formula': self.material.formula,
-        'mp_id': self.material.selection.mp_id,
-        'epsilon_r': self.material.epsilon_r,
-        'crystal_size': self.material.structure.size,
-        'miller_indices': self.material.structure.miller_indices,
-      },
-      'experimental': {
-        'temperature': self.experimental.temperature,
-        'sticking_coeff': self.experimental.sticking_coeff,
-        'partial_pressure': self.experimental.partial_pressure
-      },
-      'settings': {
-        'simulation_type': self.settings.simulation_type,
-        'technology': self.settings.technology,
-        'mode': self.settings.mode,
-        'save_data': self.settings.save_data,
-        'snapshoots_steps': self.settings.snapshoots_steps,
-        'total_steps': self.settings.total_steps,
-        'activation_energies': self.settings.activation_energies,
-        'output_path': self.settings.output_path,
-        'load_state': self.settings.load_state,
-        'log_level': self.settings.log_level
-      },
-      'defects_config': self.defects.to_dict(),
-      'reactions_config': self.reactions.to_dict(),
-      'mesh': self.mesh.to_dict(),
-      'poisson': self.poisson.to_dict(),
-      'heat': self.heat.to_dict(),
-      'superbasin': self.superbasin.to_dict(),
-      'calculator': self.calculator.to_dict() if self.calculator else None,
-      'gb_configurations': [gb.to_dict() for gb in self.grain_boundaries] if self.grain_boundaries else [],
-    }
-    
   @classmethod
   def from_yaml(cls, yaml_path: Path) -> SimulationConfig:
     """

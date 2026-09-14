@@ -90,4 +90,4 @@ class MaterialConfig:
     """
     max_dim = max(self.structure.size)
     size_nm = int(max_dim / 10)
-    return f"grid_{formula}_{size_nm}nm"
+    return f"grid_{self.formula}_{size_nm}nm"
