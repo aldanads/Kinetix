@@ -2,6 +2,15 @@
 Modular FEM solvers for kMC electro-thermal simulations.
 Base class + specialized solvers
 """
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:  # typing-only imports (lazy annotations; no runtime cost)
+  from kinetix.configs.mesh_config import MeshConfig
+  from kinetix.configs.solver_config import HeatSolverConfig, PoissonSolverConfig
+
+
 
 from mpi4py import MPI
 from pathlib import Path
@@ -36,28 +45,39 @@ class FEMSolverBase:
     - solve()
     """
   def __init__(
-    self, 
-    solver_parameters, 
+    self,
+    mesh_file: str,
+    mesh_config: MeshConfig,
+    defects_config: dict | None = None,
+    poisson_config: PoissonSolverConfig | None = None,
+    heat_config: HeatSolverConfig | None = None,
     grid_crystal=None,
     mpi_ctx=None,
     **kwargs):
-    
+
     """
     Initialize FEM solver base.
-        
+
     Parameters:
     -----------
-    solver_parameters : dict
-      Solver-specific parameters (mesh_file, physical params, etc.)
+    mesh_file : str
+      Mesh filename (resolved under the mesh directory)
+    mesh_config : MeshConfig
+      Typed mesh-generation parameters
+    defects_config : optional
+      Defect configuration (dict; migrated to a typed object in Epic 2)
+    poisson_config : PoissonSolverConfig, optional
+      Typed Poisson solver parameters (None for heat-only usage)
+    heat_config : HeatSolverConfig, optional
+      Typed heat solver parameters (None for poisson-only usage)
     grid_crystal : optional
       Crystal structure for mesh generation (if mesh needs to be created)
     mpi_ctx : MPIContext, optional
       MPI context manager (uses singleton if None)
     **kwargs : dict
       Additional parameters:
-        - gmsh_model_rank : int (default: 0)
-        - gdim : int (default: 3)
-        - mesh_size : float (default: 0.8 angstrom)
+        - output_format : str (default: 'vtu')
+        - save_csv : bool (default: False)
         - path_results : str (default: "")
     """
     # === MPI handling ===
@@ -65,25 +85,26 @@ class FEMSolverBase:
     self.comm = self.mpi_ctx.comm
     self.rank = self.mpi_ctx.rank
     self.use_mpi = self.mpi_ctx.available
-    
-    # === Solver parameters ===
-    self.solver_parameters = solver_parameters
+
+    # === Solver configuration (typed objects) ===
+    self.poisson_config = poisson_config
+    self.heat_config = heat_config
     self.path_results_folder = kwargs.get("path_results", "")
-    
-    # === Mesh parameters ===
-    mesh_config = solver_parameters['mesh_config']
-    self.gmsh_model_rank = mesh_config.get("gmsh_model_rank", 0)
-    self.gdim = mesh_config.get("gdim", 3)
-    self.mesh_size = mesh_config.get("mesh_size", 0.8)
-    self.padding = mesh_config.get("bounding_box_padding",3.0)
-    self.epsilon_gc = mesh_config.get("epsilon_gaussian_charge",0.8) #(angstrom)
-    self.active_mesh_refinement = mesh_config.get("activate_mesh_refinement",True)
-    self.fine_mesh_size = mesh_config.get("fine_mesh_size",1) #(angstrom)
-    self.refinement_radius = mesh_config.get("refinement_radius",3.0) #(angstrom)
-    self.defects_config = solver_parameters["defects_config"]
-    
+    self.output_format = kwargs.get('output_format', 'vtu')
+    self.save_csv = kwargs.get('save_csv', False)
+
+    # === Mesh parameters (typed MeshConfig) ===
+    self.gmsh_model_rank = mesh_config.gmsh_model_rank
+    self.gdim = mesh_config.gdim
+    self.mesh_size = mesh_config.mesh_size
+    self.padding = mesh_config.bounding_box_padding
+    self.epsilon_gc = mesh_config.epsilon_gaussian_charge #(angstrom)
+    self.active_mesh_refinement = mesh_config.activate_mesh_refinement
+    self.fine_mesh_size = mesh_config.fine_mesh_size #(angstrom)
+    self.refinement_radius = mesh_config.refinement_radius #(angstrom)
+    self.defects_config = defects_config
+
     # === Mesh handling ===
-    mesh_file = solver_parameters['mesh_file']
     self.mesh_folder = get_mesh_root()
     self.mesh_file = self.mesh_folder / mesh_file
     
@@ -677,12 +698,9 @@ class FEMSolverBase:
     # Base filename for time series
     self.output_base = results_folder / base_filename
     
-    # Track timesteps for metadata  
+    # Track timesteps for metadata
     self.timestep_info = []
-    
-    # Output format preference (configurable)
-    self.output_format = self.solver_parameters.get('output_format', 'vtu')
-    self.save_csv = self.solver_parameters.get('save_csv', False)
+    # Output format preference is captured in __init__ (self.output_format / self.save_csv).
     
   
   def save_solution(self, function, filename, time_value=0.0, timestep=None,

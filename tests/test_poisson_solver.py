@@ -9,6 +9,22 @@ from scipy.constants import epsilon_0
 
 from kinetix.solvers.poisson import PoissonSolver
 from kinetix.utils.mpi_context import MPIContext
+from kinetix.configs.mesh_config import MeshConfig
+from kinetix.configs.solver_config import PoissonSolverConfig
+
+
+def _mock_mesh_config() -> MeshConfig:
+    """MeshConfig with the values the legacy test parameter dict carried."""
+    return MeshConfig(
+        mesh_size=2.0,
+        fine_mesh_size=0.5,
+        refinement_radius=3.0,
+        bounding_box_padding=3.0,
+        epsilon_gaussian_charge=0.8,
+        activate_mesh_refinement=True,
+        gdim=3,
+        gmsh_model_rank=0,
+    )
 
 class MockCluster:
     """Mock Cluster object for testing."""
@@ -28,32 +44,25 @@ class TestPoissonSolver:
     @pytest.fixture
     def poisson_solver(self, mpi_ctx):
         """Fixture: PoissonSolver instance."""
-        params = {
-            'mesh_file': 'test_mock_mesh.msh',
-            'epsilon_r': 25.0,
-            'conductivity': {
+        # Values mirror the legacy parameter dict; material_config is None,
+        # so the solver falls back to these PoissonSolverConfig fields.
+        poisson_config = PoissonSolverConfig(
+            epsilon_r=25.0,
+            metal_valence=4,
+            d_metal_O=2.0,
+            chem_env_symmetry='Octahedron',
+            active_dipoles=1.0,
+            conductivity={
                 'conductive_filament': 1e6,
                 'dielectric': 1e-10,
             },
-            'metal_valence': 4,
-            'd_metal_O': 2.0,
-            'chem_env_symmetry': 'Octahedron',
-            'active_dipoles': 1.0,
-            'defects_config': {},
-            'mesh_config': {
-                'mesh_size': 2.0,
-                'fine_mesh_size': 0.5,
-                'refinement_radius': 3.0,
-                'bounding_box_padding': 3.0,
-                'epsilon_gaussian_charge': 0.8,
-                'activate_mesh_refinement': True,
-                'gdim': 3,
-                'gmsh_model_rank': 0,
-            }
-        }
-        
+        )
+
         return PoissonSolver(
-            params,
+            mesh_file='test_mock_mesh.msh',
+            mesh_config=_mock_mesh_config(),
+            poisson_config=poisson_config,
+            defects_config={},
             mpi_ctx=mpi_ctx,
             path_results=Path('./test_output')
         )

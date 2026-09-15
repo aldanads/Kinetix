@@ -336,11 +336,15 @@ def main(sim_id=None, config_name='PZT_ZrTi_PbO3_2.yaml'):
         elif System_state.simulation_type == 'electronic_device':
             
             from collections import Counter
-            solve_Poisson = System_state.poissonSolver_parameters['solve_Poisson']
-            save_Poisson = System_state.poissonSolver_parameters['save_Poisson']
-            
-            solve_heat = System_state.heat_parameters.get('solve_heat', False)
-            save_heat = System_state.heat_parameters.get('save_heat', False)
+            solve_Poisson = (System_state.poisson_config is not None
+                             and System_state.poisson_config.solve_Poisson)
+            save_Poisson = (System_state.poisson_config is not None
+                            and System_state.poisson_config.save_Poisson)
+
+            solve_heat = (System_state.heat_config is not None
+                          and System_state.heat_config.solve_heat)
+            save_heat = (System_state.heat_config is not None
+                         and System_state.heat_config.save_heat)
             
             V_top = Elec_controller.apply_voltage(System_state.time)
             System_state.save_electric_bias(V_top)
@@ -353,7 +357,11 @@ def main(sim_id=None, config_name='PZT_ZrTi_PbO3_2.yaml'):
                 
                 # Initialize Poisson solver on all MPI ranks
                 poisson_solver = PoissonSolver(
-                  System_state.poissonSolver_parameters, 
+                  mesh_file=System_state.solver_mesh_file,
+                  mesh_config=System_state.mesh_config,
+                  poisson_config=System_state.poisson_config,
+                  material_config=System_state.material_config,
+                  defects_config=System_state.defects_config,
                   grid_crystal=System_state.grid_crystal,
                   path_results = paths["results"],
                   mpi_ctx = System_state.mpi_ctx
@@ -364,7 +372,12 @@ def main(sim_id=None, config_name='PZT_ZrTi_PbO3_2.yaml'):
                 
                 if solve_heat:
                   heat_solver = HeatSolver(
-                    System_state.heat_parameters,
+                    mesh_file=System_state.solver_mesh_file,
+                    mesh_config=System_state.mesh_config,
+                    heat_config=System_state.heat_config,
+                    ambient_temperature=System_state.temperature,
+                    characteristic_length=System_state.characteristic_length,
+                    defects_config=System_state.defects_config,
                     grid_crystal=System_state.grid_crystal,
                     path_results = paths["results"],
                     mpi_ctx=System_state.mpi_ctx

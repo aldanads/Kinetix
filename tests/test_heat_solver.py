@@ -9,6 +9,22 @@ PHYSICS_TOL = 0.01 # 1% tolerance for physics validation
 from kinetix.solvers.heat import HeatSolver
 from kinetix.solvers.poisson import PoissonSolver
 from kinetix.utils.mpi_context import MPIContext
+from kinetix.configs.mesh_config import MeshConfig
+from kinetix.configs.solver_config import HeatSolverConfig, PoissonSolverConfig
+
+
+def _mock_mesh_config() -> MeshConfig:
+  """MeshConfig with the values the legacy test parameter dicts carried."""
+  return MeshConfig(
+    mesh_size=2.0,
+    fine_mesh_size=0.5,
+    refinement_radius=3.0,
+    bounding_box_padding=3.0,
+    epsilon_gaussian_charge=0.8,
+    activate_mesh_refinement=True,
+    gdim=3,
+    gmsh_model_rank=0,
+  )
 
 
 @pytest.fixture
@@ -19,34 +35,26 @@ def mpi_ctx():
 @pytest.fixture
 def heat_solver(mpi_ctx):
   """ Fixture: HeatSolver instance """
-  params ={
-    'mesh_file': 'test_mock_mesh.msh',
-    'thermal_conductivity': { # W/m/K
+  # Values mirror the legacy parameter dict.
+  heat_config = HeatSolverConfig(
+    thermal_conductivity={  # W/m/K
       'kappa_dielectric': 10.0,
       'kappa_metal': 10.0
     },
-    'density': 5000.0, # kg/m^3
-    'specific_heat': 500.0, # J/kg/K
-    'ambient_temperature': 300.0, # K
-    'use_thermal_inertia': True,
-    'tau_thermal': 1e-12, # 1 ps
-    'defects_config': {},
-    'mesh_config': {
-      'mesh_size': 2.0,
-      'fine_mesh_size': 0.5,
-      'refinement_radius': 3.0,
-      'bounding_box_padding': 3.0,
-      'epsilon_gaussian_charge': 0.8,
-      'activate_mesh_refinement': True,
-      'gdim': 3,
-      'gmsh_model_rank': 0,
-    }
-  }
-    
+    density=5000.0,  # kg/m^3
+    specific_heat=500.0,  # J/kg/K
+    use_thermal_inertia=True,
+    tau_thermal=1e-12,  # 1 ps
+  )
+
   grid_crystal = None
-    
+
   return HeatSolver(
-    params,
+    mesh_file='test_mock_mesh.msh',
+    mesh_config=_mock_mesh_config(),
+    heat_config=heat_config,
+    ambient_temperature=300.0,  # K
+    defects_config={},
     grid_crystal=grid_crystal,
     mpi_ctx=mpi_ctx,
     path_results=Path('./test_output')
@@ -54,33 +62,26 @@ def heat_solver(mpi_ctx):
     
 @pytest.fixture
 def poisson_solver(mpi_ctx):
-  """ Fixture: HeatSolver instance """
-  params = {
-    'mesh_file': 'test_mock_mesh.msh',
-    'epsilon_r': 25.0,
-    'metal_valence': 1,
-    'd_metal_O': 2.4,
-    'chem_env_symmetry': 'Tetrahedron',
-    'active_dipoles': 1,
-    'conductivity': {
+  """ Fixture: PoissonSolver instance """
+  # Values mirror the legacy parameter dict; material_config is None, so
+  # the solver falls back to these PoissonSolverConfig fields.
+  poisson_config = PoissonSolverConfig(
+    epsilon_r=25.0,
+    metal_valence=1,
+    d_metal_O=2.4,
+    chem_env_symmetry='Tetrahedron',
+    active_dipoles=1,
+    conductivity={
       'conductive_filament': 1e6,
       'dielectric': 1e-12,
     },
-    'defects_config': {},
-    'mesh_config': {
-      'mesh_size': 2.0,
-      'fine_mesh_size': 0.5,
-      'refinement_radius': 3.0,
-      'bounding_box_padding': 3.0,
-      'epsilon_gaussian_charge': 0.8,
-      'activate_mesh_refinement': True,
-      'gdim': 3,
-      'gmsh_model_rank': 0,
-    }
-  }
-    
+  )
+
   return PoissonSolver(
-    params,
+    mesh_file='test_mock_mesh.msh',
+    mesh_config=_mock_mesh_config(),
+    poisson_config=poisson_config,
+    defects_config={},
     grid_crystal=None,
     mpi_ctx=mpi_ctx,
     path_results=Path('./test_output')

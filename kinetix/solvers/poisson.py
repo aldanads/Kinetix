@@ -2,6 +2,16 @@
 """
 Poisson solver for electrostatic calculations in kMC simulations.
 """
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:  # typing-only imports (lazy annotations; no runtime cost)
+  from kinetix.configs.material_config import MaterialConfig
+  from kinetix.configs.mesh_config import MeshConfig
+  from kinetix.configs.solver_config import PoissonSolverConfig
+
+
 import sys
 import numpy as np
 import ufl
@@ -28,44 +38,54 @@ class PoissonSolver(FEMSolverBase):
   
   def __init__(
     self,
-    poisson_parameters,
+    mesh_file: str,
+    mesh_config: MeshConfig,
+    poisson_config: PoissonSolverConfig | None = None,
+    material_config: MaterialConfig | None = None,
+    defects_config: dict | None = None,
     grid_crystal=None,
     mpi_ctx=None,
     **kwargs
   ):
     """
     Initialize Poisson solver.
-          
+
     Parameters:
     -----------
-    poisson_parameters : dict
-      Poisson-specific parameters:
-      - mesh_file : str
-      - epsilon_r : float (relative permittivity)
-      - conductivity_CF : float (S/m)
-      - conductivity_dielectric : float (S/m)
-      - metal_valence : float
-      - d_metal_O : float (angstrom)
-      - chem_env_symmetry : str
-      - active_dipoles : float
+    mesh_file : str
+      Mesh filename (resolved under the mesh directory)
+    mesh_config : MeshConfig
+      Typed mesh-generation parameters
+    poisson_config : PoissonSolverConfig
+      Typed Poisson solver parameters (dipoles, screening, conductivity, flags)
+    material_config : MaterialConfig, optional
+      Typed material parameters; the correct source for epsilon_r,
+      metal_valence, d_metal_O and chem_env_symmetry (values are populated
+      by the material fetcher). Falls back to the poisson_config fields
+      when omitted.
+    defects_config : dict, optional
+      Defect configuration (dict; migrated to a typed object in Epic 2)
     grid_crystal : optional
       Crystal structure for mesh generation
     mpi_ctx : MPIContext, optional
       MPI context (uses singleton if None)
     **kwargs : dict
       Additional parameters:
-      - epsilon_gaussian_charge : float (angstrom)
-
       - path_results : str
-    """  
-    # === Extract Poisson-specific paramters ===
-    self.epsilon_gc = kwargs.pop('epsilon_gaussian_charge', 0.8) # angstroms
-    self.epsilon_r = poisson_parameters.get('epsilon_r', 23.0)
-    self.poisson_parameters = poisson_parameters
-    
+    """
+    # === Extract Poisson-specific parameters (typed configs) ===
+    self.poisson_config = poisson_config
+    self.material_config = material_config
+    self.epsilon_r = (material_config.epsilon_r
+                      if material_config is not None
+                      else poisson_config.epsilon_r)
+
     # === Initialize base class ===
     super().__init__(
-      poisson_parameters,
+      mesh_file=mesh_file,
+      mesh_config=mesh_config,
+      defects_config=defects_config,
+      poisson_config=poisson_config,
       grid_crystal=grid_crystal,
       mpi_ctx=mpi_ctx,
       **kwargs
@@ -150,10 +170,18 @@ class PoissonSolver(FEMSolverBase):
       'Cuboctahedral': np.sqrt(1/3)
     }
     
-    metal_valence = self.poisson_parameters['metal_valence'] # Metal valence
-    d_metal_O = self.poisson_parameters['d_metal_O'] #Units: angstrom
-    chem_env_symmetry = self.poisson_parameters['chem_env_symmetry'] # Symmetry in the local environment (molecule)
-    active_dipoles = self.poisson_parameters['active_dipoles']
+    # Material-derived values: the correct source is MaterialConfig (the
+    # material fetcher populates them there); fall back to the
+    # PoissonSolverConfig fields when no material config is provided.
+    if self.material_config is not None:
+      metal_valence = getattr(self.material_config, 'metal_valence', self.poisson_config.metal_valence) # Metal valence
+      d_metal_O = getattr(self.material_config, 'bond_length', self.poisson_config.d_metal_O) #Units: angstrom
+      chem_env_symmetry = getattr(self.material_config, 'chem_env_symmetry', self.poisson_config.chem_env_symmetry) # Symmetry in the local environment (molecule)
+    else:
+      metal_valence = self.poisson_config.metal_valence # Metal valence
+      d_metal_O = self.poisson_config.d_metal_O #Units: angstrom
+      chem_env_symmetry = self.poisson_config.chem_env_symmetry # Symmetry in the local environment (molecule)
+    active_dipoles = self.poisson_config.active_dipoles
     
     dipole_moment = (
       active_dipoles *
@@ -226,8 +254,8 @@ class PoissonSolver(FEMSolverBase):
     self.use_conductivity = False
     
     
-    # Read contact resistance config
-    cond_cfg = self.poisson_parameters.get('conductivity',{})
+    # Read contact resistance config (nested dict on PoissonSolverConfig)
+    cond_cfg = self.poisson_config.conductivity
     self._has_top_contact_resistance = cond_cfg.get('interface_top', False)
     self._has_bottom_contact_resistance = cond_cfg.get('interface_bottom', False)
     
@@ -449,9 +477,9 @@ class PoissonSolver(FEMSolverBase):
       Cluster objects with atoms_positions, internal_atom_positions, attached_layer    
     """
     
-    cond_cfg = self.poisson_parameters.get('conductivity', {})
-    sigma_metal = float(self.poisson_parameters['conductivity'].get('conductive_filament')) # S/m
-    sigma_dielectric = float(self.poisson_parameters['conductivity'].get('dielectric')) # S/m
+    cond_cfg = self.poisson_config.conductivity
+    sigma_metal = float(cond_cfg.get('conductive_filament')) # S/m
+    sigma_dielectric = float(cond_cfg.get('dielectric')) # S/m
     
     # Initialize to dielectric value
     self.sigma.x.array[:] = sigma_dielectric

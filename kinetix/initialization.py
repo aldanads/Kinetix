@@ -427,38 +427,19 @@ def initialization(n_sim,params, config_name='PZT_ZrTi_PbO3_2.yaml'):
         # 5. Superbasin configuration (typed object)
         superbasin_config = config.superbasin
         
-        # 6. Poisson solver parameters
+        # 6. Solver configuration (typed objects; the solvers themselves are
+        #    constructed lazily in cli.py, keeping the dolfinx import behind
+        #    its Linux guard)
         mesh_file = f"{formula}_{int(max(crystal_size) / 10)}nm_mesh.msh"
-        
-        poissonSolver_parameters = {
-          'mesh_file': mesh_file,
-          'epsilon_r': config.material.epsilon_r,
-          'chem_env_symmetry': config.material.chem_env_symmetry,
-          'metal_valence': config.material.metal_valence,
-          'd_metal_O': config.material.bond_length,
-          'active_dipoles': config.poisson.active_dipoles,
-          'solve_Poisson': config.poisson.solve_Poisson,
-          'save_Poisson': config.poisson.save_Poisson, 
-          'screening_factor': config.poisson.screening_factor,
-          'conductivity': config.poisson.conductivity,
-          'defects_config':defects_config,
-          'mesh_config': config.mesh.to_dict()
-        }
-        
+        characteristic_length = crystal_size[2] / 2.0 * 1e-10  # m (half device thickness)
 
-        heat_parameters = {
-          'solve_heat': config.heat.solve_heat,
-          'save_heat': config.heat.save_heat,
-          'thermal_conductivity': config.heat.thermal_conductivity,
-          'specific_heat': config.heat.specific_heat,
-          'density': config.heat.density,    
-          'T_ambient': config.experimental.temperature,
-          'characteristic_length': crystal_size[2] / 2.0 * 1e-10,
-          'tau_thermal': config.heat.tau_thermal,
-          'use_thermal_inertia':config.heat.use_thermal_inertia,
-          'mesh_config': config.mesh.to_dict(),
+        solver_config = {
+          'poisson_config': config.poisson,
+          'heat_config': config.heat,
+          'mesh_config': config.mesh,
+          'material_config': config.material,
           'mesh_file': mesh_file,
-          'defects_config': defects_config,
+          'characteristic_length': characteristic_length,
         }
         
         # 7. Activation energies
@@ -484,8 +465,7 @@ def initialization(n_sim,params, config_name='PZT_ZrTi_PbO3_2.yaml'):
           lammps_file,
           superbasin_config,
           save_data,
-          poissonSolver_parameters,
-          heat_parameters,
+          solver_config,
           simulation_type=simulation_type
         ) 
         
@@ -571,8 +551,7 @@ def initialize_grid_crystal(
   lammps_file,
   superbasin_config: SuperbasinConfig,
   save_data, 
-  poissonSolver_parameters = None,
-  heat_parameters = None,
+  solver_config: dict | None = None,
   simulation_type: str | None = None
 ):
         """
@@ -632,10 +611,8 @@ def initialize_grid_crystal(
                 logger.info('Creating grid %s... this may take several minutes for large systems.', filename)
 
                 creator_kwargs = {}
-                if poissonSolver_parameters is not None:
-                  creator_kwargs['poissonSolver_parameters'] = poissonSolver_parameters
-                if heat_parameters is not None:
-                  creator_kwargs['heat_parameters'] = heat_parameters
+                if solver_config is not None:
+                  creator_kwargs.update(solver_config)
 
                 creator = Crystal_Lattice(
                   crystal_features=crystal_features,
@@ -669,11 +646,9 @@ def initialize_grid_crystal(
 
         # === Phase 4: All ranks instantiate Crystal_Lattice (fast path) ======
         crystal_kwargs = {}
-        if poissonSolver_parameters is not None:
-            crystal_kwargs['poissonSolver_parameters'] = poissonSolver_parameters
+        if solver_config is not None:
+            crystal_kwargs.update(solver_config)
         crystal_kwargs['grid_crystal'] = grid_crystal
-        if heat_parameters is not None:
-            crystal_kwargs['heat_parameters'] = heat_parameters
 
         System_state = Crystal_Lattice(
             crystal_features=crystal_features,

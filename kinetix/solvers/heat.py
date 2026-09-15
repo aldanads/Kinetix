@@ -6,6 +6,15 @@ Implements steady-state heat conduction with thermal relaxation (capacitor model
     - Steady-state: -grad(grad(T)) = Q
     - Thermal relaxation: T(t+dt) = T_steady + (T(t) - T_steady)*exp(-dt/t)
 """
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:  # typing-only imports (lazy annotations; no runtime cost)
+  from kinetix.configs.mesh_config import MeshConfig
+  from kinetix.configs.solver_config import HeatSolverConfig
+
+
 
 import numpy as np
 import ufl
@@ -32,52 +41,60 @@ class HeatSolver(FEMSolverBase):
     
   def __init__(
     self,
-    heat_parameters,
+    mesh_file: str,
+    mesh_config: MeshConfig,
+    heat_config: HeatSolverConfig | None = None,
+    ambient_temperature: float = 300.0,
+    characteristic_length: float = 50e-10,
+    defects_config: dict | None = None,
     grid_crystal=None,
     mpi_ctx=None,
     **kwargs
   ):
     """
     Initialize Heat solver.
-        
+
     Parameters:
     -----------
-    heat_parameters : dict
-      Heat-specific parameters:
-      - mesh_file : str
-      - thermal_conductivity : float (W/m/K)
-      - density : float (kg/m^3)
-      - specific_heat : float (J/kg/K)
-      - ambient_temperature : float (K)
-      - use_thermal_inertia : bool (default: True)
-      - tau_thermal : float (s) - relaxation time constant
-      - compute_tau_from_properties : bool (default: False)
-      - characteristic_length : float (m) - for tau calculation
+    mesh_file : str
+      Mesh filename (resolved under the mesh directory)
+    mesh_config : MeshConfig
+      Typed mesh-generation parameters
+    heat_config : HeatSolverConfig
+      Typed heat solver parameters (conductivities, density, specific
+      heat, thermal inertia, relaxation time)
+    ambient_temperature : float (K)
+      Ambient temperature; the correct source is
+      ExperimentalConditions.temperature
+    characteristic_length : float (m)
+      Used for the tau calculation when tau_thermal is None
+    defects_config : dict, optional
+      Defect configuration (dict; migrated to a typed object in Epic 2)
     grid_crystal : optional
       Crystal structure for mesh generation
     mpi_ctx : MPIContext, optional
       MPI context (uses singleton if None)
     **kwargs : dict
       Additional parameters:
-      - mesh_size : float (angstroms)
       - path_results : str
     """
-    # === Extract heat-specific parameters ===
-    self.kappa_default = heat_parameters.get('thermal_conductivity').get('kappa_dielectric',2.0)  # W/m/K
-    self.kappa_metal = heat_parameters.get('thermal_conductivity').get('kappa_metal') # W/m/K
-    self.rho_default = heat_parameters.get('density', 9700.0)  # kg/m³
-    self.cp_default = heat_parameters.get('specific_heat', 450.0)  # J/kg/K
-    self.T_ambient = heat_parameters.get('ambient_temperature', 300.0)  # K
+    # === Extract heat-specific parameters (typed config) ===
+    self.heat_config = heat_config
+    self.kappa_default = heat_config.thermal_conductivity.get('kappa_dielectric', 2.0)  # W/m/K
+    self.kappa_metal = heat_config.thermal_conductivity.get('kappa_metal') # W/m/K
+    self.rho_default = heat_config.density  # kg/mï¿½
+    self.cp_default = heat_config.specific_heat  # J/kg/K
+    self.T_ambient = ambient_temperature  # K
         
     # Thermal relaxation (capacitor model)
-    self.use_thermal_inertia = heat_parameters.get('use_thermal_inertia', True)
+    self.use_thermal_inertia = heat_config.use_thermal_inertia
         
     # Option A: Specify relaxation time directly
-    self.tau_thermal = heat_parameters.get('tau_thermal', None)  # 1 ps default
+    self.tau_thermal = heat_config.tau_thermal
         
     # Option B: Compute from material properties and geometry
     if self.tau_thermal is None:
-      L = heat_parameters.get('characteristic_length', 50e-10)  # m (default: 50 Å)
+      L = characteristic_length  # m (default: 50 ï¿½)
       self.tau_thermal = (self.rho_default * self.cp_default * L**2) / self.kappa_default
       if mpi_ctx is None or mpi_ctx.rank == 0:
         print(f"Computed thermal relaxation time: t = {self.tau_thermal:.2e} s = {self.tau_thermal*1e12:.2f} ps")
@@ -85,7 +102,10 @@ class HeatSolver(FEMSolverBase):
         
     # === Initialize base class ===
     super().__init__(
-      heat_parameters,
+      mesh_file=mesh_file,
+      mesh_config=mesh_config,
+      defects_config=defects_config,
+      heat_config=heat_config,
       grid_crystal=grid_crystal,
       mpi_ctx=mpi_ctx,
       **kwargs
@@ -140,7 +160,7 @@ class HeatSolver(FEMSolverBase):
       * angstrom_to_m * ufl.dx
     )
         
-    # Linear form: int(Q·v dx)
+    # Linear form: int(Qï¿½v dx)
     self.L_form = fem.form(self.Q * self.v_test * angstrom_to_m3 * ufl.dx)
         
     # Setup matrix in base class

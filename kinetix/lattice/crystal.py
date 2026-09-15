@@ -134,17 +134,22 @@ class Crystal_Lattice():
         # --- Poisson solver ---
         self._fields_changed = False
         self._dirty_sites = set()
-        self.poissonSolver_parameters = kwargs.get('poissonSolver_parameters', None)
-        self.heat_parameters = kwargs.get('heat_parameters',None)
+        # --- Solver configuration (typed objects; carried for cli.py) ---
+        self.poisson_config = kwargs.get('poisson_config', None)
+        self.heat_config = kwargs.get('heat_config', None)
+        self.mesh_config = kwargs.get('mesh_config', None)
+        self.material_config = kwargs.get('material_config', None)
+        self.solver_mesh_file = kwargs.get('mesh_file', None)
+        self.characteristic_length = kwargs.get('characteristic_length', None)
 
         # The device is globally neutral. Charged ions + electrons/dielectric reduced
         # Example: Ag/CeO2 (Ce4+) --> Ag+ + CeO2 (Ce3+)
         # Debye length:
         # There is a distance from a charged particle beyond which its electrostatic influence 
         # is effectively blocked due to the redistribution of neighboring charges
-        if self.poissonSolver_parameters:
-          self.screening_factor = self.poissonSolver_parameters['screening_factor']
-          self.conductivity = self.poissonSolver_parameters['conductivity']
+        if self.poisson_config is not None:
+          self.screening_factor = self.poisson_config.screening_factor
+          self.conductivity = self.poisson_config.conductivity
           
 
         # Time tracking
@@ -516,8 +521,8 @@ class Crystal_Lattice():
           )
       
       # Electric field-dependent barriers
-      if (self.poissonSolver_parameters and
-          self.poissonSolver_parameters.get('solve_Poisson', False)):
+      if (self.poisson_config is not None and
+          self.poisson_config.solve_Poisson):
           
           for name in self.defects_config.keys():
             Act_E_mig = {}
@@ -3004,7 +3009,7 @@ class Crystal_Lattice():
             self._remove_species_at_site(source_idx, support_update_sites, event_update_sites,
                                          attributes_to_reset=extra_state.keys() if extra_state else None)
             
-            if self.poissonSolver_parameters['solve_Poisson']:
+            if self.poisson_config is not None and self.poisson_config.solve_Poisson:
               event_update_sites.update(self._get_mobile_sites(self.active_event_sites))
             return
           
@@ -3026,7 +3031,7 @@ class Crystal_Lattice():
                                    attributes_to_reset=extra_state.keys() if extra_state else None)
       
       # Update Poisson-relevant sites
-      if self.poissonSolver_parameters['solve_Poisson']:
+      if self.poisson_config is not None and self.poisson_config.solve_Poisson:
         event_update_sites.update(self._get_mobile_sites(self.active_event_sites))
         
       # Handle cluster updates for neutral metal atoms

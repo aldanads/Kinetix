@@ -8,6 +8,21 @@ from dolfinx import fem
 
 from kinetix.solvers.base import FEMSolverBase
 from kinetix.utils.mpi_context import MPIContext
+from kinetix.configs.mesh_config import MeshConfig
+
+
+def _mock_mesh_config() -> MeshConfig:
+    """MeshConfig with the values the legacy test parameter dict carried."""
+    return MeshConfig(
+        mesh_size=2.0,
+        fine_mesh_size=0.5,
+        refinement_radius=3.0,
+        bounding_box_padding=3.0,
+        epsilon_gaussian_charge=0.8,
+        activate_mesh_refinement=True,
+        gdim=3,
+        gmsh_model_rank=0,
+    )
 
 
 
@@ -26,27 +41,13 @@ class TestFEMSolverBase:
     def test_base_initialization(self):
         """Test that FEMSolverBase can be initialized."""
         mpi_ctx = MPIContext.get_instance()
-        
-        params = {
-            'mesh_file': 'test_mock_mesh.msh',
-            'defects_config': {},
-            'mesh_config': {
-                'mesh_size': 2.0,
-                'fine_mesh_size': 0.5,
-                'refinement_radius': 3.0,
-                'bounding_box_padding': 3.0,
-                'epsilon_gaussian_charge': 0.8,
-                'activate_mesh_refinement': True,
-                'gdim': 3,
-                'gmsh_model_rank': 0,
-            }
-        }
-        
-        
+
         # This will fail if mesh doesn't exist, which is OK for now
         try:
             solver = FEMSolverBase(
-                params,
+                mesh_file='test_mock_mesh.msh',
+                mesh_config=_mock_mesh_config(),
+                defects_config={},
                 mpi_ctx=mpi_ctx,
                 path_results=Path('./test_output')
             )
@@ -59,25 +60,12 @@ class TestFEMSolverBase:
     def test_abstract_methods_raise_error(self):
         """Test that abstract methods raise NotImplementedError."""
         mpi_ctx = MPIContext.get_instance()
-        
-        params = {
-            'mesh_file': 'test_mock_mesh.msh',
-            'defects_config': {},
-            'mesh_config': {
-                'mesh_size': 2.0,
-                'fine_mesh_size': 0.5,
-                'refinement_radius': 3.0,
-                'bounding_box_padding': 3.0,
-                'epsilon_gaussian_charge': 0.8,
-                'activate_mesh_refinement': True,
-                'gdim': 3,
-                'gmsh_model_rank': 0,
-            }
-        }
-        
+
         try:
             solver = FEMSolverBase(
-                params,
+                mesh_file='test_mock_mesh.msh',
+                mesh_config=_mock_mesh_config(),
+                defects_config={},
                 mpi_ctx=mpi_ctx,
                 path_results=Path('./test_output')
             )
@@ -97,11 +85,11 @@ class TestFEMSolverBase:
     def test_evaluate_at_points(self):
         """Test point evaluation with base class method."""
         mpi_ctx = MPIContext.get_instance()
-        params = {'mesh_file': 'test_mock_mesh.msh', 'defects_config': {},
-                  'mesh_config': {'mesh_size': 2.0, 'fine_mesh_size': 0.5}}
-        
+
         solver = FEMSolverBase(
-            params,
+            mesh_file='test_mock_mesh.msh',
+            mesh_config=_mock_mesh_config(),
+            defects_config={},
             mpi_ctx=mpi_ctx,
             path_results=Path('./test_output')
         )
@@ -122,11 +110,11 @@ class TestFEMSolverBase:
     def test_evaluate_at_points_empty(self):
         """Test point evaluation with empty input."""
         mpi_ctx = MPIContext.get_instance()
-        params = {'mesh_file': 'test_mock_mesh.msh', 'defects_config': {},
-                  'mesh_config': {'mesh_size': 2.0, 'fine_mesh_size': 0.5}}
-        
+
         solver = FEMSolverBase(
-            params,
+            mesh_file='test_mock_mesh.msh',
+            mesh_config=_mock_mesh_config(),
+            defects_config={},
             mpi_ctx=mpi_ctx,
             path_results=Path('./test_output')
         )
@@ -141,11 +129,11 @@ class TestFEMSolverBase:
     def test_save_solution(self):
         """Test solution saving."""
         mpi_ctx = MPIContext.get_instance()
-        params = {'mesh_file': 'test_mock_mesh.msh', 'defects_config': {},
-                  'mesh_config': {'mesh_size': 2.0, 'fine_mesh_size': 0.5}}
-        
+
         solver = FEMSolverBase(
-            params,
+            mesh_file='test_mock_mesh.msh',
+            mesh_config=_mock_mesh_config(),
+            defects_config={},
             mpi_ctx=mpi_ctx,
             path_results=Path('./test_output')
         )
@@ -174,11 +162,11 @@ class TestFEMSolverBase:
       """Test both scalar and vector functions work correctly."""
 
       mpi_ctx = MPIContext.get_instance()
-      params = {'mesh_file': 'test_mock_mesh.msh', 'defects_config': {},
-                'mesh_config': {'mesh_size': 2.0, 'fine_mesh_size': 0.5}}
-        
+
       solver = FEMSolverBase(
-        params,
+        mesh_file='test_mock_mesh.msh',
+        mesh_config=_mock_mesh_config(),
+        defects_config={},
         mpi_ctx=mpi_ctx,
         path_results=Path('./test_output')
       )
