@@ -18,3 +18,4 @@ batch_sim.sh
 *.lock
 *.model
 *.extxyz
+slurm_batch.sh
