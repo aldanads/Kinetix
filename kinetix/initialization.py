@@ -24,6 +24,7 @@ from kinetix.configs.reaction_config import ReactionsConfig, ReactionConfig, Rea
 from kinetix.configs.solver_config import PoissonSolverConfig, SuperbasinConfig, HeatSolverConfig
 from kinetix.configs.simulation_config import SimulationConfig, ExperimentalConditions, SimulationSettings
 from kinetix.configs.grain_boundary_config import GrainBoundariesConfig
+from kinetix.configs.calculator_config import CalculatorConfig
 from kinetix.logging_config import setup_logging
 
 logger = logging.getLogger(__name__)
@@ -403,27 +404,6 @@ def initialization(n_sim,params, config_name='PZT_ZrTi_PbO3_2.yaml'):
         
         gb_configurations = [grainboundary.to_dict() for grainboundary in config.grain_boundaries]
         
-        crystal_features = {
-          'chemical_formula': formula,
-          'id_material_Material_Project': config.material.selection.mp_id,
-          'crystal_size': crystal_size,
-          'miller_indices': config.material.structure.miller_indices,
-          'api_key': api_key,
-          'facets_type': config.material.structure.facets_type,
-          'affected_site': config.material.structure.affected_site,
-          'mode': config.settings.mode,
-          'radius_neighbors': config.material.selection.radius_neighbors,
-          'sites_generation_layer': config.material.structure.sites_generation_layer,
-          'defects_config': defects_config,
-          'reactions_config': reactions_config,
-          'gb_configurations': gb_configurations,
-          'technology': config.settings.technology,
-          'rng': rng,
-          'cache_dir': cache_dir,
-          'interstitial_generation': config.material.structure.interstitial_generation,
-          'calculator_config': config.calculator
-        }
-        
         # 5. Superbasin configuration (typed object)
         superbasin_config = config.superbasin
         
@@ -459,13 +439,21 @@ def initialization(n_sim,params, config_name='PZT_ZrTi_PbO3_2.yaml'):
         System_state = initialize_grid_crystal(
           filename,
           mpi_ctx,
-          crystal_features,
+          config.material,
           experimental_config,
           Act_E_dict, 
           lammps_file,
           superbasin_config,
           save_data,
-          solver_config,
+          settings=config.settings,
+          api_key=api_key,
+          rng=rng,
+          cache_dir=cache_dir,
+          calculator_config=config.calculator,
+          defects_config=defects_config,
+          reactions_config=reactions_config,
+          gb_configurations=gb_configurations,
+          solver_config=solver_config,
           simulation_type=simulation_type
         ) 
         
@@ -545,12 +533,20 @@ def _file_lock(lock_path: Path, timeout: float = 7200.0):
 def initialize_grid_crystal(
   filename,
   mpi_ctx,
-  crystal_features,
+  material_config: MaterialConfig,
   experimental_config: ExperimentalConditions,
   Act_E_dict, 
   lammps_file,
   superbasin_config: SuperbasinConfig,
   save_data, 
+  settings: SimulationSettings | None = None,
+  api_key: str | None = None,
+  rng=None,
+  cache_dir=None,
+  calculator_config: CalculatorConfig | None = None,
+  defects_config: dict | None = None,
+  reactions_config: dict | None = None,
+  gb_configurations: list | None = None,
   solver_config: dict | None = None,
   simulation_type: str | None = None
 ):
@@ -580,8 +576,8 @@ def initialize_grid_crystal(
         ----------
         filename : str
             Base name for saved grid files (without extension).
-        crystal_features : dict
-            Contains material, defect config, size, etc.
+        material_config : MaterialConfig
+            Typed material configuration (mesh/grid metadata and size).
         ... (other params)
         
         Returns
@@ -590,6 +586,22 @@ def initialize_grid_crystal(
         """
         grid_directory = get_grids_root()
         lock_path = grid_directory / f"{filename}.lock"
+
+        # Common Crystal_Lattice arguments: typed config objects plus the
+        # derived (non-config) values resolved by the caller.
+        lattice_kwargs = {
+          'material_config': material_config,
+          'settings': settings,
+          'api_key': api_key,
+          'rng': rng,
+          'cache_dir': cache_dir,
+          'calculator_config': calculator_config,
+          'defects_config': defects_config,
+          'reactions_config': reactions_config,
+          'gb_configurations': gb_configurations,
+        }
+        if solver_config is not None:
+          lattice_kwargs.update(solver_config)
 
         # === Phase 1: Rank 0 only - load or create+save the grid =============
         grid_crystal = None
@@ -610,12 +622,9 @@ def initialize_grid_crystal(
                 # barriers while Rank 0 is working alone.
                 logger.info('Creating grid %s... this may take several minutes for large systems.', filename)
 
-                creator_kwargs = {}
-                if solver_config is not None:
-                  creator_kwargs.update(solver_config)
+                creator_kwargs = dict(lattice_kwargs)
 
                 creator = Crystal_Lattice(
-                  crystal_features=crystal_features,
                   experimental_config=experimental_config,
                   Act_E_dict=Act_E_dict,
                   lammps_file=lammps_file,
@@ -645,13 +654,10 @@ def initialize_grid_crystal(
           )
 
         # === Phase 4: All ranks instantiate Crystal_Lattice (fast path) ======
-        crystal_kwargs = {}
-        if solver_config is not None:
-            crystal_kwargs.update(solver_config)
+        crystal_kwargs = dict(lattice_kwargs)
         crystal_kwargs['grid_crystal'] = grid_crystal
 
         System_state = Crystal_Lattice(
-            crystal_features=crystal_features,
             experimental_config=experimental_config,
             Act_E_dict=Act_E_dict,
             lammps_file=lammps_file,

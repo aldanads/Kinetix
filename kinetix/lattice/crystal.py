@@ -49,7 +49,12 @@ if TYPE_CHECKING:
     # importing them here at runtime would pull the full config stack into this
     # hot lattice module for no benefit.
     from kinetix.configs.solver_config import SuperbasinConfig
-    from kinetix.configs.simulation_config import ExperimentalConditions
+    from kinetix.configs.simulation_config import (
+        ExperimentalConditions,
+        SimulationSettings,
+    )
+    from kinetix.configs.material_config import MaterialConfig
+    from kinetix.configs.calculator_config import CalculatorConfig
 
 import os
 from pathlib import Path
@@ -65,11 +70,19 @@ class Crystal_Lattice():
     
     def __init__(
       self,
-      crystal_features,
-      experimental_config: ExperimentalConditions,
+      material_config: MaterialConfig,
       Act_E_dict,
       lammps_file,
       superbasin_config: SuperbasinConfig,
+      experimental_config: ExperimentalConditions | None = None,
+      settings: SimulationSettings | None = None,
+      api_key: str | None = None,
+      rng=None,
+      cache_dir=None,
+      calculator_config: CalculatorConfig | None = None,
+      defects_config: dict | None = None,
+      reactions_config: dict | None = None,
+      gb_configurations: list | None = None,
       mpi_ctx = None,
       simulation_type: str | None = None,
       **kwargs
@@ -84,31 +97,37 @@ class Crystal_Lattice():
         self.comm = self.mpi_ctx.comm if self.mpi_ctx is not None else None
         self.use_mpi = self.mpi_ctx.available if self.mpi_ctx is not None else False
         
-        # --- Crystal features ---
-        self.id_material = crystal_features['id_material_Material_Project']
-        self.crystal_size = crystal_features['crystal_size']
-        self.miller_indices = crystal_features['miller_indices']
-        api_key = crystal_features['api_key']
+        # --- Material features (typed MaterialConfig) ---
+        self.id_material = material_config.selection.mp_id
+        self.crystal_size = material_config.structure.size
+        self.miller_indices = material_config.structure.miller_indices
         self.api_key = api_key
-        self.facets_type = crystal_features['facets_type']
-        self.affected_site = crystal_features['affected_site']
-        self.mode = crystal_features['mode']
-        self.radius_neighbors = crystal_features['radius_neighbors']
-        self.sites_generation_layer = crystal_features['sites_generation_layer']
-        self.gb_configurations = crystal_features['gb_configurations']
-        self.defects_config = crystal_features.get('defects_config',{})
+        self.facets_type = material_config.structure.facets_type
+        self.affected_site = material_config.structure.affected_site
+        self.radius_neighbors = material_config.selection.radius_neighbors
+        self.sites_generation_layer = material_config.structure.sites_generation_layer
+        self.chemical_formula = material_config.formula
+        self.interstitial_generation = material_config.structure.interstitial_generation
+
+        # --- Global settings (typed SimulationSettings) ---
+        self.mode = settings.mode if settings is not None else ''
+        self.technology = settings.technology if settings is not None else ''
+
+        # --- Derived / non-config values ---
+        self.rng = rng
+        self.cache_dir = cache_dir
+        self.calculator_config = calculator_config
+
+        # --- Feature payloads deferred to Epic 2 (still dict/list based) ---
+        self.gb_configurations = gb_configurations
+        self.defects_config = defects_config if defects_config is not None else {}
         self._active_site_types = {
           stype for cfg in self.defects_config.values()
           for stype in cfg.get("allowed_sublattices", [])
         }
         self.scavenged_ions = {}
-          
-        self.reactions_config = crystal_features.get('reactions_config',{})
-        self.rng = crystal_features.get('rng')
-        self.chemical_formula = crystal_features.get('chemical_formula')
-        self.cache_dir = crystal_features.get('cache_dir')
-        self.interstitial_generation = crystal_features.get('interstitial_generation') 
-        self.calculator_config = crystal_features.get('calculator_config')    
+
+        self.reactions_config = reactions_config if reactions_config is not None else {}    
              
         # --- Experimental conditions ---
         self.sticking_coefficient = experimental_config.sticking_coeff
