@@ -13,7 +13,7 @@ authors = [
     { name = "Dr. Samuel Aldana Delgado", email = "samuel.delgado@tyndall.ie" },
 ]
 dependencies = [
-    "numpy",
+    "numpy>=1.24,<2",
     "scipy",
     "pandas",
     "pyyaml",
@@ -29,6 +29,8 @@ dependencies = [
 
 [project.optional-dependencies]
 mace = [
+    # Note: torch is installed via pip and auto-selects CUDA on Linux.
+    # numpy MUST stay <2 for pymatgen compatibility.
     "ase",
     "mace-torch",
     "torch",
