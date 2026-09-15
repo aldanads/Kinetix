@@ -16,3 +16,4 @@ interstitials.xyz
 batch_sim.sh
 .dolfin_cache/
 *.lock
+slurm_batch.sh
