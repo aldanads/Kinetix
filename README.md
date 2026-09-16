@@ -317,7 +317,7 @@ Simulation outputs (crystal snapshots, saved state, IV curves) are written under
 ---
 
 ## 🧪 Testing
-The test suite lives in [`tests/`](tests/) and covers the FEM Poisson and heat solvers, the shared FEM solver base class, grain-boundary barrier/charge modifications, and PBC-aware migration pathways:
+The test suite lives in [`tests/`](tests/) and covers the FEM Poisson and heat solvers, the shared FEM solver base class, grain-boundary barrier/charge modifications, PBC-aware migration pathways, and loadability of every shipped preset:
 
 ```text
 tests/
@@ -328,7 +328,8 @@ tests/
 ├── test_gb_charge_and_state_transfer.py # GB barriers and defect state transfer
 ├── test_migration_pathways.py           # PBC neighbor finding and pathway keys
 ├── test_mace_adapter.py                 # MACE-NEB calculator adapter (slow pathway sweeps need --runslow)
-└── test_percolation.py                  # Island percolation analysis
+├── test_percolation.py                  # Island percolation analysis
+└── test_presets.py                      # Every shipped preset loads via SimulationConfig.from_yaml
 ```
 
 Run the suite from the project root (inside the `Kinetix` environment):
