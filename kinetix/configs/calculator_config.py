@@ -37,6 +37,8 @@ class CalculatorConfig:
   Attributes:
       type: Calculator type, either "mace_neb" or "tabulated".
       model: Local model path or Hugging Face repository ID.
+      model_filename: Filename of the model inside the HF repo, used only
+          when ``model`` is a repository ID.
       n_images: Number of NEB images.
       fmax: Force convergence criterion in eV/Angstrom.
       max_steps: Maximum optimizer steps for the NEB relaxation.
@@ -49,6 +51,7 @@ class CalculatorConfig:
   """
   type: str = "tabulated"              # "mace_neb" or "tabulated"
   model: str = ""                      # Local path or HF repo ID
+  model_filename: str = "model.model"  # Model filename in case it is fetching from HF repo
   n_images: int = 5
   fmax: float = 0.05                   # eV/Å
   max_steps: int = 300
@@ -68,6 +71,7 @@ class CalculatorConfig:
     return {
       'type': self.type,
       'model': self.model,
+      'model_filename': self.model_filename,
       'n_images': self.n_images,
       'fmax': self.fmax,
       'max_steps': self.max_steps,

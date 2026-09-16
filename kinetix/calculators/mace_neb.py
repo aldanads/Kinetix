@@ -21,6 +21,18 @@ from kinetix.calculators.base import ActivationEnergyCalculator
 
 logger = logging.getLogger(__name__)
 
+# Hugging Face exceptions meaning "repo or model file not found". Guarded
+# import: huggingface_hub stays optional at import time (it is only needed
+# when model_source is a HF repo ID); a missing/ancient install simply
+# disables the friendly re-raise below.
+try:
+    from huggingface_hub.utils import (EntryNotFoundError,
+                                       RepositoryNotFoundError)
+    _HF_MODEL_ERRORS = (EntryNotFoundError, RepositoryNotFoundError)
+except ImportError:  # pragma: no cover - only hit without huggingface_hub
+    _HF_MODEL_ERRORS = ()
+
+
 class BarrierCache:
   """Persistent key-value store for NEB results, backed by a single SQLite file.
 
@@ -128,18 +140,35 @@ class MACENEBBarrierCalculator:
     
     cache_dir = Path(cache_dir)
     cache_dir.mkdir(parents=True, exist_ok=True)
+    self.cache_dir = cache_dir
     
     # --- 1. Resolve the model ---------------------------------------
     # Local file wins; anything else is treated as a HF repo ID and
     # downloaded once (hf_hub_download keeps its own disk cache).
+    self.model_filename = model_filename
     p = Path(model_source)
     if p.exists():
       self.model_path = p
     else:
-      from huggingface_hub import hf_hub_download
-      self.model_path = Path(hf_hub_download(
-        repo_id=model_source, filename=model_filename,
-        cache_dir=cache_dir / "hf"))
+      try:
+        from huggingface_hub import hf_hub_download
+      except ImportError as exc:
+        raise ImportError(
+          f"model_source '{model_source}' is not an existing local file and "
+          "fetching models from the Hugging Face Hub requires the "
+          "'huggingface_hub' package. Install it with: "
+          "pip install huggingface_hub"
+        ) from exc
+      try:
+        self.model_path = Path(hf_hub_download(
+          repo_id=model_source, filename=model_filename,
+          cache_dir=cache_dir / "hf"))
+      except _HF_MODEL_ERRORS as exc:
+        raise FileNotFoundError(
+          f"MACE model file '{model_filename}' not found in Hugging Face "
+          f"repo '{model_source}'. Check calculator.model and "
+          f"calculator.model_filename in the preset. Original error: {exc}"
+        ) from exc
     self.model_id = self.model_path.name
     
     # --- 2. Barrier cache ---

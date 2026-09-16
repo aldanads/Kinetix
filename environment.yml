@@ -460,3 +460,4 @@ dependencies:
       - ase==3.29.0
       - mace-torch==0.3.16
       - torch==2.14.0
+      - huggingface_hub==1.30.0 # Fetches MACE models from the HF Hub (calculator.model repo IDs)

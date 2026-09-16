@@ -1308,9 +1308,10 @@ class Crystal_Lattice():
       from kinetix.calculators.mace_neb import KinetixMACEAdapter
       cfg = self.calculator_config
       adapter = KinetixMACEAdapter(
-        model_source=cfg.model, 
+        model_source=cfg.model,
         kx=self,
         cache_dir=cfg.cache_dir,
+        model_filename=cfg.model_filename,
         device=cfg.device,
         default_dtype=cfg.default_dtype,
         n_images=cfg.n_images,

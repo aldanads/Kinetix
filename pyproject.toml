@@ -34,6 +34,8 @@ mace = [
     "ase",
     "mace-torch",
     "torch",
+    # Model fetch from the Hugging Face Hub (calculator.model repo IDs).
+    "huggingface_hub",
 ]
 dev = [
     "pytest",
