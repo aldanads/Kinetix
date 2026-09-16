@@ -3698,7 +3698,14 @@ class Crystal_Lattice():
         json.dump(metadata, f, indent=2, default=str)
         
     def _get_git_provenance(self) -> dict:
-      """Capture git state for reproducibility."""
+      """Capture git state for reproducibility.
+
+      Returns:
+          dict: ``{"commit": ..., "branch": ..., "is_clean": ...}``. If git is
+          unavailable (not installed, not a repository, or any other failure),
+          the placeholders ``"unknown"`` / ``False`` are returned and a warning
+          is logged instead of raising, so metadata writing never aborts a run.
+      """
       git_info = {"commit": "unknown", "branch": "unknown", "is_clean": False}
       try:
         git_info["commit"] = subprocess.check_output(["git", "rev-parse", "HEAD"], stderr=subprocess.DEVNULL).decode().strip()
@@ -3706,7 +3713,7 @@ class Crystal_Lattice():
           branch = subprocess.check_output(["git", "branch", "--show-current"], stderr=subprocess.DEVNULL).decode().strip()
         except subprocess.CalledProcessError:
           branch = subprocess.check_output(
-            ["git", "rev_parse", "--abbrev-ref", "HEAD"], stderr=subprocess.DEVNULL
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"], stderr=subprocess.DEVNULL
           ).decode().strip()
           
           if branch == "HEAD":
@@ -3716,8 +3723,14 @@ class Crystal_Lattice():
         
         status = subprocess.check_output(["git", "status", "--porcelain"], stderr=subprocess.DEVNULL).decode().strip()
         git_info["is_clean"] = len(status) == 0
-      except subprocess.CalledProcessError:
-        pass # Not a git repo or git not installed
+      except (subprocess.CalledProcessError, OSError) as e:
+        # OSError covers FileNotFoundError (git not installed) and
+        # PermissionError; CalledProcessError covers "not a git repo".
+        # Keep the placeholder values and warn — never abort the run.
+        logger.warning(
+          "Git provenance unavailable (%s: %s); recording 'unknown' for commit/branch.",
+          type(e).__name__, e
+        )
       return git_info
       
     def _sanitize_numpy(self, value):

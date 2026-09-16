@@ -4,6 +4,10 @@ channels:
   - https://repo.anaconda.com/pkgs/main
   - https://repo.anaconda.com/pkgs/r
 dependencies:
+  # git binary is required on compute nodes for provenance capture
+  # (Crystal_Lattice._get_git_provenance); version does not affect results.
+  - git
+
   - _libgcc_mutex=0.1
   - _openmp_mutex=4.5
   - aiohappyeyeballs=2.4.4
