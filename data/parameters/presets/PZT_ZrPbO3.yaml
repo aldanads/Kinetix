@@ -79,17 +79,22 @@ poisson:
   save_Poisson: false
   active_dipoles: 4
   screening_factor: 0.01
-  conductivity_CF: 6.3e6          # S/m (conductive filament)
-  conductivity_dielectric: 1.0e-1 # S/m (dielectric)
+  conductivity:
+    conductive_filament: 6.3e6      # S/m (conductive filament)
+    dielectric: 1.0e-1             # S/m (dielectric)
 
 # -----------------------------------------------------------------------------
 # Heat Solver (optional)
 # -----------------------------------------------------------------------------  
 heat: 
   solve_heat: false
-  thermal_conductivity: 2.5       # W/m-K
-  heat_capacity: 500.0            # J/kg-K
+  save_heat: false
+  thermal_conductivity:           # W/m-K
+    kappa_dielectric: 2.5
+    kappa_metal: 50.0
+  specific_heat: 500.0            # J/kg-K
   density: 5000.0                 # kg/m3
+  use_thermal_inertia: false
   
 # -----------------------------------------------------------------------------
 # Mesh Generation (Gmsh parameters)

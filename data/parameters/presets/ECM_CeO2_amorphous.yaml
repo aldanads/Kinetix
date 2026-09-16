@@ -99,9 +99,13 @@ poisson:
 # -----------------------------------------------------------------------------  
 heat: 
   solve_heat: false
-  thermal_conductivity: 2.5       # W/m-K
-  heat_capacity: 500.0            # J/kg-K
+  save_heat: false
+  thermal_conductivity:           # W/m-K
+    kappa_dielectric: 2.5
+    kappa_metal: 50.0
+  specific_heat: 500.0            # J/kg-K
   density: 5000.0                 # kg/m3
+  use_thermal_inertia: false
   
 # -----------------------------------------------------------------------------
 # Mesh Generation (Gmsh parameters)

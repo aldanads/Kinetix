@@ -162,9 +162,25 @@ class ElectricalConfig:
     else:
       current = None
     
+    # `initial_time` is required. Validate it explicitly so that a missing key
+    # raises a clear configuration error instead of
+    # "TypeError: float() argument must be a string or a real number, not 'NoneType'".
+    initial_time_raw = data.get('initial_time')
+    if initial_time_raw is None:
+      # Imported lazily: simulation_config imports this module, so a
+      # module-level import would be circular.
+      from kinetix.configs.simulation_config import ConfigValidationError
+      raise ConfigValidationError(
+        f"Missing required field: initial_time in {yaml_path}\n\n"
+        f"  Please add 'initial_time: <value>' to your YAML file"
+      )
+
     config = cls(
-      initial_time=float(data.get('initial_time')),
-      series_resistance=float(data.get('series_resistance')),
+      initial_time=float(initial_time_raw),
+      # Optional in the schema: fall back to the dataclass default (0.0) so a
+      # missing key cannot raise "TypeError: float() argument must be a string
+      # or a real number, not 'NoneType'".
+      series_resistance=float(data.get('series_resistance', 0.0)),
       voltage=voltage,
       current=current
     )

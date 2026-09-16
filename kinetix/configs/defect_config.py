@@ -45,6 +45,9 @@ class DefectConfig:
     field_dependent_generation: Whether generation depends on the E-field.
     electrode_scavenging: Whether the defect is scavenged at electrodes.
     description: Free-text description taken from the YAML file.
+    passivant: Element contributed per passivation level; required by the MACE
+      NEB calculator (kinetix/calculators/mace_neb.py) when
+      ``max_passivation_level > 0``, otherwise ignored.
   """
   name: str
   symbol: str
@@ -66,6 +69,10 @@ class DefectConfig:
   description: str = ""
     
   # Passivation (for vacancies) - OPTIONAL: only for defects that can be passivated
+  # `passivant` is the element contributed per passivation level. It is required
+  # by the MACE NEB calculator when `max_passivation_level > 0`
+  # (see kinetix/calculators/mace_neb.py) and is otherwise ignored.
+  passivant: str | None = None
   passivation_level: int | None = None
   max_passivation_level: int | None = None
   charge_per_passivation: int | None = None
@@ -74,8 +81,9 @@ class DefectConfig:
     """Convert the defect configuration to a plain dictionary.
 
     Returns:
-      Dictionary of all scalar and list fields. Passivation fields are
-      included only when ``charge_per_passivation`` is set.
+      Dictionary of all scalar and list fields. ``passivant`` is included only
+      when set; the remaining passivation fields are included only when
+      ``charge_per_passivation`` is set.
     """
     result = {
       'symbol': self.symbol,
@@ -97,6 +105,9 @@ class DefectConfig:
       'description': self.description,
     }
     
+    if self.passivant is not None:
+      result['passivant'] = self.passivant
+
     if self.charge_per_passivation is not None:
       result['passivation_level'] = self.passivation_level
       result['max_passivation_level'] = self.max_passivation_level
@@ -134,6 +145,7 @@ class DefectConfig:
       field_dependent_generation=data.get('field_dependent_generation'),
       electrode_scavenging=data.get('electrode_scavenging'),
       description=data.get('description', ''),
+      passivant=data.get('passivant'),
       passivation_level=data.get('passivation_level'),
       max_passivation_level=data.get('max_passivation_level'),
       charge_per_passivation=data.get('charge_per_passivation'),
