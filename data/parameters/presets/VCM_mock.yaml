@@ -64,20 +64,21 @@ settings:
   lammps_output: true
   log_level: "DEBUG"  # DEBUG, INFO, WARNING, ERROR
   activation_energies: "activation_energies/VCM_HfO2.json"
-  output_path: '/home/Docs2/samuel.delgado/linuxhome/Documents/Simulators/VCM_outputs/'
+  output_path: '/home/Samuel.Delgado/test_results'
 
 # -----------------------------------------------------------------------------
 # Activation Energy Calculator (MACE CI-NEB)
 # -----------------------------------------------------------------------------
 calculator:
   type: "mace_neb" # Calculator type: "mace_neb" or "tabulated"
-  model: "data/cache/neb_cache/HfO2_mh1_F_LONG_cpu.model" # Local path or HF repo ID
-
+  model: "jamesh12345/hfo2-mace" # Local path or HF repo ID
+  model_filename: "HfO2_mh1_F_LONG.model"
+  
   # NEB protocol
   n_images: 5 # Total NEB images (including endpoints)
   fmax: 0.05 # Force convergence criterion eV/Angstrom
   max_steps: 300 # FIRE optimizer step budget
-  device: "cpu" # "cpu" or "cuda"
+  device: "cuda" # "cpu" or "cuda"
   default_dtype: "float64" # Model precision
 
   # Cluster extraction

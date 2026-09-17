@@ -49,6 +49,7 @@ class CalculatorConfig:
   """
   type: str = "tabulated"              # "mace_neb" or "tabulated"
   model: str = ""                      # Local path or HF repo ID
+  model_filename: str = "model.model"  # Model filename in case it is fetching from HF repo 
   n_images: int = 5
   fmax: float = 0.05                   # eV/Å
   max_steps: int = 300

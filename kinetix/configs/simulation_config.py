@@ -267,6 +267,7 @@ class SimulationConfig:
       config.calculator = CalculatorConfig(
         type=calculator_data.get('type', 'tabulated'),
         model=calculator_data.get('model', ''),
+        model_filename=calculator_data.get('model_filename', 'model.model'),
         n_images=calculator_data.get('n_images', 5),
         fmax=calculator_data.get('fmax', 0.05),
         max_steps=calculator_data.get('max_steps', 300),
