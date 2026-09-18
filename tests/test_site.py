@@ -761,12 +761,11 @@ class TestTransitionRates:
     assert hot_site.site_events[0][0] == pytest.approx(arrhenius(barrier, 600))
     assert cold_site.site_events[0][0] == pytest.approx(arrhenius(barrier, 300))
 
-  def test_rate_cache_is_keyed_by_barrier_only_not_temperature(
-      self, pzt_defects, pzt_act_e):
-    """QUIRK: ``cache_TR`` ignores ``T``, so re-rating at a new ``T`` is stale.
+  def test_rate_cache_is_temperature_aware(self, pzt_defects, pzt_act_e):
+    """The cache key is ``(round(Act_E, 3), round(T, 1))``.
 
-    Reusing the same Site instance across a temperature change replays the
-    previously cached rate because the cache key is ``round(Act_E, 3)``.
+    Reusing the same Site instance across a temperature change must recompute
+    the rate instead of replaying the stale cached one.
     """
     site = make_site(pzt_defects, pzt_act_e, 'H', 'interstitial')
     barrier = pzt_act_e['hydrogen_interstitial']['E_mig_plane']
@@ -779,10 +778,17 @@ class TestTransitionRates:
     site.transition_rates(T=600)
     hot = site.site_events[0][0]
 
-    assert list(site.cache_TR) == [round(barrier, 3)]
-    assert hot == cold
-    assert hot == pytest.approx(arrhenius(barrier, 300))
-    assert hot != pytest.approx(arrhenius(barrier, 600))
+    assert hot == pytest.approx(arrhenius(barrier, 600))
+    assert cold == pytest.approx(arrhenius(barrier, 300))
+    assert hot != pytest.approx(cold)
+    assert set(site.cache_TR) == {(round(barrier, 3), 300.0),
+                                  (round(barrier, 3), 600.0)}
+
+    # Same barrier at the same temperature still shares one cache entry.
+    site.site_events = [[(1, 0), PLANE_EVENT, barrier]]
+    site.transition_rates(T=300)
+    assert site.site_events[0][0] == pytest.approx(cold)
+    assert len(site.cache_TR) == 2
 
   def test_zero_barrier_gives_the_attempt_frequency(self, pzt_defects, pzt_act_e):
     site = make_site(pzt_defects, pzt_act_e, 'H', 'interstitial')
@@ -1023,9 +1029,10 @@ class TestLatentCoupling:
     assert not hasattr(site, 'energy_site')
     assert not hasattr(site, 'destination_CN')
 
-  def test_transition_rates_requires_field_dependent_generation(
+  def test_transition_rates_defaults_to_thermal_without_field_dependent_key(
       self, pzt_defects, pzt_act_e):
-    """Direct dict indexing -> KeyError when the key is missing."""
+    """A missing ``field_dependent_generation`` key no longer
+    raises KeyError - it defaults to False (purely thermal generation)."""
     stripped = {
       name: {k: v for k, v in cfg.items() if k != 'field_dependent_generation'}
       for name, cfg in pzt_defects.items()
@@ -1033,8 +1040,9 @@ class TestLatentCoupling:
     site = make_site(stripped, pzt_act_e, 'H', 'interstitial')
     site.site_events = [[(1, 0), PLANE_EVENT, 0.4]]
 
-    with pytest.raises(KeyError):
-      site.transition_rates(T=300)
+    site.transition_rates(T=300)  # must not raise
+
+    assert site.site_events[0][0] == pytest.approx(arrhenius(0.4))
 
   def test_available_migrations_requires_supp_by(self, pzt_defects, pzt_act_e):
     """Before the topology pass, the migration filter raises AttributeError."""

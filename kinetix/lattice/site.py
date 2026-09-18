@@ -941,7 +941,10 @@ class Site():
         migration_pathways =  kwargs.get("migration_pathways")
         current_defect = self._get_current_defect_name()
         relevant_field = np.any(abs(E_site_field) > 1e6)
-        is_gen_field_dependent = self.defects_config[current_defect]['field_dependent_generation']
+        # Default to False so purely thermal runs work with defect
+        # configs that omit the key.
+        is_gen_field_dependent = self.defects_config[current_defect].get(
+            'field_dependent_generation', False)
         
         # Ions in contact with the virtual electrode will have the reduction rate affected
         clusters = kwargs.get("clusters")
@@ -1026,7 +1029,9 @@ class Site():
             # Fallback: Act. energy should be >= 0
             Act_E = max(Act_E,0)
             
-            Act_E_key = round(Act_E, 3)
+            # The cache key must include the temperature, otherwise
+            # re-rating the same barrier at a new T replays the stale rate.
+            Act_E_key = (round(Act_E, 3), round(T, 1))
             
             if Act_E_key in self.cache_TR:
                 tr_value = self.cache_TR[Act_E_key]

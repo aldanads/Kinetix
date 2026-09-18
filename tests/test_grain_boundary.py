@@ -23,18 +23,14 @@ direction-dependent barriers come from the real PZT activation-energy JSON via
 positions are chosen relative to the geometry read from those files.  Only
 boundary-condition fixtures (empty GB list, zero-width GB) use synthetic dicts.
 
-Findings (reported, not fixed)
-------------------------------
-* ``_process_configurations`` *mutates* the caller's config dicts in place
-  (adds ``inner_boundary``/``outer_boundary``/``distance_function`` keys).
+TODO
+----------------------------------------
 * A GB entry with a non-``direction_dependent`` barrier model and no
   ``Act_E_diff_GB`` raises ``KeyError`` from inside the *constructor*
   (``_process_configurations``) rather than at use time.
 * ``triple_junction_planes`` GBs get ``distance_function = None`` ("NEED TO
   WRITE THE FUNCTION" in the source), so they are silently ignored by
   region detection and ``modify_act_energy_GB``.
-* ``get_site_gb_region`` returns the *first* matching GB's region, not the
-  innermost: for overlapping GBs the result depends on list order.
 """
 
 from __future__ import annotations
@@ -59,8 +55,9 @@ PARAMS_DIR = Path(__file__).resolve().parent.parent / "data" / "parameters"
 # =============================================================================
 # Fixtures: REAL config files via the production loaders
 # =============================================================================
-# NOTE: GrainBoundary._process_configurations mutates the config dicts in
-# place, so every test must receive its own deep copy of the file content.
+# NOTE: the fixtures below still hand every test its own deep copy of the
+# file content. (GrainBoundary deep-copies internally too now - fixed bug -
+# but isolated inputs keep the tests honest.)
 @pytest.fixture()
 def planar_gb_dicts() -> list[dict]:
   """The REAL gb_vertical_planar.yaml through the production loader."""
@@ -120,6 +117,15 @@ class TestDistanceFunctions:
     d = model._distance_to_planar_gb((0.0, gb['position'] + 3.0, 0.0), gb)
     assert d == pytest.approx(3.0)
 
+  def test_unknown_orientation_raises_value_error(self):
+    """FIXED (B8): an unknown orientation fails loudly with ValueError
+    instead of silently returning None (which caused a TypeError later)."""
+    gb = {'type': 'vertical_planar', 'orientation': 'zw', 'position': 5.0,
+          'width': 2.0, 'Act_E_diff_GB': 1.0, 'event_modifications': {}}
+    model = GrainBoundary([10.0, 10.0, 10.0], [gb])
+    with pytest.raises(ValueError, match='Unknown GB orientation'):
+      model._distance_to_planar_gb((1.0, 1.0, 1.0), gb)
+
   def test_cylindrical_distance_is_radial(self, cylindrical_gb_dicts):
     gb = dict(cylindrical_gb_dicts[0])
     cx, cy = gb['center']
@@ -152,7 +158,7 @@ class TestProcessConfigurations:
     """The production vertical_planar YAML injects boundaries + callable."""
     cfgs = [dict(gb) for gb in planar_gb_dicts]
     model = GrainBoundary([50.0, 54.0, 6.0], cfgs)
-    gb = cfgs[0]
+    gb = model.gb_configurations[0]  # the processed deep copy carries injections
     assert callable(gb['distance_function'])
     assert gb['inner_boundary'] == pytest.approx(gb['width'] / 2.0)
     assert gb['outer_boundary'] == pytest.approx(
@@ -164,7 +170,7 @@ class TestProcessConfigurations:
   def test_cylindrical_gb_gets_derived_fields(self, cylindrical_gb_dicts):
     cfgs = [dict(gb) for gb in cylindrical_gb_dicts]
     model = GrainBoundary([50.0, 50.0, 6.0], cfgs)
-    gb = cfgs[0]
+    gb = model.gb_configurations[0]  # the processed deep copy carries injections
     assert callable(gb['distance_function'])
     assert gb['inner_boundary'] == pytest.approx(gb['radius'])
     assert gb['outer_boundary'] == pytest.approx(gb['outer_radius'])
@@ -174,8 +180,8 @@ class TestProcessConfigurations:
   def test_event_modifications_are_normalized_to_lists(self, planar_gb_dicts):
     """mig_cfg/gen_cfg/rxn_cfg become lists with *set-based* lookups."""
     cfgs = [dict(gb) for gb in planar_gb_dicts]
-    GrainBoundary([50.0, 54.0, 6.0], cfgs)
-    gb = cfgs[0]
+    model = GrainBoundary([50.0, 54.0, 6.0], cfgs)
+    gb = model.gb_configurations[0]
     assert isinstance(gb['mig_cfg'], list)
     assert isinstance(gb['gen_cfg'], list)
     assert isinstance(gb['rxn_cfg'], list)
@@ -188,8 +194,8 @@ class TestProcessConfigurations:
   def test_linear_model_computes_slope_and_intercept(self, planar_gb_dicts):
     """slope = -diff/(outer-inner); at inner -> diff, at outer -> 0."""
     cfgs = [dict(gb) for gb in planar_gb_dicts]
-    GrainBoundary([50.0, 54.0, 6.0], cfgs)
-    vo_entry = next(e for e in cfgs[0]['mig_cfg']
+    model = GrainBoundary([50.0, 54.0, 6.0], cfgs)
+    vo_entry = next(e for e in model.gb_configurations[0]['mig_cfg']
                     if 'oxygen_vacancy' in e['affected_defects'])
     diff = vo_entry['Act_E_diff_GB']
     inner, outer = vo_entry['inner_boundary'], vo_entry['outer_boundary']
@@ -204,8 +210,8 @@ class TestProcessConfigurations:
 
   def test_direction_dependent_entry_needs_no_act_e_diff(self, planar_gb_dicts):
     cfgs = [dict(gb) for gb in planar_gb_dicts]
-    GrainBoundary([50.0, 54.0, 6.0], cfgs)
-    h_entry = next(e for e in cfgs[0]['mig_cfg']
+    model = GrainBoundary([50.0, 54.0, 6.0], cfgs)
+    h_entry = next(e for e in model.gb_configurations[0]['mig_cfg']
                    if 'hydrogen_interstitial' in e['affected_defects'])
     assert h_entry['barrier_model'] == 'direction_dependent'
     assert 'Act_E_diff_GB' not in h_entry
@@ -225,8 +231,12 @@ class TestProcessConfigurations:
     cfg = {'type': 'triple_junction_planes', 'center': [5.0, 5.0],
            'width': 2.0, 'Act_E_diff_GB': 1.0}
     model = GrainBoundary([10.0, 10.0, 10.0], [cfg])
-    assert cfg['distance_function'] is None
-    assert model.triple_junction_gbs == [cfg]
+    processed = model.triple_junction_gbs[0]
+    assert processed['distance_function'] is None
+    assert model.triple_junction_gbs == [model.gb_configurations[0]]
+    # The caller's dict is no longer mutated (fixed bug): derived fields
+    # live only on GrainBoundary's internal deep copy.
+    assert 'distance_function' not in cfg
 
   def test_unknown_gb_type_is_silently_skipped(self):
     model = GrainBoundary([10.0, 10.0, 10.0],
@@ -236,17 +246,20 @@ class TestProcessConfigurations:
     assert model.triple_junction_gbs == []
     assert model.max_gb_influence == 0.0
 
-  def test_empty_gb_list_falls_back_to_defaults(self):
-    """FINDING: ``gb_configurations=[]`` is falsy, so an *empty* list is
-    silently replaced by the built-in default GB set instead of 'no GBs'."""
+  def test_empty_gb_list_means_no_gbs(self):
+    """An *explicitly empty* list means 'no grain boundaries'"""
     model = GrainBoundary([10.0, 10.0, 10.0], [])
-    assert len(model.gb_configurations) > 0
-    assert model.vertical_gbs or model.cylindrical_gbs
-    assert model.max_gb_influence > 0.0
+    assert model.gb_configurations == []
+    assert model.vertical_gbs == []
+    assert model.cylindrical_gbs == []
+    assert model.triple_junction_gbs == []
+    assert model.max_gb_influence == 0.0
+    assert model.get_site_gb_region((5.0, 5.0, 5.0)) == 'bulk'
+    assert model.is_site_in_grain_boundary((5.0, 5.0, 5.0)) is False
 
   def test_no_gbs_when_none_is_passed(self):
-    """``None`` also yields the default set - there is no 'no GB' option
-    other than a GB with a non-matching type."""
+    """``None`` still yields the default GB set. An explicitly EMPTY list is
+    the supported way to disable GBs entirely (test_empty_gb_list_means_no_gbs)."""
     model = GrainBoundary([10.0, 10.0, 10.0], None)
     assert len(model.gb_configurations) > 0
 
@@ -258,7 +271,9 @@ class TestProcessConfigurations:
              'region': 'inner_boundary',
              'affected_defects': ['d'], 'Act_E_diff_GB': 1.0}}}
     model = GrainBoundary([10.0, 10.0, 10.0], [cfg])
-    assert cfg['inner_boundary'] == 0.0 and cfg['outer_boundary'] == 0.0
+    # Derived fields live on the model's processed deep copy.
+    processed = model.gb_configurations[0]
+    assert processed['inner_boundary'] == 0.0 and processed['outer_boundary'] == 0.0
     assert model.get_site_gb_region((5.0, 3.0, 3.0)) == 'inner_boundary'
     assert model.get_site_gb_region((5.0 + 1e-9, 3.0, 3.0)) == 'bulk'
 
@@ -270,7 +285,7 @@ class TestBoundaryDetection:
   def test_planar_regions(self, planar_gb_dicts):
     cfgs = [dict(gb) for gb in planar_gb_dicts]
     model = GrainBoundary([50.0, 54.0, 6.0], cfgs)
-    gb = cfgs[0]  # the *processed* copy carries the injected boundaries
+    gb = model.gb_configurations[0]  # the *processed* copy carries the injected boundaries
     assert model.get_site_gb_region(
       (3.0, gb['position'], 0.0)) == 'inner_boundary'
     d_inner = gb['inner_boundary']
@@ -290,7 +305,7 @@ class TestBoundaryDetection:
   def test_cylindrical_regions(self, cylindrical_gb_dicts):
     cfgs = [dict(gb) for gb in cylindrical_gb_dicts]
     model = GrainBoundary([50.0, 50.0, 6.0], cfgs)
-    gb = cfgs[0]
+    gb = model.gb_configurations[0]
     cx, cy = gb['center']
     assert model.get_site_gb_region((cx, cy, 0.0)) == 'inner_boundary'
     mid = (gb['radius'] + gb['outer_radius']) / 2.0
@@ -301,25 +316,39 @@ class TestBoundaryDetection:
   def test_is_site_in_grain_boundary_wrapper(self, cylindrical_gb_dicts):
     cfgs = [dict(gb) for gb in cylindrical_gb_dicts]
     model = GrainBoundary([50.0, 50.0, 6.0], cfgs)
-    gb = cfgs[0]
+    gb = model.gb_configurations[0]
     cx, cy = gb['center']
     assert model.is_site_in_grain_boundary((cx, cy, 0.0)) is True
     assert model.is_site_in_grain_boundary(
       (cx + gb['outer_radius'] + 5.0, cy, 0.0)) is False
 
 
-  def test_first_matching_gb_wins_for_overlaps(self):
-    """FINDING: overlapping GBs resolve by list order, not by proximity."""
+  def test_overlapping_gbs_resolve_to_innermost_region(self):
+    """Overlapping GBs resolve to the innermost matching region
+    ('inner_boundary' outranks 'outer_boundary'), independent of list order."""
     wide = {'type': 'vertical_planar', 'orientation': 'yz', 'position': 5.0,
-            'width': 4.0, 'Act_E_diff_GB': 1.0, 'event_modifications': {}}
+            'width': 2.0, 'outer_width': 4.0, 'Act_E_diff_GB': 1.0,
+            'event_modifications': {}}
     narrow = {'type': 'vertical_planar', 'orientation': 'xz', 'position': 5.0,
-              'width': 1.0, 'Act_E_diff_GB': 1.0, 'event_modifications': {}}
-    # The site is in BOTH GBs' inner regions; the wide one is first.
-    model = GrainBoundary([10.0, 10.0, 10.0], [wide, narrow])
-    assert model.get_site_gb_region((5.0, 5.0, 0.0)) == 'inner_boundary'
-    # A site only inside the wide GB (distance 1.5 > narrow's 0.5 half-width)
-    # is still classified via whichever GB matches first.
-    assert model.get_site_gb_region((5.0, 6.5, 0.0)) == 'inner_boundary'
+              'width': 2.0, 'Act_E_diff_GB': 1.0, 'event_modifications': {}}
+    # Site (6.5, 5.7, 0.0) relative to the two GBs above:
+    #   wide  (yz): |x-5.0| = 1.5 -> OUTER band (1.0 < 1.5 <= 2.0)
+    #   narrow(xz): |y-5.0| = 0.7 -> INNER core (0.7 <= 1.0)
+    site = (6.5, 5.7, 0.0)
+
+    # The innermost match must win whichever GB is listed first. Under the
+    # old first-match behavior the [wide, narrow] ordering returned
+    # 'outer_boundary'; the fix makes both orderings agree.
+    outer_first = GrainBoundary([10.0, 10.0, 10.0], [wide, narrow])
+    inner_first = GrainBoundary([10.0, 10.0, 10.0], [narrow, wide])
+    assert outer_first.get_site_gb_region(site) == 'inner_boundary'
+    assert inner_first.get_site_gb_region(site) == 'inner_boundary'
+
+    # Both GBs matching inner still resolve to inner.
+    assert outer_first.get_site_gb_region((5.0, 5.0, 0.0)) == 'inner_boundary'
+
+    # Outside every band -> bulk.
+    assert outer_first.get_site_gb_region((0.5, 0.5, 0.0)) == 'bulk'
 
 
 # =============================================================================
@@ -344,7 +373,7 @@ class TestEventModifications:
     """VCM cylindrical YAML: linear model, defect-scoped reduction."""
     cfgs = [dict(gb) for gb in cylindrical_gb_dicts]
     model = GrainBoundary([50.0, 50.0, 6.0], cfgs)
-    gb = cfgs[0]
+    gb = model.gb_configurations[0]
     cx, cy = gb['center']
     entry = gb['mig_cfg'][0]
     defect = entry['affected_defects'][0]
@@ -368,7 +397,7 @@ class TestEventModifications:
       self, cylindrical_gb_dicts):
     cfgs = [dict(gb) for gb in cylindrical_gb_dicts]
     model = GrainBoundary([50.0, 50.0, 6.0], cfgs)
-    gb = cfgs[0]
+    gb = model.gb_configurations[0]
     cx, cy = gb['center']
     entry = gb['mig_cfg'][0]
     defect = entry['affected_defects'][0]
@@ -386,7 +415,7 @@ class TestEventModifications:
   def test_unaffected_defect_keeps_its_barrier(self, cylindrical_gb_dicts):
     cfgs = [dict(gb) for gb in cylindrical_gb_dicts]
     model = GrainBoundary([50.0, 50.0, 6.0], cfgs)
-    gb = cfgs[0]
+    gb = model.gb_configurations[0]
     cx, cy = gb['center']
     far = gb['outer_radius'] + 1.0
     site = make_mod_site('some_other_defect', (cx + far, cy, 0.0))
@@ -399,7 +428,7 @@ class TestEventModifications:
   def test_bulk_to_bulk_hop_is_untouched(self, cylindrical_gb_dicts):
     cfgs = [dict(gb) for gb in cylindrical_gb_dicts]
     model = GrainBoundary([50.0, 50.0, 6.0], cfgs)
-    gb = cfgs[0]
+    gb = model.gb_configurations[0]
     cx, cy = gb['center']
     far = gb['outer_radius'] + 5.0
     site = make_mod_site('oxygen_interstitial', (cx + far, cy, 0.0))
@@ -415,7 +444,7 @@ class TestEventModifications:
     barriers = pzt_h_act_e['gb_direction_barriers']
     cfgs = [dict(gb) for gb in planar_gb_dicts]
     model = GrainBoundary([50.0, 54.0, 6.0], cfgs)
-    gb = cfgs[0]
+    gb = model.gb_configurations[0]
     y0 = gb['position']
     d_outer = gb['outer_boundary']
 
@@ -433,7 +462,7 @@ class TestEventModifications:
     barriers = pzt_h_act_e['gb_direction_barriers']
     cfgs = [dict(gb) for gb in planar_gb_dicts]
     model = GrainBoundary([50.0, 54.0, 6.0], cfgs)
-    gb = cfgs[0]
+    gb = model.gb_configurations[0]
     y0 = gb['position']
 
     site = make_mod_site('hydrogen_interstitial', (3.0, y0, 0.0))
@@ -449,7 +478,7 @@ class TestEventModifications:
       self, planar_gb_dicts):
     cfgs = [dict(gb) for gb in planar_gb_dicts]
     model = GrainBoundary([50.0, 54.0, 6.0], cfgs)
-    gb = cfgs[0]
+    gb = model.gb_configurations[0]
     site = make_mod_site('hydrogen_interstitial',
                          (3.0, gb['position'] + gb['outer_boundary'], 0.0))
     with pytest.raises(ValueError, match='gb_direction_barriers'):
@@ -461,7 +490,7 @@ class TestEventModifications:
       self, cylindrical_gb_dicts):
     cfgs = [dict(gb) for gb in cylindrical_gb_dicts]
     model = GrainBoundary([50.0, 50.0, 6.0], cfgs)
-    gb = cfgs[0]
+    gb = model.gb_configurations[0]
     cx, cy = gb['center']
     rxn_entry = gb['rxn_cfg'][0]
     rxn_name = rxn_entry['affected_reactions'][0]
@@ -492,7 +521,7 @@ class TestEventModifications:
   def test_gb_reduction_helper_regions(self, cylindrical_gb_dicts):
     cfgs = [dict(gb) for gb in cylindrical_gb_dicts]
     model = GrainBoundary([50.0, 50.0, 6.0], cfgs)
-    gb = cfgs[0]
+    gb = model.gb_configurations[0]
     cx, cy = gb['center']
     entry = gb['mig_cfg'][0]
     defect = entry['affected_defects'][0]

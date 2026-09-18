@@ -141,7 +141,7 @@ class DefectConfig:
       CN_matters=data.get('CN_matters', False),
       sites_generation_layer=data.get('sites_generation_layer'),
       interface_tolerance_generation=data.get('interface_tolerance_generation'),
-      migrating_attributes=data.get('migrating_attributes'),
+      migrating_attributes=data.get('migrating_attributes') or [],
       field_dependent_generation=data.get('field_dependent_generation'),
       electrode_scavenging=data.get('electrode_scavenging'),
       description=data.get('description', ''),

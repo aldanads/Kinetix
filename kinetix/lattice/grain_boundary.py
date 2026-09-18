@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 """GrainBoundary class for GB physics."""
+import copy
+
 import numpy as np
 import math
 
@@ -19,7 +21,21 @@ class GrainBoundary:
       """
       
       self.domain_size = np.array(domain_size)
-      self.gb_configurations = gb_configurations or self._create_default_configurations()
+      # Only fall back to the default GB set when no configuration is
+      # provided at all. An explicitly EMPTY list means "no grain boundaries"
+      # and must be respected.
+      self.gb_configurations = (
+        gb_configurations if gb_configurations is not None
+        else self._create_default_configurations()
+      )
+
+      # Work on deep copies. _process_configurations() injects derived
+      # fields both at the top level (distance_function, inner/outer_boundary,
+      # mig/gen/rxn_cfg) and inside nested event_modifications entries, and
+      # must never mutate the caller's configuration dicts.
+      self.gb_configurations = [
+        copy.deepcopy(cfg) for cfg in self.gb_configurations
+      ]
       
       # Pre-process configurations for fast lookup
       self._process_configurations()
@@ -184,6 +200,12 @@ class GrainBoundary:
         return abs(y - gb_config['position'])
       if orient == 'xy':
         return abs(z - gb_config['position'])
+
+      # Fail loudly on unknown orientations instead of silently
+      # returning None (which caused TypeError downstream).
+      raise ValueError(
+        f"Unknown GB orientation: {orient!r}. Expected 'yz', 'xz', or 'xy'."
+      )
         
     def _distance_to_cylindrical_gb(self,site_pos,gb_config):
       """Calculate distance to cylindrical GB axis"""
@@ -201,22 +223,29 @@ class GrainBoundary:
     def get_site_gb_region(self,site_position: tuple) -> str:
       """
       Determine which GB region a site belongs to.
-      
+
+      When several GBs overlap, the innermost region wins: an
+      'inner_boundary' match takes priority over an 'outer_boundary'
+      match regardless of the GB list order.
+
       Returns:
         str: 'inner_boundary', 'outer_boundary', or 'bulk'
       """
       all_gbs = self.vertical_gbs + self.cylindrical_gbs + self.triple_junction_gbs
-      
+
+      region = 'bulk'
       for gb in all_gbs:
         dist_func = gb.get('distance_function')
         if not dist_func: continue
-        
+
         dist = dist_func(site_position, gb)
         if dist <= gb['inner_boundary']:
+          # Innermost possible match; no other GB can outrank it.
           return 'inner_boundary'
         elif dist <= gb['outer_boundary']:
-          return 'outer_boundary'
-      return 'bulk'
+          # Tentative: keep scanning, another GB may still match inner.
+          region = 'outer_boundary'
+      return region
       
     def _get_gb_reduction_for_site(self, pos, gb, event_type, defect_name=None, reaction_name=None):
       """Helper to calculate the exact energy reduction for a specific GB and event."""

@@ -276,7 +276,7 @@ class Crystal_Lattice():
               self._save_mp_cache(cache_key, structure_dict)
             except Exception as e:
               logger.warning('API fetch failed: %s', e)
-              structure_dict = {'error: {e}'}
+              structure_dict = {'error': str(e)}
           else:
             structure_dict = None
             
@@ -1355,30 +1355,6 @@ class Crystal_Lattice():
         refined_unit_cart = unit_cell_lattice.get_cartesian_coords(refined_frac_wrapped)
 
         refined_positions.append(refined_unit_cart)
-
-      # Cluster nearby sites and average their positions to find true pockets
-      #unique_positions = self._cluster_and_average(refined_positions, threshold=1.0)
-
-      # Relax each centroid to find the true local minimum
-      """
-      final_positions = []
-      for i, centroid in enumerate(unique_positions):
-        # Map to suercell center for relaxation
-        supercell = super_center_cart + (centroid - unit_center_cart)
-
-        # One more relaxation at the centroid
-        refined_pos, disp, energy =  adapter.refine_interstitial_site(
-          self.grid_crystal, supercell_pos, element=interstitial_species
-        )
-        
-        logger.info(f"Post-clustering relaxation {i}: centroid displacement = {disp:.3f} angstroms")
-
-        # Map back to unit cell
-        refined_frac = supercell_lattice.get_fractional_coords(refined_pos)
-        refined_frac_wrapped = np.mod(refined_frac, 1.0)
-        final_pos = unit_cell_lattice.get_cartesian_coords(refined_frac_wrapped)
-        final_positions.append(final_pos)
-      """
       return refined_positions
     
     def _cluster_and_average(self, positions, threshold=0.7):

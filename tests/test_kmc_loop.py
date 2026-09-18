@@ -27,32 +27,9 @@ in kinetix/initialization.py):
      = 0.05 (the real file ships 0.0 for every defect; the production sweep
      pattern `config.defects.defects[...].initial_concentration_bulk = ...`
      is used so defect_gen() actually introduces defects).
-  4. migrating_attributes None -> [] normalization in the defects dict
-     (see PRODUCTION BUG FINDING below).
-  5. crystal.timestep_limits / crystal.last_field_solve_time are set by the
+  4. crystal.timestep_limits / crystal.last_field_solve_time are set by the
      test (normally provided post-init by ElectricalController /
      should_solve_fields_now in the CLI loop).
-
-PRODUCTION BUG FINDING (not fixed here, reported per task instructions):
-  kinetix/configs/defect_config.py:144 loads `migrating_attributes` with
-  `data.get('migrating_attributes')` (no `or []` fallback), and
-  VCM_HfO2_defects_config.yaml does not define the key, so DefectConfig's
-  field is None and to_dict() (defect_config.py:102) emits
-  'migrating_attributes': None. kinetix/lattice/site.py:393 then does
-  `config.get('migrating_attributes', [])` - the default only applies to a
-  MISSING key, not an explicit None - so the FIRST executed migration of any
-  VCM_HfO2 simulation raises TypeError: 'NoneType' object is not iterable.
-  (PZT_ZrPbO3_defects_config.yaml only works because it explicitly lists
-  migrating_attributes.) The fixture below normalizes None -> [] in the
-  in-memory dict to isolate the BKL-loop spec from this serialization bug.
-
-PRODUCTION QUIRK (documented, no fix):
-  kinetix/lattice/crystal.py:~268 (`lattice_model`, MP-cache-miss branch)
-  builds `structure_dict = {'error: {e}'}` on API failure - a dict whose KEY
-  is the literal string "error: {e}" - so the following
-  `if 'error' in structure_dict` guard never fires and the failure surfaces
-  as a confusing TypeError from Structure.from_dict instead of the intended
-  RuntimeError. Avoided here via the cached structure_mp-352.json.
 """
 from __future__ import annotations
 
@@ -110,13 +87,9 @@ def vcm_config():
 
 @pytest.fixture(scope="module")
 def defects_config(vcm_config):
-    """Real VCM defects config as a dict, with the migrating_attributes None
-    -> [] workaround for the production bug (see module docstring, finding 1)."""
-    defects = vcm_config.defects.to_dict()
-    for cfg in defects.values():
-        if cfg.get("migrating_attributes") is None:
-            cfg["migrating_attributes"] = []
-    return defects
+    """Real VCM defects config as a dict (no test-side normalization needed:
+    the migrating_attributes loader bug was fixed in defect_config.py)."""
+    return vcm_config.defects.to_dict()
 
 
 @pytest.fixture(scope="module")
