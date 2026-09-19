@@ -1,10 +1,26 @@
+import logging
+
 import numpy as np
 from scipy.spatial import cKDTree
 from pathlib import Path
 
+logger = logging.getLogger(__name__)
+
 def parse_lammps_dump(dump_path: str) -> dict:
   """
-  Extracts timestep, box bounds, and atom data (id, type, x, y, z, charge)
+  Extract the timestep and atom data (id, type, x, y, z, charge) from a LAMMPS
+  dump file.
+
+  Returns {'timestep': float, 'atoms': [dict, ...]}. Box bounds are parsed only
+  to be skipped: the simulation domain comes from the crystal grid, so they are
+  intentionally not returned.
+
+  Only one frame is returned. For a multi-frame dump the atom list is restarted
+  at every 'ITEM: ATOMS' block, so the atoms of the LAST frame win while
+  'timestep' keeps that same last frame's value.
+
+  Coordinates are used as written (no periodic-image folding), and a row with
+  fewer columns than the header raises ValueError with its 1-based line number.
   """
   
   with open(dump_path, 'r') as f:
@@ -26,11 +42,19 @@ def parse_lammps_dump(dump_path: str) -> dict:
       i += 4 # Skip 3 lines of bounds + the header line
     elif line.startswith("ITEM: ATOMS"):
       headers = line.replace("ITEM: ATOMS", "").strip().split()
+      # Each frame restarts the atom list: parse_lammps_dump returns a
+      # single frame, so the LAST frame of a multi-frame dump wins.
+      atoms = []
       i += 1
       # Read atoms until EOF or next ITEM
       while i < len(lines) and not lines[i].startswith("ITEM:"):
          parts = lines[i].strip().split()
          if parts:
+           if len(parts) < len(headers):
+             raise ValueError(
+               f"Malformed row at line {i + 1}: expected {len(headers)} "
+               f"columns ({' '.join(headers)}), got {len(parts)}"
+             )
            atom = {}
            for j, header in enumerate(headers):
              val = parts[j] 
@@ -82,7 +106,7 @@ def load_state_from_dump(system_state, dump_path: str, tolerance: float = 0.1):
   tolerance : float
     Maximum distance (in angstroms) to map a dump coordinate to a grid site.
   """
-  print(f'Loading state from dump: {dump_path}')
+  logger.info('Loading state from dump: %s', dump_path)
   
   # 1. Parse dump
   dump_data = parse_lammps_dump(dump_path)
@@ -90,7 +114,7 @@ def load_state_from_dump(system_state, dump_path: str, tolerance: float = 0.1):
   atoms = dump_data['atoms']
   
   # 2. Ensure species mapping is available 
-  if not hasattr(system_state, 'SPECIES_ID_TO_TYPE') or not system_SPECIES_ID_TO_TYPE:
+  if not hasattr(system_state, 'SPECIES_ID_TO_TYPE') or not system_state.SPECIES_ID_TO_TYPE:
     system_state._species_id_gen()
     
   # 3. Build KDTree for robust coordinate mapping 
@@ -129,14 +153,14 @@ def load_state_from_dump(system_state, dump_path: str, tolerance: float = 0.1):
     # Find nearest grid site using KDTree
     dist, nearest_idx_in_array = kdtree.query(pos)
     if dist > tolerance:
-      print(f'Warning: No grid site found near ({x:.3f}, {y:.3f}, {z:.3f}) Distance: {dist:.3f} angstroms')
+      logger.warning('No grid site found near (%.3f, %.3f, %.3f) Distance: %.3f angstroms', x, y, z, dist)
       skipped_count += 1
       continue
     
     idx = grid_indices[nearest_idx_in_array]
     
-    # Get charge
-    ion_charge = atom.get('charge')
+    # Get charge (default to neutral when the dump has no charge column)
+    ion_charge = atom.get('charge', 0)
     
     # Introduce species using Kinetix infrastructure
     system_state._introduce_specie_site(
@@ -152,15 +176,15 @@ def load_state_from_dump(system_state, dump_path: str, tolerance: float = 0.1):
     loaded_count += 1      
     
   # 6. Rebuild topology at the end
-  print(f'Rebuilding topology for {len(event_update_sites)} active sites...')
+  logger.info('Rebuilding topology for %d active sites...', len(event_update_sites))
   system_state.update_sites_topology(support_update_sites, event_update_sites)
   
   # 7. Update time
   system_state.time = timestep
   system_state.list_time = [timestep]
   
-  print(f'State loaded successfully at t={timestep}')
-  print(f'  - Loaded {loaded_count} defect/interstitial atoms')
-  print(f'  - Skipped {skipped_count} host lattice/empty atoms')
+  logger.info('State loaded successfully at t=%s', timestep)
+  logger.info('  - Loaded %d defect/interstitial atoms', loaded_count)
+  logger.info('  - Skipped %d host lattice/empty atoms', skipped_count)
   
             

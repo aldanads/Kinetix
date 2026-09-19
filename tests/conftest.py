@@ -47,3 +47,21 @@ def pytest_collection_modifyitems(config, items):
     for item in items:
         if "slow" in item.keywords:
             item.add_marker(skip_slow)
+
+@pytest.fixture
+def kinetix_log_collector():
+    """Collect log records from kinetix.* loggers (immune to propagate=False)."""
+    import logging
+    records = []
+    handler = logging.Handler()
+    handler.emit = lambda record: records.append(record)
+    
+    logger = logging.getLogger("kinetix")
+    logger.addHandler(handler)
+    original_level = logger.level
+    logger.setLevel(logging.DEBUG)
+    
+    yield records
+    
+    logger.removeHandler(handler)
+    logger.setLevel(original_level)

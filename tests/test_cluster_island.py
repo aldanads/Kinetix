@@ -33,7 +33,6 @@ from __future__ import annotations
 from collections import Counter
 from types import SimpleNamespace
 
-import numpy as np
 import pytest
 
 from kinetix.lattice.cluster import Cluster
