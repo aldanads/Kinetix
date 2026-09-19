@@ -1996,7 +1996,7 @@ class Crystal_Lattice():
             for idx in list(generation_sites_set):
               site = self.grid_crystal[idx]
               self.generation_sites.remove(idx)
-              site.remove_event_type
+              site.remove_event_type('generation')
             return update_gen_sites
           
           for idx in support_update_sites:
@@ -2052,7 +2052,12 @@ class Crystal_Lattice():
       
       if electrode_scavenging is None:
         return True
-        
+
+      # Bool form: True = scavenging enabled without mass conservation
+      # (same convention as _should_scavenge), so generation is always allowed.
+      if not isinstance(electrode_scavenging, dict):
+        return True
+
       # Check mass conservation
       if electrode_scavenging.get('mass_conservation'):
         if self.scavenged_ions.get(defect_name, 0) <= 0:
@@ -2855,7 +2860,7 @@ class Crystal_Lattice():
           #   - idx not already in superbasin_dict
           #   - event activation energy <= E_min threshold
           #   - event label is integer (specific event type)
-          if (idx not in self.superbasin_dict) and (event[3] <= self.E_min) and isinstance(event[2], int):
+          if (idx not in self.superbasin_dict) and isinstance(event[2], int) and (event[3] <= self.E_min):
             superbasin = Superbasin(idx, self, self.E_min, active_event_sites)
                 
             if superbasin.valid:
