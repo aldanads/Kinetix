@@ -17,11 +17,19 @@ is used directly. Both paths must work.
 Device handling is cluster-ready: the preset may request ``device: "cuda"``;
 on machines without a GPU the fixture falls back to ``"cpu"`` with a warning.
 
+The comprehensive pathway sweeps (``TestMACEAdapterAllPathways``) additionally
+classify every computed barrier with the active-learning helpers in
+``kinetix/calculators/active_learning.py`` and export the suspicious ones
+(convergence problems, implausible barrier values, unphysical profiles, large
+endpoint relaxation drift) to ``test_output/active_learning_queue/`` as a DFT
+validation queue (IS/FS structures + NEB band + metadata + manifest.json).
+
 Skips cleanly when the optional mace-torch stack (torch + mace) is
 unavailable, when the configured model cannot be resolved, or when the
 Hugging Face Hub is unreachable (for the download test).
 """
 import csv
+import logging
 import os
 import socket
 import sys
@@ -36,6 +44,10 @@ import pytest
 # Repository root (parent of tests/); the model cache lives under data/cache/...
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
+# Logger under the 'kinetix' hierarchy so kinetix.logging_config.setup_logging()
+# (enabled by the sweep fixture below) routes the messages to the terminal.
+logger = logging.getLogger("kinetix.tests.mace_adapter")
+
 # --- Module-level import guards ---------------------------------------------
 # Import the adapter from its submodule (kinetix/calculators/__init__.py is an
 # empty marker package and intentionally does not pull the mace_neb dependency
@@ -46,6 +58,12 @@ try:
     from kinetix.initialization import initialization
     from kinetix.calculators.mace_neb import (KinetixMACEAdapter,
                                               MACENEBBarrierCalculator)
+    from kinetix.calculators.active_learning import (
+        classify_barrier,
+        create_active_learning_manifest,
+        export_barrier_for_active_learning,
+        format_barrier_info,
+    )
 except ImportError as exc:  # pragma: no cover - only hit when deps are absent
     pytest.skip(f"MACE adapter imports unavailable: {exc}",
                 allow_module_level=True)
@@ -649,16 +667,48 @@ class TestMACEAdapterAllPathways:
         """Host oxygen site closest to the supercell center."""
         return _representative_site(system_state, ("O",), "O")
 
+    @pytest.fixture(scope="class", autouse=True)
+    def _terminal_logging(self):
+        """Route sweep messages (INFO and up) to the terminal.
+
+        pytest does not configure the 'kinetix' logger hierarchy by default,
+        so logger.info() calls would be silently dropped. setup_logging()
+        attaches the production stdout handler, keeping the per-hop progress
+        visible in cluster logs while still honoring kinetix log levels.
+        """
+        from kinetix.logging_config import setup_logging
+        setup_logging(level=logging.INFO)
+
     @staticmethod
     def _calculate_all_pathways(system_state, mace_adapter, origin_idx,
-                                dest_site_types, csv_path):
+                                dest_site_types, csv_path, export_dir=None,
+                                material_name="HfO2", phase="monoclinic",
+                                sweep_label=None):
         """Barriers for all eligible neighbors of origin_idx (defect already
-        introduced by the caller). Prints results and saves them to csv_path."""
+        introduced by the caller).
+
+        Every barrier is classified with the active-learning helpers
+        (convergence / barrier magnitude / profile shape / endpoint drift)
+        and the flagged ones are exported to ``export_dir`` as a DFT
+        validation queue. Results are written to ``csv_path``; the compact
+        per-hop progress line is kept on the terminal so the evolution of
+        the sweep is easy to follow in cluster logs.
+
+        Returns (results, problematic_barriers).
+        """
         grid = system_state.grid_crystal
         origin_site = grid[origin_idx]
         origin_pos = np.array(origin_site.position, float)
 
         results = []
+        problematic_barriers = []
+        barrier_counter = 1
+
+        logger.info("=" * 80)
+        logger.info("Calculating pathways from site %s (%s sweep)",
+                    origin_idx, sweep_label or "generic")
+        logger.info("=" * 80)
+
         for neighbor_idx in origin_site.nearest_neighbors_idx:
             neighbor_site = grid[neighbor_idx]
             if neighbor_site.site_type not in dest_site_types:
@@ -670,46 +720,114 @@ class TestMACEAdapterAllPathways:
             distance = np.linalg.norm(v)
 
             try:
-                barrier = mace_adapter.get_barrier(
-                    grid, origin_idx, neighbor_idx, use_cache=True)
+                result = mace_adapter.get_barrier(
+                    grid, origin_idx, neighbor_idx,
+                    use_cache=True, full_output=True)
             except Exception as exc:  # non-converging NEB must not kill sweep
-                barrier = None
-                print(f"FAILED barrier for hop {origin_idx} -> {neighbor_idx}: {exc}")
+                logger.error("Hop %s -> %s: FAILED: %s",
+                             origin_idx, neighbor_idx, exc)
+                results.append({
+                    "origin_idx": str(origin_idx),
+                    "dest_idx": str(neighbor_idx),
+                    "origin_pos": " ".join(f"{c:.4f}" for c in origin_pos),
+                    "dest_pos": " ".join(f"{c:.4f}" for c in dest_pos),
+                    "distance": f"{distance:.4f}",
+                    "barrier": "FAILED",
+                    "converged": False,
+                    "chemical_specie": neighbor_site.chemical_specie,
+                    "flags": "exception_raised",
+                    "priority": "high",
+                })
+                continue
 
-            specie = neighbor_site.chemical_specie
-            results.append({
-                "origin_idx": origin_idx,
-                "dest_idx": neighbor_idx,
-                "origin_pos": " ".join(f"{c:.4f}" for c in origin_pos),
-                "dest_pos": " ".join(f"{c:.4f}" for c in dest_pos),
-                "distance": f"{distance:.4f}",
-                "barrier": f"{barrier:.4f}" if barrier is not None else "",
-                "chemical_specie": specie,
-            })
+            # Endpoint relaxation drift (only present on freshly computed
+            # barriers; cache hits carry barrier/converged/profile only).
+            endpoint_displacements = result.get("endpoint_displacements") or {}
 
-            barrier_str = f"{barrier:.3f} eV" if barrier is not None else "FAILED"
+            # Detailed multi-line info block plus the compact one-line
+            # progress line (kept on purpose: it makes the evolution of the
+            # sweep easy to follow in cluster logs).
+            info_str = format_barrier_info(
+                origin_idx, neighbor_idx, result, distance,
+                neighbor_site.chemical_specie,
+                wall_time=result.get("wall_time"),
+                endpoint_displacements=endpoint_displacements)
+            print(info_str)
+            barrier_str = (f"{result['barrier']:.3f} eV"
+                           if result.get("barrier") is not None else "FAILED")
             print(f"Hop {origin_idx} -> {neighbor_idx}: "
                   f"origin_pos={origin_pos} final_pos={dest_pos} "
                   f"distance={distance:.3f} Ang barrier={barrier_str} "
-                  f"specie={specie}")
+                  f"specie={neighbor_site.chemical_specie}")
+            print()
 
+            # Classify the barrier for the active-learning feedback loop.
+            flags, priority = classify_barrier(result, endpoint_displacements)
+
+            results.append({
+                "origin_idx": str(origin_idx),
+                "dest_idx": str(neighbor_idx),
+                "origin_pos": " ".join(f"{c:.4f}" for c in origin_pos),
+                "dest_pos": " ".join(f"{c:.4f}" for c in dest_pos),
+                "distance": f"{distance:.4f}",
+                "barrier": (f"{result['barrier']:.4f}"
+                            if result.get("barrier") is not None else ""),
+                "converged": result.get("converged", False),
+                "chemical_specie": neighbor_site.chemical_specie,
+                "flags": ", ".join(flags) if flags else "OK",
+                "priority": priority,
+            })
+
+            # Export flagged barriers for DFT validation / model refinement.
+            if flags and export_dir:
+                barrier_id = export_barrier_for_active_learning(
+                    mace_adapter, grid, origin_idx, neighbor_idx, result,
+                    export_dir, material_name, phase, barrier_counter,
+                    endpoint_displacements=endpoint_displacements,
+                    label=sweep_label)
+                problematic_barriers.append({
+                    "barrier_id": barrier_id,
+                    "origin_idx": str(origin_idx),
+                    "dest_idx": str(neighbor_idx),
+                    "barrier_mace": result.get("barrier"),
+                    "flags": flags,
+                    "priority": priority,
+                })
+                barrier_counter += 1
+                print(f"  -> Exported as {barrier_id}\n")
+
+        # Write CSV
         if results:
             os.makedirs(os.path.dirname(csv_path), exist_ok=True)
             with open(csv_path, "w", newline="") as f:
                 writer = csv.DictWriter(f, fieldnames=list(results[0].keys()))
                 writer.writeheader()
                 writer.writerows(results)
-            print(f"Results saved to {csv_path}")
+            logger.info("Results saved to %s", csv_path)
 
-        n_ok = sum(1 for r in results if r["barrier"])
-        print(f"Pathway sweep from site {origin_idx}: {len(results)} pathways, "
-              f"{n_ok} barriers OK, {len(results) - n_ok} failed")
-        return results
+        # Summary
+        n_ok = sum(1 for r in results if r["flags"] == "OK")
+        n_failed = sum(1 for r in results if r["barrier"] == "FAILED")
+        n_problematic = len(results) - n_ok - n_failed
+
+        logger.info("=" * 80)
+        logger.info("Summary: %d pathways from site %s",
+                    len(results), origin_idx)
+        logger.info("  OK: %d", n_ok)
+        logger.info("  Problematic (flagged): %d", n_problematic)
+        logger.info("  Failed: %d", n_failed)
+        if problematic_barriers:
+            logger.info("  Exported to active learning queue: %d (%s)",
+                        len(problematic_barriers), export_dir)
+        logger.info("=" * 80)
+
+        return results, problematic_barriers
 
     @pytest.mark.slow
     def test_all_interstitial_pathways(self, system_state, mace_adapter,
                                        representative_interstitial):
-        """Barriers for ALL interstitial hops from a representative O_i site."""
+        """Barriers for ALL interstitial hops from a representative O_i site,
+        with active-learning classification and DFT-queue export."""
         origin_idx = representative_interstitial
 
         # Introduce an oxygen interstitial at the representative site.
@@ -724,11 +842,19 @@ class TestMACEAdapterAllPathways:
                                            event_update_sites)
 
         csv_path = REPO_ROOT / "test_output" / "interstitial_pathways.csv"
-        results = self._calculate_all_pathways(
+        export_dir = REPO_ROOT / "test_output" / "active_learning_queue"
+
+        results, problematic = self._calculate_all_pathways(
             system_state, mace_adapter, origin_idx, ("interstitial",),
-            str(csv_path))
+            str(csv_path), export_dir=export_dir,
+            material_name="HfO2", phase="monoclinic",
+            sweep_label="interstitial")
 
         assert len(results) > 0, "No interstitial neighbor pathways found"
+
+        # Write/refresh the manifest for the DFT validation queue.
+        if problematic:
+            create_active_learning_manifest(export_dir, problematic)
 
     @pytest.mark.slow
     def test_all_vacancy_pathways(self, system_state, mace_adapter,
@@ -755,7 +881,15 @@ class TestMACEAdapterAllPathways:
                                            event_update_sites)
 
         csv_path = REPO_ROOT / "test_output" / "vacancy_pathways.csv"
-        results = self._calculate_all_pathways(
-            system_state, mace_adapter, origin_idx, ("O",), str(csv_path))
+        export_dir = REPO_ROOT / "test_output" / "active_learning_queue"
+
+        results, problematic = self._calculate_all_pathways(
+            system_state, mace_adapter, origin_idx, ("O",), str(csv_path),
+            export_dir=export_dir, material_name="HfO2", phase="monoclinic",
+            sweep_label="vacancy")
 
         assert len(results) > 0, "No oxygen neighbor pathways found"
+
+        # Write/refresh the manifest for the DFT validation queue.
+        if problematic:
+            create_active_learning_manifest(export_dir, problematic)

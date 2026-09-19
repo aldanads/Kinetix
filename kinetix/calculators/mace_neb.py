@@ -267,7 +267,16 @@ class MACENEBBarrierCalculator:
     
   def compute_barrier(self, start, end, migrating_index=None, frozen=None, 
                       use_cache=False, full_output=False):
-    """Barrier for the hop start->end: cache first, CI-NEB on miss."""
+    """Barrier for the hop start->end: cache first, CI-NEB on miss.
+
+    With full_output=True the result dict carries: 'barrier' (eV, relative
+    to the relaxed IS), 'converged', 'profile' (eV, relative to IS),
+    'n_atoms', 'wall_time', 'endpoint_displacements' ({'IS': A, 'FS': A}
+    relaxation drift of the migrating atom before the NEB) and 'neb_band'
+    (calculator-free copies of the relaxed band). Cache-hit results only
+    carry barrier/converged/profile (the SQLite schema stores no drift or
+    band), so downstream consumers should use .get() on the extra keys.
+    """
     # --- 0. Cache lookup ---------------------------------------------
     key = self._env_key(start, end)
     if use_cache:
@@ -276,6 +285,7 @@ class MACENEBBarrierCalculator:
         return hit if full_output else hit["barrier"]
 
     # --- 1. Relax endpoints to local minima before NEB -------------------------------------------------
+    endpoint_displacements = {}
     if frozen is None and self.cluster is not None:
       # Derive frozen mask for standalone mode
       if migrating_index is None:
@@ -305,6 +315,9 @@ class MACENEBBarrierCalculator:
       
       pos_after = at.positions[-1]
       disp = np.linalg.norm(pos_after - pos_before)
+      # Keep the relaxation drift of every endpoint: a large value means the
+      # assumed site is not a real minimum (active-learning diagnostic).
+      endpoint_displacements[label] = float(disp)
       logger.debug("[%s] Relaxed energy: %.4f eV, relaxation displacement: %.4f angstroms",
               label, at.get_potential_energy(), disp)
       
@@ -332,7 +345,11 @@ class MACENEBBarrierCalculator:
     rel = np.array(abs_energies)
     rel = (rel - rel[0]).tolist()
     result = {"barrier": float(max(rel)), "converged": converged,
-              "profile": rel, "n_atoms": len(images[0]), "wall_time": wall}
+              "profile": rel, "n_atoms": len(images[0]), "wall_time": wall,
+              "endpoint_displacements": endpoint_displacements,
+              # Calculator-free copies of the relaxed band so callers can
+              # export the full path (DFT validation / active learning).
+              "neb_band": [im.copy() for im in images]}
     
      # --- 4. Store forever ------------------------------------------------
     self.cache.put(key, result["barrier"], converged, len(images[0]),
