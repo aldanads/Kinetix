@@ -978,6 +978,11 @@ class Crystal_Lattice():
         # Loading existing grid
         if grid_crystal is not None:
           self.grid_crystal = grid_crystal  
+          # Legacy grids were pickled before Site.idx existed; backfill the
+          # index key onto every loaded site that does not carry one yet.
+          for idx, site in self.grid_crystal.items():
+            if getattr(site, 'idx', None) is None:
+              site.idx = idx
           self._compute_interface_flags()
           # Initialize pathways for loaded grids too 
           self._build_kdtree()
@@ -1018,7 +1023,8 @@ class Crystal_Lattice():
               Act_E_dict=self._efficient_act_e_copy(self.Act_E_dict) if is_active else {}, # Its own copy
               defects_config = self.defects_config,
               reactions_config = self.reactions_config,
-              is_active_site=is_active
+              is_active_site=is_active,
+              idx=idx
             )
           
           logger.info("Step 1 (Build host lattice): %.4f seconds", time.perf_counter() - start_time)
@@ -1044,6 +1050,7 @@ class Crystal_Lattice():
                   defects_config = self.defects_config,
                   reactions_config = self.reactions_config,
                   is_active_site=True, # Interstitials are always active
+                  idx=idx,
                 )
                 interstitial_count += 1
           
@@ -1555,7 +1562,8 @@ class Crystal_Lattice():
                     Act_E_dict = self._efficient_act_e_copy(self.Act_E_dict) if is_active else {},
                     defects_config = self.defects_config,
                     reactions_config = self.reactions_config,
-                    is_active_site=is_active
+                    is_active_site=is_active,
+                    idx=idx
                   )
                         
         self.domain_height = domain_height

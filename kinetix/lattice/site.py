@@ -10,13 +10,15 @@ from sklearn.decomposition import PCA
 import os
 from typing import NamedTuple
 
+from kinetix.lattice.defect import make_empty_defect
+
 
 class Site():
     # Physical constants
     KB = constants.physical_constants['Boltzmann constant in eV/K'][0]    
     NU0=7E12  # nu0 (s^-1) bond vibration frequency
     
-    def __init__(self,chemical_specie,position,site_type=None,Act_E_dict=None, defects_config = None, reactions_config = None, is_active_site=True):
+    def __init__(self,chemical_specie,position,site_type=None,Act_E_dict=None, defects_config = None, reactions_config = None, is_active_site=True, idx=None):
         """
         Initialize a site in the kMC grid.
         
@@ -25,11 +27,22 @@ class Site():
             position (tuple): Cartesian coordinates (x, y, z)
             site_type (str, optional): Permanent identity ('O', 'Hf', 'interstitial', 'fcc_hollow')
             Act_E_dict (dict, optional): Activation energies for this site
+            idx (tuple, optional): Grid index key; set by Crystal_Lattice at
+                construction (None for stand-alone sites)
         """
         # Core properties
         self.chemical_specie = chemical_specie
         self.position = position
         self.site_type = site_type if site_type is not None else chemical_specie
+
+        # Grid index (set by Crystal_Lattice at construction; None until then)
+        self.idx = idx
+
+        # Defect occupant (site/defect composition model, Phase 2). Every site
+        # always hosts exactly one Defect; freshly built sites start empty.
+        # Not yet read by production code — availability still flows through
+        # the legacy site_events path.
+        self.defect = make_empty_defect()
         
         # Neighbor information
         self.nearest_neighbors_idx = [] # Nearest neighbors indexes
@@ -74,6 +87,39 @@ class Site():
               
         
     
+    def install_defect(self, defect):
+      """Install ``defect`` as this site's occupant.
+
+      The whole Defect object is transferred by reference (Phase 5 will use
+      this for hops: ``dst.install_defect(src.defect)`` followed by
+      ``src.clear_defect()``). Not yet called by production code.
+      """
+      self.defect = defect
+
+    def clear_defect(self):
+      """Reset the site to an empty occupant.
+
+      A fresh Defect is created per call on purpose: Defect state (charge,
+      passivation_level, events) is per-site mutable, so instances are never
+      shared between sites.
+      """
+      self.defect = make_empty_defect()
+
+    def __setstate__(self, state):
+      """Normalize state restored from a pickle (legacy-grid compatibility).
+
+      Grids pickled before the site/defect decoupling refactor carry no
+      ``defect`` attribute (every site always has one in the current model,
+      so an empty one is injected) and may carry ``defects_config`` as a
+      legacy dict-of-dicts — the dict form is kept as-is for compatibility.
+      """
+      self.__dict__.update(state)
+      if 'defect' not in self.__dict__:
+        self.defect = make_empty_defect()
+      if 'idx' not in self.__dict__:
+        self.idx = None
+
+
     def set_interface_flags(self, bottom_z, top_z, tol = 1e-4):
       """
       Set interface flags based on position and domain height.
