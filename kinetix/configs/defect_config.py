@@ -45,6 +45,8 @@ class DefectConfig:
     field_dependent_generation: Whether generation depends on the E-field.
     electrode_scavenging: Whether the defect is scavenged at electrodes.
     description: Free-text description taken from the YAML file.
+    is_empty: Structural flag marking the synthetic empty-defect template;
+      always False for defects loaded from YAML.
     passivant: Element contributed per passivation level; required by the MACE
       NEB calculator (kinetix/calculators/mace_neb.py) when
       ``max_passivation_level > 0``, otherwise ignored.
@@ -76,6 +78,11 @@ class DefectConfig:
   passivation_level: int | None = None
   max_passivation_level: int | None = None
   charge_per_passivation: int | None = None
+
+  # Structural flag marking the synthetic empty-defect template
+  # (kinetix/lattice/defect.py: EMPTY_DEFECT_CONFIG). Not loaded from YAML and
+  # not emitted by to_dict(); every regular defect defaults to False.
+  is_empty: bool = False
     
   def to_dict(self) -> dict[str, Any]:
     """Convert the defect configuration to a plain dictionary.
