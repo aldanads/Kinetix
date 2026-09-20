@@ -1,14 +1,14 @@
 # tests/test_cluster_island.py
 """
 Behavioral spec for morphology detection: metal clusters (kinetix/lattice/cluster.py,
-Crystal_Lattice._dfs_* in crystal.py) and islands/terraces (kinetix/lattice/island.py,
-Crystal_Lattice.detect_islands/build_island/islands_analysis).
+Crystal_Lattice._dfs_find_components in crystal.py) and islands/terraces
+(kinetix/lattice/island.py, Crystal_Lattice.detect_islands/build_island/islands_analysis).
 
 These algorithms will move during the crystal.py split, so they are pinned here
 using small mock grids with known connectivity (tuple site indices, explicit
 nearest_neighbors_idx / supp_by / migration_paths).
 
-The Crystal_Lattice graph-traversal methods (_dfs_find_components, _dfs_explore,
+The surviving Crystal_Lattice graph-traversal methods (_dfs_find_components,
 detect_islands, build_island, islands_analysis) only touch ``self.grid_crystal``
 plus a handful of scalar attributes, so they are exercised through unbound calls
 on a lightweight stand-in object - no Crystal_Lattice constructor, no physics.
@@ -22,10 +22,11 @@ PRODUCTION QUIRKS (documented):
      [i+2] while scanning for the merge layer -> IndexError when a single-slice
      layer sits within the last two layers (instead of falling through to the
      System_state.layers fallback).
-  4. crystal.py::_dfs_explore treats every non-tuple ``supp_by`` entry as an
-     electrode flag and does ``attached_layer[atom_id] = True``, so any other
-     string (e.g. a layer name) raises KeyError instead of being ignored -
-     unlike site.py:956, which guards with ``not isinstance(nb, str)``.
+
+REMOVED TEST SUITES: TestDfsExplore and TestMetalClustersAnalysis were deleted
+because Crystal_Lattice._dfs_explore and Crystal_Lattice.metal_clusters_analysis
+were removed as dead code in commit 8630510 ("fix bugs in cluster logic"); the
+tests exercised only the deleted methods and failed with AttributeError.
 """
 from __future__ import annotations
 
@@ -205,240 +206,6 @@ class TestDfsFindComponents:
             Crystal_Lattice._dfs_find_components, SimpleNamespace(), atoms, grid
         )
         assert len(components) == 1 and len(components[0]) == 2
-
-
-class TestDfsExplore:
-    """_dfs_explore walks supp_by links; string entries are electrode sentinels."""
-
-    def test_cluster_from_supp_by_with_electrode_sentinel(self):
-        grid = {
-            (1, 1): make_site(
-                position=(1, 1, 0), supp_by=[(0, 1), (1, 0), "top_layer"]
-            ),
-            (0, 1): make_site(position=(0, 1, 0), supp_by=[]),
-            (1, 0): make_site(position=(1, 0, 0), supp_by=["bottom_layer"]),
-        }
-        visited = set()
-        cluster_atoms, positions, attached_layer = call(
-            Crystal_Lattice._dfs_explore,
-            make_lattice(grid), (1, 1), visited,
-        )
-        assert set(cluster_atoms) == {(1, 1), (0, 1), (1, 0)}
-        assert visited == {(1, 1), (0, 1), (1, 0)}
-        assert len(positions) == 3
-        assert attached_layer == {"bottom_layer": True, "top_layer": True}
-
-    def test_no_electrode_contact(self):
-        grid = {(0, 0): make_site(position=(0, 0, 0), supp_by=[])}
-        _, _, attached_layer = call(
-            Crystal_Lattice._dfs_explore,
-            make_lattice(grid), (0, 0), set(),
-        )
-        assert attached_layer == {"bottom_layer": False, "top_layer": False}
-
-    def test_charged_neighbour_is_not_absorbed(self):
-        """A metal cluster holds only ion_charge == 0 sites - the same rule
-        _dfs_find_components applies to every neighbour it visits."""
-        grid = {
-            (0, 0, 0): make_site(position=(0, 0, 0), supp_by=[(1, 0, 0)]),
-            (1, 0, 0): make_site(position=(1, 0, 0), ion_charge=1, supp_by=[]),
-        }
-        cluster_atoms, positions, attached_layer = call(
-            Crystal_Lattice._dfs_explore,
-            make_lattice(grid), (0, 0, 0), set(),
-        )
-        assert cluster_atoms == [(0, 0, 0)]
-        assert positions == [(0, 0, 0)]
-        assert attached_layer == {"bottom_layer": False, "top_layer": False}
-
-    def test_electrode_sentinels_still_reach_the_cluster(self):
-        """The charge filter must not swallow non-tuple electrode sentinels."""
-        grid = {
-            (0, 0, 0): make_site(
-                position=(0, 0, 0), supp_by=[(1, 0, 0), "bottom_layer"]
-            ),
-            (1, 0, 0): make_site(
-                position=(1, 0, 0), ion_charge=1, supp_by=["top_layer"]
-            ),
-        }
-        cluster_atoms, _, attached_layer = call(
-            Crystal_Lattice._dfs_explore,
-            make_lattice(grid), (0, 0, 0), set(),
-        )
-        # The charged site is skipped, so only the seed's own sentinel is seen.
-        assert cluster_atoms == [(0, 0, 0)]
-        assert attached_layer == {"bottom_layer": True, "top_layer": False}
-
-
-# =============================================================================
-# metal_clusters_analysis / _find_clusters (end-to-end)
-# =============================================================================
-
-def stored_clusters(lattice):
-    """Clusters as a list, tolerant of the tracker's container type.
-
-    ``_find_clusters`` currently stores a list while the rest of the tracking
-    system stores a dict keyed by cluster id (see quirk 1 in the module
-    docstring). Reading through this helper keeps the tests valid either way.
-    """
-    stored = lattice.clusters
-    return list(stored.values()) if isinstance(stored, dict) else list(stored)
-
-
-class TestMetalClustersAnalysis:
-    """``metal_clusters_analysis()`` = get_atoms() -> _find_clusters -> Cluster.
-
-    REGRESSION COVERAGE: ``_find_clusters`` used to build
-    ``Cluster(cluster_atoms, atoms_positions, attached_layer)`` with only 3
-    arguments while ``Cluster.__init__`` requires 4 (``conductivity``), so the
-    first multi-atom cluster raised TypeError. ``metal_clusters_analysis`` also
-    passed ``get_atoms()``'s ``(idx, cart)`` tuple straight through without
-    unpacking. Both are fixed; these tests pin the fixed behavior.
-    """
-
-    CONDUCTIVITY = {"conductive_filament": 1e5, "dielectric": 1e-1}
-
-    def _lattice(self, grid, connectivity):
-        """Lattice stand-in as ``_initialize_cluster_tracking`` would leave it."""
-        lattice = make_lattice(grid)
-        lattice.active_event_sites = list(grid)
-        lattice.conductivity = dict(self.CONDUCTIVITY)
-        lattice.clusters = {}
-        lattice.atom_to_cluster = {}
-        for site, neighbors in connectivity.items():
-            grid[site].nearest_neighbors_idx = list(neighbors)
-        return lattice
-
-    def test_connected_metal_pair_yields_cluster_without_type_error(self):
-        grid = {
-            (0, 0, 0): make_site(
-                position=(0.0, 0.0, 0.0), supp_by=[(1, 0, 0), "bottom_layer"]
-            ),
-            (1, 0, 0): make_site(position=(1.0, 0.0, 0.0), supp_by=[(0, 0, 0)]),
-        }
-        lattice = self._lattice(
-            grid, {(0, 0, 0): [(1, 0, 0)], (1, 0, 0): [(0, 0, 0)]}
-        )
-
-        lattice.metal_clusters_analysis()  # must not raise TypeError
-
-        clusters = stored_clusters(lattice)
-        assert len(clusters) == 1
-        cluster = clusters[0]
-        assert isinstance(cluster, Cluster)
-        assert cluster.size == 2
-        assert cluster.atoms_id == {(0, 0, 0), (1, 0, 0)}
-        assert cluster.atoms_positions == [(0.0, 0.0, 0.0), (1.0, 0.0, 0.0)]
-        # The previously missing 4th argument must be the lattice's conductivity.
-        assert cluster.conductivity == self.CONDUCTIVITY
-        assert cluster.attached_layer == {"bottom_layer": True, "top_layer": False}
-
-    def test_each_connected_component_becomes_its_own_cluster(self):
-        grid = {
-            (0, 0, 0): make_site(position=(0.0, 0.0, 0.0), supp_by=[(1, 0, 0)]),
-            (1, 0, 0): make_site(position=(1.0, 0.0, 0.0), supp_by=[(0, 0, 0)]),
-            (5, 0, 0): make_site(position=(5.0, 0.0, 0.0), supp_by=[(6, 0, 0)]),
-            (6, 0, 0): make_site(position=(6.0, 0.0, 0.0), supp_by=[(5, 0, 0)]),
-        }
-        lattice = self._lattice(
-            grid,
-            {
-                (0, 0, 0): [(1, 0, 0)],
-                (1, 0, 0): [(0, 0, 0)],
-                (5, 0, 0): [(6, 0, 0)],
-                (6, 0, 0): [(5, 0, 0)],
-            },
-        )
-
-        lattice.metal_clusters_analysis()
-
-        clusters = stored_clusters(lattice)
-        assert sorted(sorted(c.atoms_id) for c in clusters) == [
-            [(0, 0, 0), (1, 0, 0)],
-            [(5, 0, 0), (6, 0, 0)],
-        ]
-        assert all(c.conductivity == self.CONDUCTIVITY for c in clusters)
-
-    def test_single_atom_is_not_a_cluster_and_does_not_raise(self):
-        grid = {(0, 0, 0): make_site(position=(0.0, 0.0, 0.0), supp_by=[])}
-        lattice = self._lattice(grid, {(0, 0, 0): []})
-
-        lattice.metal_clusters_analysis()
-
-        assert stored_clusters(lattice) == []
-
-    def test_no_metal_atoms_at_all(self):
-        grid = {
-            (0, 0, 0): make_site(position=(0.0, 0.0, 0.0), specie="O", ion_charge=-2),
-        }
-        lattice = self._lattice(grid, {(0, 0, 0): []})
-
-        lattice.metal_clusters_analysis()
-
-        assert stored_clusters(lattice) == []
-
-    def test_get_atoms_returns_index_and_cartesian_pair(self):
-        """The tuple unpacked by metal_clusters_analysis (regression guard)."""
-        grid = {
-            (0, 0, 0): make_site(position=(0.0, 0.0, 0.0)),
-            (1, 1, 0): make_site(position=(1.0, 1.0, 0.0), specie="O",
-                                 ion_charge=-2),
-        }
-        lattice = self._lattice(grid, {})
-
-        atoms_idx, atoms_cart = lattice.get_atoms()
-
-        assert atoms_idx == [(0, 0, 0)]        # charged ion filtered out
-        assert atoms_cart == [(0.0, 0.0, 0.0)]
-
-    def test_charged_ions_are_excluded_from_cluster_search(self):
-        grid = {
-            (0, 0, 0): make_site(position=(0.0, 0.0, 0.0), supp_by=[(1, 0, 0)]),
-            (1, 0, 0): make_site(position=(1.0, 0.0, 0.0), specie="Ag",
-                                 ion_charge=1, supp_by=[(0, 0, 0)]),
-        }
-        lattice = self._lattice(
-            grid, {(0, 0, 0): [(1, 0, 0)], (1, 0, 0): [(0, 0, 0)]}
-        )
-
-        lattice.metal_clusters_analysis()
-
-        # Filtered twice: get_atoms() only seeds neutral sites, and _dfs_explore
-        # no longer absorbs a charged neighbour. Each site is alone, so no
-        # cluster is reported.
-        assert stored_clusters(lattice) == []
-
-    def test_both_traversals_agree_on_the_charge_filter(self):
-        """Equivalence check: the legacy traversal (_dfs_explore, reached only
-        through metal_clusters_analysis) and the framework traversal
-        (_dfs_find_components, used by _remove_metal_atom_from_clusters) must
-        classify the same neutral--charged--neutral chain identically.
-        """
-        grid = {
-            (0, 0, 0): make_site(position=(0.0, 0.0, 0.0),
-                                 neighbors=[(1, 0, 0)], supp_by=[(1, 0, 0)]),
-            (1, 0, 0): make_site(position=(1.0, 0.0, 0.0), ion_charge=1,
-                                 neighbors=[(0, 0, 0), (2, 0, 0)],
-                                 supp_by=[(0, 0, 0), (2, 0, 0)]),
-            (2, 0, 0): make_site(position=(2.0, 0.0, 0.0),
-                                 neighbors=[(1, 0, 0)], supp_by=[(1, 0, 0)]),
-        }
-        lattice = make_lattice(grid)
-
-        # Framework traversal (production path), neutral members only.
-        components = call(
-            Crystal_Lattice._dfs_find_components, lattice,
-            [(0, 0, 0), (2, 0, 0)], grid,
-        )
-        assert sorted(sorted(comp) for comp in components) == [
-            [(0, 0, 0)], [(2, 0, 0)]
-        ]
-
-        # Legacy traversal must decompose the same chain the same way.
-        explored, _, _ = call(
-            Crystal_Lattice._dfs_explore, lattice, (0, 0, 0), set()
-        )
-        assert explored == [(0, 0, 0)]
 
 
 # =============================================================================
