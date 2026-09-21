@@ -146,7 +146,7 @@ def _sum_total_rate(crystal):
         if idx in crystal.superbasin_dict:
             continue
         for event in crystal.grid_crystal[idx].site_events:
-            total += event[0]
+            total += event.rate
     return total
 
 

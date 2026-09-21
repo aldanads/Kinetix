@@ -18,6 +18,20 @@ from scipy import constants
 # Annual Reviews Of Computational PhysicsIX (2001): 153-210.
 # =============================================================================
 
+def _transition_record(event, origin_idx):
+    """Superbasin-internal transition record ``[rate, dest, label, E_act, origin]``.
+
+    The superbasin keeps its own representation, distinct from the ``Site``
+    event format: a plain 5-element list, which is also the shape of
+    ``site_events_absorbing`` further down.  Before Phase 4 this list was
+    produced by ``transition + [idx]`` on the raw ``site_events`` list; the
+    field order and the values are unchanged, only the source (``Event``
+    attributes) is.
+    """
+    return [event.rate, event.destination, event.label, event.barrier,
+            origin_idx]
+
+
 class Superbasin():
     
     def __init__(self,idx, System_state,E_min,sites_occupied):
@@ -74,16 +88,20 @@ class Superbasin():
                 is_absorbing = True # Assume that it is an absorbing state
                 site_has_migrations = False
                 
-                for transition in site.site_events:
+                for event in site.site_events:
                     
-                    if not isinstance(transition[2],int):
+                    if not event.is_migration:
                       continue # Skip redox, generation, etc. Keep only migrations
                 
                     site_has_migrations = True
-                    last_transition = transition # update last known transition
-                    transition_with_idx = transition + [idx]
+                    # `last_transition` keeps the *live* event (Phase 4: the
+                    # Event object, previously the mutable site_events list),
+                    # so the virtual-move calls below see the rate as re-rated
+                    # during the walk; the record lists are snapshots.
+                    last_transition = event # update last known transition
+                    transition_with_idx = _transition_record(event, idx)
                     
-                    if transition[3] <= self.E_min:
+                    if event.barrier <= self.E_min:
                         is_absorbing = False # If it is a easy way out, it is a transient state (< E_min)
                         if transition_with_idx not in self.transient_states_transitions:
                             self.transient_states_transitions.append(transition_with_idx)
@@ -95,10 +113,10 @@ class Superbasin():
 
                 elif not is_absorbing:
                     # Explore neighbors via migration
-                    for transition in site.site_events:
-                        if not isinstance(transition[2], int):
+                    for event in site.site_events:
+                        if not event.is_migration:
                           continue
-                        dest = transition[1]
+                        dest = event.destination
                         # Visit all the transitions from a transient state, even those
                         # with larger Act. Energy than E_min
                         if dest not in visited and dest not in stack:
@@ -113,11 +131,11 @@ class Superbasin():
                 next_site = stack[-1]
                 # Perform a virtual move of the ion to `next_site` so that
                 # activation energies for its outgoing transitions are up to date.
-                System_state.processes((last_transition[0], next_site, last_transition[2], idx))
+                System_state.processes((last_transition.rate, next_site, last_transition.label, idx))
               
         # Return to the original state
-        if last_transition is not None and isinstance(last_transition[2],int):            
-            System_state.processes((last_transition[0], start_idx, last_transition[2], idx)) 
+        if last_transition is not None and last_transition.is_migration:            
+            System_state.processes((last_transition.rate, start_idx, last_transition.label, idx)) 
             
 
         # Construct the transitions to the absorbing states
@@ -294,6 +312,9 @@ class Superbasin():
             self.EAct = np.where(self.transition_rates > 0, -kb * T * np.log(self.transition_rates / nu0), 
                                  np.inf)
                 
+        # The aggregated absorbing-state events use the superbasin's own
+        # internal record shape (rate, dest, label, E_act, origin), the same
+        # one `_transition_record` produces; it is NOT the Site event format.
         self.site_events_absorbing = [
             (transition_r, absorbing_state, num_event - 2, EAct, self.particle_idx)
             for transition_r, absorbing_state, EAct 
@@ -323,10 +344,10 @@ class Superbasin():
                 # Select deposition event
                 # event = System_state.grid_crystal[site].site_events[0]
                 # Remove the site from sites_occupied
-                # System_state.sites_occupied.remove(event[1])
+                # System_state.sites_occupied.remove(event.destination)
                 System_state.sites_occupied.remove(site)
                 # Introduce the particle
-                # System_state.processes((event[0], event[1], event[2], event[1])) 
+                # System_state.processes((event.rate, event.destination, event.label, event.destination)) 
                 System_state.processes((0, site, System_state.num_event-1, site)) 
 
         

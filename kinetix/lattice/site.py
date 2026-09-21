@@ -11,7 +11,33 @@ import os
 from typing import NamedTuple
 
 from kinetix.configs.defect_config import DefectConfig
-from kinetix.lattice.defect import Defect, make_empty_defect
+from kinetix.lattice.defect import Defect, Event, make_empty_defect
+
+
+def _as_event(raw):
+    """Coerce one legacy raw event entry into an :class:`Event` (Phase 4).
+
+    Legacy ``site_events`` entries came in two shapes:
+
+    * 3-element ``[destination, label, E_act]`` - as registered by
+      ``available_pathways``, not yet rated;
+    * 4-element ``[rate, destination, label, E_act]`` - already rated by
+      ``transition_rates``, or pre-seeded by ``deposition_event``.
+
+    Both map onto the same Event. The rated ``rate`` is preserved (rather
+    than reset to 0.0) so a grid restored from a pickle reaches the first
+    rate refresh with byte-identical state; ``transition_rates`` overwrites
+    it on that refresh, exactly as the legacy in-place ``event[0] = rate``
+    write did. Entries that are already Events pass through untouched.
+    """
+    if isinstance(raw, Event):
+      return raw
+    if len(raw) == 4:
+      rate, destination, label, barrier = raw
+      return Event(label=label, destination=destination, barrier=barrier,
+                   rate=rate)
+    destination, label, barrier = raw
+    return Event(label=label, destination=destination, barrier=barrier)
 
 
 class Site():
@@ -121,7 +147,7 @@ class Site():
 
     @property
     def site_events(self):
-      """Registered kMC events; stored on (and travel with) the Defect."""
+      """Registered kMC Events; stored on (and travel with) the Defect."""
       return self.defect.events
 
     @site_events.setter
@@ -210,6 +236,12 @@ class Site():
         the delegating properties anyway).
       ``defects_config`` may be a legacy dict-of-dicts in either case and
       is kept as-is for compatibility.
+
+      Phase 4: the registered events are normalized onto ``Event``
+      instances (see :func:`_as_event`). Every shipped grid pickle stores
+      the pre-Phase-4 raw list shape, so this is the migration boundary
+      that lets a restored grid be rated and catalogued by the Event-based
+      pipeline without touching physics.
       """
       self.__dict__.update(state)
       if 'idx' not in self.__dict__:
@@ -227,6 +259,11 @@ class Site():
         for key in ('chemical_specie', 'ion_charge', 'passivation_level',
                     'site_events'):
           self.__dict__.pop(key, None)
+
+      # Phase 4 migration: registered events are Event instances from here
+      # on. Applies to both pickle generations (legacy flat ``site_events``
+      # and post-Phase-3 ``defect.events`` written before this phase).
+      self.defect.events = [_as_event(raw) for raw in self.defect.events]
 
 
     def set_interface_flags(self, bottom_z, top_z, tol = 1e-4):
@@ -625,20 +662,30 @@ class Site():
                     
                     # Migrating on the substrate
                     if self.sites_generation_layer in self.supp_by:
-                        self.site_events.append([site_idx, num_event, self.Act_E_dict[0] + energy_change])
+                        self.site_events.append(Event(
+                          label=num_event, destination=site_idx,
+                          barrier=self.Act_E_dict[0] + energy_change))
                         
                     # Migrating on the film (111)
                     elif grid_crystal[site_idx].wulff_facet == facets_type[0]:
                         if self.edges_v[num_event] == None: 
-                            self.site_events.append([site_idx, num_event, self.Act_E_dict[7] + energy_change])
+                            self.site_events.append(Event(
+                              label=num_event, destination=site_idx,
+                              barrier=self.Act_E_dict[7] + energy_change))
                         elif self.edges_v[num_event] == facets_type[0]:
-                            self.site_events.append([site_idx, num_event, self.Act_E_dict[10] + energy_change])
+                            self.site_events.append(Event(
+                              label=num_event, destination=site_idx,
+                              barrier=self.Act_E_dict[10] + energy_change))
                         elif self.edges_v[num_event] == facets_type[1]:
-                            self.site_events.append([site_idx, num_event, self.Act_E_dict[9] + energy_change])
+                            self.site_events.append(Event(
+                              label=num_event, destination=site_idx,
+                              barrier=self.Act_E_dict[9] + energy_change))
                             
                     # Migrating on the film (100)
                     elif grid_crystal[site_idx].wulff_facet == facets_type[1]:
-                        self.site_events.append([site_idx, num_event, self.Act_E_dict[8] + energy_change])
+                        self.site_events.append(Event(
+                          label=num_event, destination=site_idx,
+                          barrier=self.Act_E_dict[8] + energy_change))
     
     
     # =============================================================================
@@ -660,18 +707,26 @@ class Site():
                    
                     # Migrating upward from the substrate
                     if self.sites_generation_layer in self.supp_by and grid_crystal[site_idx].wulff_facet == facets_type[0]:
-                        self.site_events.append([site_idx, num_event, self.Act_E_dict[1] + energy_change])
+                        self.site_events.append(Event(
+                          label=num_event, destination=site_idx,
+                          barrier=self.Act_E_dict[1] + energy_change))
                     
                     elif self.sites_generation_layer in self.supp_by and grid_crystal[site_idx].wulff_facet == facets_type[0]:
-                        self.site_events.append([site_idx, num_event, self.Act_E_dict[5] + energy_change])
+                        self.site_events.append(Event(
+                          label=num_event, destination=site_idx,
+                          barrier=self.Act_E_dict[5] + energy_change))
                         
                     # Migrating upward from the film (111)
                     elif self.wulff_facet == facets_type[0]:
-                        self.site_events.append([site_idx, num_event, self.Act_E_dict[3] + energy_change])
+                        self.site_events.append(Event(
+                          label=num_event, destination=site_idx,
+                          barrier=self.Act_E_dict[3] + energy_change))
                         
                     # Migrating upward from the film (100)
                     elif self.wulff_facet ==  facets_type[1]:
-                        self.site_events.append([site_idx, num_event, self.Act_E_dict[8] + energy_change])
+                        self.site_events.append(Event(
+                          label=num_event, destination=site_idx,
+                          barrier=self.Act_E_dict[8] + energy_change))
     
                     
             # Downward migrations
@@ -685,18 +740,26 @@ class Site():
                     
                     # From layer 1 to substrate
                     if self.wulff_facet == facets_type[0] and self.sites_generation_layer in grid_crystal[site_idx].supp_by:
-                        self.site_events.append([site_idx, num_event, self.Act_E_dict[2] + energy_change])
+                        self.site_events.append(Event(
+                          label=num_event, destination=site_idx,
+                          barrier=self.Act_E_dict[2] + energy_change))
                     
                     elif self.wulff_facet == facets_type[1] and self.sites_generation_layer in grid_crystal[site_idx].supp_by:
-                        self.site_events.append([site_idx, num_event, self.Act_E_dict[6] + energy_change])
+                        self.site_events.append(Event(
+                          label=num_event, destination=site_idx,
+                          barrier=self.Act_E_dict[6] + energy_change))
                     
                     # Migrating downward from the film (111)
                     elif self.wulff_facet == facets_type[0]:
-                        self.site_events.append([site_idx, num_event, self.Act_E_dict[4] + energy_change])
+                        self.site_events.append(Event(
+                          label=num_event, destination=site_idx,
+                          barrier=self.Act_E_dict[4] + energy_change))
                         
                     # Migrating downward from the film (100)
                     elif self.wulff_facet == facets_type[1]:
-                        self.site_events.append([site_idx, num_event, self.Act_E_dict[8] + energy_change])
+                        self.site_events.append(Event(
+                          label=num_event, destination=site_idx,
+                          barrier=self.Act_E_dict[8] + energy_change))
                 
             
             
@@ -738,14 +801,18 @@ class Site():
                 
                 # 5. Barrier Model   
                 energy_change = max(energy_site_destiny - self.energy_site, 0)
-                self.site_events.append([site_idx, num_event, Act_E_mig[num_event] + energy_change])
+                self.site_events.append(Event(
+                  label=num_event, destination=site_idx,
+                  barrier=Act_E_mig[num_event] + energy_change))
             
     def available_reduction(self,idx_origin):
         current_defect = self._get_current_defect_name()
         if self.ion_charge > 0:
           E_reduction = self.Act_E_dict[current_defect]['E_reduction']
           CN_redox = self.CN_redox_energy
-          self.site_events.append([idx_origin, 'reduction', E_reduction - CN_redox])
+          self.site_events.append(Event(
+            label='reduction', destination=idx_origin,
+            barrier=E_reduction - CN_redox))
             
     def available_oxidation(self,idx_origin):
         current_defect = self._get_current_defect_name()
@@ -756,7 +823,9 @@ class Site():
         if can_oxidize and (is_surface_atom or at_electrode_interface):
           E_oxidation = self.Act_E_dict[current_defect]['E_oxidation']
           CN_redox = self.CN_redox_energy  
-          self.site_events.append([idx_origin, 'oxidation', E_oxidation + CN_redox])
+          self.site_events.append(Event(
+            label='oxidation', destination=idx_origin,
+            barrier=E_oxidation + CN_redox))
     
           
     def available_reactions(self,grid_crystal,idx_origin):
@@ -849,11 +918,11 @@ class Site():
         for neighbor_idx in site.nearest_neighbors_idx:
           neighbor = grid_crystal[neighbor_idx]
           if self._site_matches_reactant(neighbor,partner_requirements):
-            self.site_events.append([
-              neighbor_idx, 
-              reaction['name'], 
-              Act_E
-            ])
+            self.site_events.append(Event(
+              label=reaction['name'],
+              destination=neighbor_idx,
+              barrier=Act_E
+            ))
             
             
     def _handle_bimolecular_capture_reaction(self,grid_crystal,site,reaction):
@@ -903,11 +972,11 @@ class Site():
           else:
             Act_E_value = Act_E
           
-          self.site_events.append([
-            neighbor_idx,
-            reaction['name'],
-            Act_E_value
-          ])     
+          self.site_events.append(Event(
+            label=reaction['name'],
+            destination=neighbor_idx,
+            barrier=Act_E_value
+          ))     
           
             
     def _handle_unimolecular_reaction(self,grid_crystal,site,idx_origin,reaction):
@@ -984,15 +1053,16 @@ class Site():
           if not valid_neighbor_found:
             return # No physically valid destination available  
         
-      self.site_events.append([
-        idx_origin,
-        reaction['name'],
-        Act_E_value
-      ])
+      self.site_events.append(Event(
+        label=reaction['name'],
+        destination=idx_origin,
+        barrier=Act_E_value
+      ))
         
         
     def deposition_event(self,TR,idx_origin,num_event,Act_E):
-        self.site_events.append([TR,idx_origin, num_event, Act_E])
+        self.site_events.append(Event(
+          label=num_event, destination=idx_origin, barrier=Act_E, rate=TR))
         
     def ion_generation_interface(self,idx_origin):
         
@@ -1001,12 +1071,13 @@ class Site():
           return
 
         E_gen = self.Act_E_dict[current_defect]['E_gen_defect']
-        self.site_events.append([idx_origin, 'generation', E_gen])
+        self.site_events.append(Event(
+          label='generation', destination=idx_origin, barrier=E_gen))
         
     def remove_event_type(self,event_label):
         
         for i, event in enumerate(self.site_events):
-            if event[2] == event_label:
+            if event.label == event_label:
                 del self.site_events[i]
                 break
             
@@ -1148,19 +1219,20 @@ class Site():
           
                 
         
-        # Iterate over site_events directly, no need to use range(len(...))
+        # Iterate over the registered Events directly (Phase 4: Event carries
+        # the label, the registered barrier and the computed rate).
         for event in self.site_events:
           
             if relevant_field:
-              Act_E = event[-1]
-              event_type = event[-2]
+              Act_E = event.barrier
+              event_type = event.label
               
               if event_type == 'generation' and is_gen_field_dependent:
                 defect_charge = self.defects_config[current_defect]["charge"]
-                Act_E = max(event[-1] - 0.5 * defect_charge *  np.dot(E_site_field,[0,0,-1]) * 1e-10, self.Act_E_dict[current_defect]['E_min_gen'])
+                Act_E = max(event.barrier - 0.5 * defect_charge *  np.dot(E_site_field,[0,0,-1]) * 1e-10, self.Act_E_dict[current_defect]['E_min_gen'])
                 
               elif event_type in ('reduction', 'oxidation'):
-                base_energy = event[-1]
+                base_energy = event.barrier
                 process = event_type
                 field_factor_top = -0.5 # Field opposes reduction at top
                 field_factor_bottom = +0.5 # Field assists reduction at bottom
@@ -1189,7 +1261,7 @@ class Site():
                   
               elif isinstance(event_type, int):
                 mig_vec = migration_pathways[event_type]['direction']
-                Act_E = max(event[-1] - self.ion_charge * np.dot(E_site_field,mig_vec) * 1e-10 ,self.Act_E_dict[current_defect]['E_min_mig'])
+                Act_E = max(event.barrier - self.ion_charge * np.dot(E_site_field,mig_vec) * 1e-10 ,self.Act_E_dict[current_defect]['E_min_mig'])
                 
               elif any(event_type == reaction['name'] for reaction in self.reactions_config.values()): # Reactions
                 # Check if this reaction is field-dependent
@@ -1202,13 +1274,13 @@ class Site():
                   field_magnitude = np.linalg.norm(E_site_field) * 1e-10
                   field_correction = coupling * field_magnitude
                   
-                  Act_E = max(event[-1] - field_correction, E_min)
+                  Act_E = max(event.barrier - field_correction, E_min)
                   
                 else:
-                  Act_E = event[-1]
+                  Act_E = event.barrier
                 
             else:
-              Act_E = event[-1]
+              Act_E = event.barrier
               
               
             # Fallback: Act. energy should be >= 0
@@ -1225,11 +1297,9 @@ class Site():
                 tr_value = Site.NU0 * np.exp(-Act_E / (Site.KB * T))
                 self.cache_TR[Act_E_key] = tr_value
                 
-            # Use the length of event to determine the appropriate action
-            if len(event) == 3:
-                # Insert at the beginning of the list for the binary tree
-                event.insert(0, tr_value)
-            elif len(event) == 4:
-                event[0] = tr_value
+            # The event keeps its registered barrier (field/GB corrections only
+            # affect the rate), so re-rating at a new T recomputes from the
+            # same base energy - as the legacy in-place list write did.
+            event.rate = tr_value
                 
                 

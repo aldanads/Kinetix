@@ -2731,10 +2731,12 @@ class Crystal_Lattice():
       for idx in self.active_event_sites + self.generation_sites:
         if idx not in superbasin_dict:
           TR_catalog.extend([
-            (item[0], item[1], item[2], idx)
-            for item in grid_crystal[idx].site_events
+            event.catalog_tuple(idx)
+            for event in grid_crystal[idx].site_events
           ])
         else:
+          # The superbasin keeps its own internal record for the aggregated
+          # absorbing-state events: (rate, dest, label, E_act, origin).
           TR_catalog.extend([
             (item[0], item[1], item[2], idx)
             for item in superbasin_dict[idx].site_events_absorbing
@@ -2866,9 +2868,10 @@ class Crystal_Lattice():
         for event in self.grid_crystal[idx].site_events:
           # Check criteria:
           #   - idx not already in superbasin_dict
+          #   - migration event (int label; checked first so the barrier of a
+          #     non-migration event is never dereferenced)
           #   - event activation energy <= E_min threshold
-          #   - event label is integer (specific event type)
-          if (idx not in self.superbasin_dict) and isinstance(event[2], int) and (event[3] <= self.E_min):
+          if (idx not in self.superbasin_dict) and event.is_migration and (event.barrier <= self.E_min):
             superbasin = Superbasin(idx, self, self.E_min, active_event_sites)
                 
             if superbasin.valid:

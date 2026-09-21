@@ -161,14 +161,12 @@ def _event_fields(event):
   """(rate, barrier, dest, label) of a *registered* ``site_events`` entry.
 
   SINGLE POINT OF CONTACT for the internal event representation.  Phase 4 of
-  the refactor (``site_events: list[Event]``) updates only this function::
-
-      return float(event.rate), float(event.barrier), event.destination, event.label
-
-  Today the layout is ``[rate, dest, label, E_act]`` after ``transition_rates``
-  and ``[dest, label, E_act]`` before; ``event[-1]`` is ``E_act`` in both shapes.
+  the refactor replaced the raw ``[rate, dest, label, E_act]`` list with the
+  ``Event`` dataclass, so the four physics columns now come from named fields;
+  the fixture content is unaffected.
   """
-  return float(event[0]), float(event[-1]), event[1], event[2]
+  return (float(event.rate), float(event.barrier), event.destination,
+          event.label)
 
 
 def _chosen_fields(chosen_event):

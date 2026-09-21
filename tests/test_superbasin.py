@@ -8,11 +8,12 @@ from the fix shows up as a diff here.
 Pinned API summary:
 
 * ``Superbasin(idx, System_state, E_min, sites_occupied)`` explores
-  migration events (``site_events`` tuples ``[rate, dest, event_idx, E_act]``;
-  migrations are those with an int ``event_idx``) from ``idx`` over
-  ``System_state.grid_crystal``. States whose outgoing migrations are ALL
-  above ``E_min`` are *absorbing*; states with at least one migration at or
-  below ``E_min`` are *transient*.
+  migration events (``site_events`` are ``Event`` instances; migration events
+  are those whose label is an int - the fixtures spell them as the rated
+  ``(rate, dest, label, E_act)`` tuples ``FakeSite`` turns into Events) from
+  ``idx`` over ``System_state.grid_crystal``. States whose outgoing migrations
+  are ALL above ``E_min`` are *absorbing*; states with at least one migration
+  at or below ``E_min`` are *transient*.
 * Workflow: ``trans_absorbing_states`` -> ``transition_matrix`` ->
   ``markov_matrix`` -> ``absorption_probability_matrix`` ->
   ``calculate_transition_rates_absorbing_states`` ->
@@ -36,6 +37,7 @@ import numpy as np
 import pytest
 from scipy import constants
 
+from kinetix.lattice.defect import Event
 from kinetix.utils.superbasin import Superbasin
 
 KB_EV = constants.physical_constants['Boltzmann constant in eV/K'][0]
@@ -43,10 +45,18 @@ NU0 = 7e12  # bond vibration frequency used in the EAct formula
 
 
 class FakeSite:
-  """Minimal site: only the attributes Superbasin reads."""
+  """Minimal site: only the attributes Superbasin reads.
+
+  ``site_events`` holds ``Event`` instances (Phase 4).  The fixtures keep
+  describing an event the way the kMC catalog spells it - the rated
+  ``(rate, dest, label, E_act)`` record - and the constructor maps that onto
+  the Event fields the superbasin reads.
+  """
 
   def __init__(self, site_events=(), chemical_specie='VO', supp_by=()):
-    self.site_events = [list(t) for t in site_events]
+    self.site_events = [Event(label=label, destination=dest, barrier=e_act,
+                              rate=rate)
+                        for rate, dest, label, e_act in site_events]
     self.chemical_specie = chemical_specie
     self.supp_by = set(supp_by)
 
