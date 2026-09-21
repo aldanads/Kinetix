@@ -10,7 +10,8 @@ from sklearn.decomposition import PCA
 import os
 from typing import NamedTuple
 
-from kinetix.lattice.defect import make_empty_defect
+from kinetix.configs.defect_config import DefectConfig
+from kinetix.lattice.defect import Defect, make_empty_defect
 
 
 class Site():
@@ -30,19 +31,14 @@ class Site():
             idx (tuple, optional): Grid index key; set by Crystal_Lattice at
                 construction (None for stand-alone sites)
         """
-        # Core properties
-        self.chemical_specie = chemical_specie
+        # Core properties. chemical_specie is defect-carried state (Phase 3):
+        # it lives on self.defect and is exposed through the delegating
+        # property below; the constructor argument is kept for API compat.
         self.position = position
         self.site_type = site_type if site_type is not None else chemical_specie
 
         # Grid index (set by Crystal_Lattice at construction; None until then)
         self.idx = idx
-
-        # Defect occupant (site/defect composition model, Phase 2). Every site
-        # always hosts exactly one Defect; freshly built sites start empty.
-        # Not yet read by production code — availability still flows through
-        # the legacy site_events path.
-        self.defect = make_empty_defect()
         
         # Neighbor information
         self.nearest_neighbors_idx = [] # Nearest neighbors indexes
@@ -55,7 +51,6 @@ class Site():
         self.reactions_config = reactions_config
         
         # Event tracking
-        self.site_events = [] # Possible events corresponding to this node
         self.migration_paths = {'Plane':[],'Up':[],'Down':[]} # Possible migration sites with the corresponding label
 
         # Cache memory            
@@ -66,7 +61,6 @@ class Site():
         self.cache_CN_contr_redox_energy = {}
 
         # Electrostatic properties
-        self.ion_charge = 0
         self.in_cluster_with_electrode = {'bottom_layer': False, 'top_layer': False}
         
         # === Interface flags ===
@@ -76,17 +70,116 @@ class Site():
         # Calculate applicable defects
         if is_active_site and defects_config is not None:
           self.applicable_defects = self._get_applicable_defects()
-          current_defect = self._get_current_defect_name()
-          if current_defect is not None:
-            self.sites_generation_layer = defects_config[current_defect]["sites_generation_layer"]
-            if "passivation_level" in defects_config[current_defect]:
-              self.passivation_level = defects_config[current_defect]["passivation_level"] 
         else:
-          self.applicable_defects = []   
-          current_defect = None
-              
-        
-    
+          self.applicable_defects = []
+
+        # Defect occupant (site/defect composition model). Every site always
+        # hosts exactly one Defect; chemical_specie / ion_charge /
+        # passivation_level / site_events live on it and are exposed through
+        # delegating properties. Legacy init semantics preserved: a freshly
+        # built site starts neutral (ion_charge=0) with the occupant named
+        # by the ``chemical_specie`` argument ('Empty' -> empty Defect); the
+        # legacy config-driven passivation initialisation is handled by the
+        # Defect's config defaults.
+        self.defect = self._make_initial_defect(chemical_specie)
+
+        current_defect = self._get_current_defect_name()
+        if current_defect is not None:
+          self.sites_generation_layer = defects_config[current_defect]["sites_generation_layer"]
+
+    # ------------------------------------------------------------------
+    # Defect-carried state (Phase 3). The four legacy attributes now live
+    # on self.defect; the delegating properties keep every existing
+    # read/write site working unchanged until Phase 6 removes the aliases.
+    # ------------------------------------------------------------------
+    @property
+    def chemical_specie(self):
+      """Occupant symbol; stored on (and travels with) the Defect."""
+      return self.defect.chemical_specie
+
+    @chemical_specie.setter
+    def chemical_specie(self, value):
+      self.defect.chemical_specie = value
+
+    @property
+    def ion_charge(self):
+      """Runtime charge; stored on (and travels with) the Defect."""
+      return self.defect.charge
+
+    @ion_charge.setter
+    def ion_charge(self, value):
+      self.defect.charge = value
+
+    @property
+    def passivation_level(self):
+      """Runtime passivation state; stored on (and travels with) the Defect."""
+      return self.defect.passivation_level
+
+    @passivation_level.setter
+    def passivation_level(self, value):
+      self.defect.passivation_level = value
+
+    @property
+    def site_events(self):
+      """Registered kMC events; stored on (and travel with) the Defect."""
+      return self.defect.events
+
+    @site_events.setter
+    def site_events(self, value):
+      self.defect.events = value
+
+    def _as_defect_config(self, name, cfg):
+      """Normalize a registry entry (legacy dict or DefectConfig) to DefectConfig.
+
+      ``name`` is the registry key the entry was found under — legacy dict
+      entries do not carry their own ``name`` member.
+      """
+      if isinstance(cfg, DefectConfig):
+        return cfg
+      return DefectConfig.from_dict(name, cfg)
+
+    def _resolve_defect_config(self, chemical_specie):
+      """Resolve the DefectConfig the legacy sublattice lookup selects.
+
+      Deliberately mirrors the pre-Phase-3 ``_get_current_defect_name`` rule
+      (Act_E_dict membership + site_type match), NOT a symbol match, so the
+      selected configuration — and with it event availability and energies
+      — is bit-identical to the pre-refactor behaviour (report finding C1:
+      the occupant species does not influence the lookup).
+      """
+      for defect_name in getattr(self, 'applicable_defects', None) or []:
+        cfg = (getattr(self, 'defects_config', None) or {}).get(defect_name)
+        if cfg is None:
+          continue
+        cfg_site_type = cfg['site_type'] if isinstance(cfg, dict) else cfg.site_type
+        if defect_name in (getattr(self, 'Act_E_dict', None) or {}) and cfg_site_type == self.site_type:
+          return defect_name, cfg
+      return None, None
+
+    def _make_initial_defect(self, chemical_specie, ion_charge=0):
+      """Build the Defect carrying ``chemical_specie`` (legacy-compatible).
+
+      'Empty' occupants get a fresh empty Defect. Real occupants get the
+      configuration selected by the legacy sublattice rule (see
+      _resolve_defect_config); when no configuration matches (e.g. host
+      species like 'Hf' with no defect config), a fresh empty Defect is
+      returned carrying the occupant symbol, so ``site.chemical_specie ==
+      'Hf'`` keeps working while ``_get_current_defect_name`` keeps its
+      legacy ``None`` result for that site.
+      """
+      specie = chemical_specie if chemical_specie is not None else 'Empty'
+      if specie == 'Empty':
+        return make_empty_defect()
+      name, cfg = self._resolve_defect_config(specie)
+      if cfg is None:
+        defect = make_empty_defect()
+        defect.chemical_specie = specie
+        defect.charge = ion_charge or 0
+        return defect
+      defect = Defect.from_config(self._as_defect_config(name, cfg), charge=ion_charge or 0)
+      defect.chemical_specie = specie
+      return defect
+
     def install_defect(self, defect):
       """Install ``defect`` as this site's occupant.
 
@@ -106,18 +199,34 @@ class Site():
       self.defect = make_empty_defect()
 
     def __setstate__(self, state):
-      """Normalize state restored from a pickle (legacy-grid compatibility).
+      """Normalize state restored from a pickle.
 
-      Grids pickled before the site/defect decoupling refactor carry no
-      ``defect`` attribute (every site always has one in the current model,
-      so an empty one is injected) and may carry ``defects_config`` as a
-      legacy dict-of-dicts — the dict form is kept as-is for compatibility.
+      Handles two generations of pickled grids:
+      * Current pickles carry a ``defect`` attribute — used as-is.
+      * Legacy grids (pre-refactor) carry the defect-carried state as flat
+        attributes (chemical_specie / ion_charge / passivation_level /
+        site_events) and no ``defect``; that state is migrated onto a fresh
+        Defect and the flat keys are dropped (they would be shadowed by
+        the delegating properties anyway).
+      ``defects_config`` may be a legacy dict-of-dicts in either case and
+      is kept as-is for compatibility.
       """
       self.__dict__.update(state)
-      if 'defect' not in self.__dict__:
-        self.defect = make_empty_defect()
       if 'idx' not in self.__dict__:
         self.idx = None
+      if 'defect' not in self.__dict__:
+        specie = self.__dict__.get('chemical_specie', 'Empty') or 'Empty'
+        defect = self._make_initial_defect(specie)
+        defect.charge = self.__dict__.get('ion_charge', 0) or 0
+        legacy_passivation = self.__dict__.get('passivation_level')
+        if legacy_passivation is not None:
+          defect.passivation_level = legacy_passivation
+        if 'site_events' in self.__dict__:
+          defect.events = self.__dict__['site_events']
+        self.defect = defect
+        for key in ('chemical_specie', 'ion_charge', 'passivation_level',
+                    'site_events'):
+          self.__dict__.pop(key, None)
 
 
     def set_interface_flags(self, bottom_z, top_z, tol = 1e-4):
@@ -153,7 +262,11 @@ class Site():
       return applicable
       
     def _get_current_defect_name(self):
-      """Determine which defect configuration applies to current state."""  
+      """Determine which defect configuration applies to current state."""
+      if not self.defect.is_empty:
+        return self.defect.name
+      # Fall back to the legacy sublattice lookup for empty occupants
+      # (removed once the dict flow disappears in Phase 6).
       for defect_name in self.applicable_defects or []:
         if defect_name in self.Act_E_dict:
           defect_site_type = self.defects_config[defect_name]["site_type"]
@@ -411,18 +524,44 @@ class Site():
     # Change chemical_specie status
     # Add the desorption process
     def introduce_specie(self,chemical_specie,ion_charge = None):
-        self.chemical_specie = chemical_specie
-        
-        if ion_charge is None:
-          current_defect = self._get_current_defect_name()
-          ion_charge = self.defects_config[current_defect]['charge']
-        self.ion_charge = ion_charge
+        """Install ``chemical_specie`` as this site's occupant (legacy API).
 
-    def remove_specie(self,affected_site):
-        self.chemical_specie = affected_site
-        self.ion_charge = 0
-        #self.site_events.remove(['Desorption',self.num_event])
-        self.site_events = []
+        The DefectConfig installed is the one the legacy sublattice rule
+        selects (see _resolve_defect_config), so the defect name — and with
+        it event availability and activation energies — is unchanged.
+        Legacy quirks preserved: passivation_level and the registered
+        site_events persist across the swap (only the charge is taken from
+        the argument/config), exactly like the flat attributes behaved.
+        Phase 5 replaces this with a Defect object hop.
+        """
+        prev_passivation = self.defect.passivation_level
+        prev_events = self.defect.events
+        name, cfg = self._resolve_defect_config(chemical_specie)
+        if ion_charge is None:
+          # Legacy charge resolution: charge of the configuration the
+          # sublattice rule selects (defects_config[None] keeps the legacy
+          # KeyError for sites with no resolvable configuration).
+          ion_charge = self.defects_config[name]['charge']
+        defect = self._make_initial_defect(chemical_specie, ion_charge)
+        defect.passivation_level = prev_passivation
+        defect.events = prev_events
+        self.install_defect(defect)
+
+    def remove_specie(self,affected_site = 'Empty'):
+        """Clear this site's occupant (legacy API).
+
+        Installs a fresh empty Defect, resetting ion_charge and site_events
+        exactly like the legacy attribute resets. Every production call
+        site passes the vacancy marker ('Empty'); any other marker is
+        written onto the fresh occupant, preserving the legacy behaviour.
+        passivation_level persists across the swap (legacy quirk; Phase 5
+        will make passivation travel with the Defect instead).
+        """
+        prev_passivation = self.defect.passivation_level
+        self.clear_defect()
+        self.defect.passivation_level = prev_passivation
+        if affected_site != 'Empty':
+          self.chemical_specie = affected_site
         
     def get_migrating_state(self, defects_config):
       """Extracts a dictionary of all attributes that should move with the defect."""

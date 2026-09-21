@@ -81,7 +81,7 @@ HF_DEFAULT_REPO_ID = "jamesh12345/hfo2-mace"
 HF_DEFAULT_FILENAME = "HfO2_mh1_F_LONG.model"
 R_ACTIVE = 5.0
 R_SHELL = 7.0
-BARRIER_BOUNDS = (0.05, 3.0)  # eV
+BARRIER_BOUNDS = (0.05, 5.0)  # eV
 CACHE_MAX_S = 0.1             # seconds budget for a cached barrier lookup
 
 

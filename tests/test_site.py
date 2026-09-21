@@ -297,14 +297,22 @@ class TestSiteInitialization:
       "fixture expectation: oxygen_vacancy must declare passivation_level")
     assert site.passivation_level == pzt_defects[current]['passivation_level']
 
-  def test_passivation_level_absent_when_the_defect_does_not_declare_it(
+  def test_passivation_level_defaults_to_zero_when_not_declared(
       self, pzt_defects, pzt_act_e):
+    """Phase 3: passivation_level is defect-carried and normalized.
+
+    The pre-refactor Site only created the attribute when the config
+    declared it (the conditional-attribute gap, report finding M1). With
+    the composition model the Defect always carries the field and the
+    delegating property always exists, reading 0 when the config does not
+    declare it.
+    """
     site = Site(chemical_specie='H', position=(0.0, 0.0, 0.0),
                 site_type='interstitial', Act_E_dict=pzt_act_e,
                 defects_config=pzt_defects)
     current = site._get_current_defect_name()
     assert 'passivation_level' not in pzt_defects[current]
-    assert not hasattr(site, 'passivation_level')
+    assert site.passivation_level == 0
 
   def test_inactive_site_has_no_applicable_defects(self, pzt_defects, pzt_act_e):
     site = Site(chemical_specie='H', position=(0.0, 0.0, 0.0),
