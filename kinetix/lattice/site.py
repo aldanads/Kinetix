@@ -287,7 +287,11 @@ class Site():
 #     Helper methods           
 # =============================================================================        
     def _get_applicable_defects(self):
-      """Determine which defects can occupy this site type."""
+      """Defects that COULD occupy this site (based on allowed_sublattices).
+    
+      For empty sites, this is the list of candidate defects.
+      For occupied sites, this is typically just the current defect.
+      """
       if self.defects_config is None:
         return []
         
@@ -299,7 +303,17 @@ class Site():
       return applicable
       
     def _get_current_defect_name(self):
-      """Determine which defect configuration applies to current state."""
+      """Determine which defect configuration applies to current state.
+      
+      For occupied sites: returns self.defect.name (unambiguous).
+      For empty sites: returns the first applicable defect that matches
+      the sublattice. This is ambiguous if multiple defects share the
+      same sublattice, but works with current configs where each
+      sublattice has at most one defect type.
+      
+      TODO: Redesign generation events to handle multiple candidate
+      defects per sublattice.
+      """
       if not self.defect.is_empty:
         return self.defect.name
       # Fall back to the legacy sublattice lookup for empty occupants
@@ -781,8 +795,28 @@ class Site():
                   continue
                 
                 # 4. Energy Calculation: Calculate energy difference between sites
+                # ``destination_CN`` is populated by supported_by() only for
+                # sites that were EMPTY when it last ran (site.py:403-427), so a
+                # destination that is legally occupied (a vacancy target such as
+                # 'V_O') has no entry for the moving defect.  Guard it with an
+                # actionable message instead of an opaque KeyError /
+                # AttributeError (no shipped config declares an occupied target
+                # species, so this path is latent - see AGENTS.md).
+                destination_CN = getattr(dest_site, 'destination_CN', {}).get(
+                  current_defect)
+                if destination_CN is None:
+                  raise ValueError(
+                    f"migration of {current_defect!r} from {self.idx} rejected: "
+                    f"destination {dest_site.idx} (site_type "
+                    f"{dest_site.site_type!r}, occupant "
+                    f"{dest_site.chemical_specie!r}) accepted the chemical check "
+                    f"but carries no destination_CN entry for {current_defect!r}. "
+                    f"destination_CN is only computed for sites that were empty "
+                    f"when supported_by() ran; a defect with CN_matters=True "
+                    f"cannot migrate onto an occupied destination.")
+
                 energy_site_destiny = self.calculate_site_energy(
-                  dest_site.destination_CN[current_defect],idx_origin,
+                  destination_CN, idx_origin,
                   dest_site.is_at_top_interface, dest_site.is_at_bottom_interface
                 )
                 

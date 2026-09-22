@@ -983,6 +983,16 @@ class Crystal_Lattice():
           for idx, site in self.grid_crystal.items():
             if getattr(site, 'idx', None) is None:
               site.idx = idx
+          # Live-config binding (Phase 6).  Loaded sites otherwise run on the
+          # ``defects_config`` copy stored inside the grid pickle, which can go
+          # stale relative to the preset's YAML while every lattice-level lookup
+          # (defect_gen, generation sites, ...) already uses the live registry.
+          # Binding one shared reference keeps a single source of truth for the
+          # site-level lookups too (allowed_sublattices, valid_target_species,
+          # CN_matters, symbols) at the cost of one pointer store per site.
+          if self.defects_config:
+            for site in self.grid_crystal.values():
+              site.defects_config = self.defects_config
           self._compute_interface_flags()
           # Initialize pathways for loaded grids too 
           self._build_kdtree()
