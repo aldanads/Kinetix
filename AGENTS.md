@@ -88,28 +88,39 @@ state; the flat attribute-by-attribute migration machinery is gone.
 - Pickle compat: `Site.__setstate__` (:227) migrates legacy flat-attribute pickles onto a Defect and normalizes events to `Event`.
 
 ## Golden Trace Contract
-- Files: `tests/test_golden_trace.py` (897 lines, 4 tests) +
-  `tests/fixtures/golden_trace_vcm_hfo2_seed42_n30.json`.
-- Scenario: `VCM_mock.yaml` preset, `grid_HfO2_3nm.pkl`, seed 42, 30 kMC steps.
+- Files: `tests/test_golden_trace.py` (5 tests) +
+  `tests/fixtures/golden_trace_vcm_hfo2_seed42_n30.json` (main trace) and
+  `tests/fixtures/golden_trace_vcm_hfo2_cross_sublattice.json` (Finding A).
+- Main scenario: `VCM_mock.yaml` preset, `grid_HfO2_3nm.pkl`, seed 42, 30 kMC steps.
 - Records per step: time, dt, sum_rate, event-catalog digests, executed events.
 - **MUST remain unchanged across all refactor phases** — the only end-to-end
   physics-preservation check.
 - Regenerate **only** when physics or input parameters intentionally change:
   `KINETIX_UPDATE_GOLDEN_TRACE=1 python -m pytest tests/test_golden_trace.py`,
   then review `git diff` of the fixture.
-- Known coverage gap: the trace contains **0 cross-sublattice hops**, so it does
-  not pin destination-config semantics of cross-sublattice migration
-  (see finding A in Known Bugs → Open).
+- Cross-sublattice scenario (`test_golden_trace_cross_sublattice`): same preset /
+  grid / seed plus two **test-side-only** overrides — O_i
+  `valid_target_species += 'V_O'` and V_O `initial_concentration_bulk = 0.02` —
+  and the live `defects_config` re-injected into every Site (sites otherwise run
+  on the copy pickled in the grid; crystal.py:542-566 re-injects `Act_E_dict`
+  only). Shipped presets CANNOT produce such a hop: `Empty`-specie sites exist
+  only on the `interstitial` sublattice (measured on the main trace: 18 341
+  offered migration events, 100 % interstitial→interstitial, 0 Empty-specie O
+  sites). The scenario captures **4 hops** (steps 1/5/18/21) and pins that the
+  destination hosts the SOURCE's config (`oxygen_interstitial`, whose site_type
+  stays `interstitial`) and that the source is left empty.
+  Regenerate with
+  `KINETIX_UPDATE_GOLDEN_TRACE=1 python -m pytest "tests/test_golden_trace.py::test_golden_trace_cross_sublattice"`.
 
 ## Testing
-- Full suite: `pytest tests/ -q` → **365 passed, 1 skipped** (~23 min); the 39
+- Full suite: `pytest tests/ -q` → **366 passed, 1 skipped** (~23 min); the 39
   `solver`-marked tests are ~22 min of that (see *Test Execution* below).
-- Golden trace alone: `pytest tests/test_golden_trace.py -v` → 4 tests (~13 s).
+- Golden trace alone: `pytest tests/test_golden_trace.py -v` → 5 tests (~25 s).
 - Notable files: `test_site.py` (64), `test_migration_pathways.py` (37),
   `test_cluster_island.py` (43), `test_balanced_tree.py` (29),
   `test_state_loader.py` (31), `test_kmc_loop.py` (12),
   `test_gb_charge_and_state_transfer.py` (23), `test_superbasin.py` (17),
-  `test_golden_trace.py` (4).
+  `test_golden_trace.py` (5).
 - `test_mace_adapter.py` (marked `mace`) self-skips at module level without the
   `mace` extra — collects nothing; its `slow`-marked pathway sweeps
   (`--runslow`) also live there.
@@ -197,10 +208,25 @@ Measured selections (Kinetix env):
 - **H7**: Superbasin virtual moves not state-preserving — post-refactor.
 - **M4**: Energy caches keyed by `supp_by` only — Phase 4+.
 - **M7**: Config references pickled per site — Phase 6 optimization.
-- **Finding A (open)**: cross-sublattice hops now keep the source's DefectConfig
-  (object transfer) where legacy re-derived the config from the destination
-  sublattice. Uncovered by the golden trace (0 such hops). Intended behaviour;
-  add a cross-sublattice scenario before Phase 6.
+- **Finding A (coverage closed, behaviour intended)**: cross-sublattice hops now
+  keep the source's DefectConfig (object transfer) where legacy re-derived it
+  from the destination sublattice. Pinned by
+  `test_golden_trace_cross_sublattice` + its fixture (4 hops); note the *main*
+  trace still contains 0 such hops and that the scenario needs the test-side
+  overrides documented in *Golden Trace Contract* — the shipped presets cannot
+  produce a cross-sublattice hop at all.
+- **Live-vs-pickled `defects_config` (open)**: Sites run on the `defects_config`
+  pickled inside the grid; the Poisson re-injection (crystal.py:542-566)
+  refreshes `Act_E_dict` only. A defects-YAML edit therefore does NOT change an
+  existing grid's runtime behaviour (the main trace's `inputs_sha256` still fails
+  provenance, so it is caught there). Rebuild the grid or re-inject explicitly.
+- **`destination_CN` gap (open, latent)**: `Site.available_migrations` reads
+  `dest_site.destination_CN[current_defect]` (site.py:785) for every destination
+  that passes its "Empty or Vacancy" gate, but `destination_CN` is populated by
+  `supported_by` (site.py:404-427) only for sites that were Empty when it ran. An
+  occupied destination whose occupant has `CN_matters=True` (PZT
+  `oxygen_vacancy`) would raise AttributeError/KeyError. Latent today: no shipped
+  config declares an occupied target species for a mobile defect.
 
 ## Coding Conventions
 - **4-space indent in production**, **2-space indent in tests** — match the file you edit.
@@ -252,9 +278,9 @@ When completing any refactor task, the agent MUST:
 ## Quick Start
 ```bash
 conda activate Kinetix                          # base env lacks pymatgen
-pytest tests/test_golden_trace.py -v            # physics contract (~13 s)
+pytest tests/test_golden_trace.py -v            # physics contracts (~25 s)
 pytest tests/ -q                                # full suite (~23 min)
 pytest tests/test_site.py -v                    # single file
 pytest tests/ -q --runslow                      # + MACE pathway sweeps (hours)
-KINETIX_UPDATE_GOLDEN_TRACE=1 pytest tests/test_golden_trace.py   # regen (review diff!)
+KINETIX_UPDATE_GOLDEN_TRACE=1 pytest tests/test_golden_trace.py   # regen both fixtures (review diff!)
 ```

@@ -126,6 +126,49 @@ RATE_REL_TOL = 1e-9
 RATE_ABS_TOL = 1e-12
 
 # =============================================================================
+# Cross-sublattice scenario (pins the object-transfer hop semantics)
+# =============================================================================
+# The shipped presets CANNOT produce a cross-sublattice migration hop:
+#   * every mobile defect is interstitial-borne and declares
+#     ``valid_target_species=['Empty']``, and
+#   * ``Empty``-specie sites exist only on the ``interstitial`` sublattice:
+#     every O / Hf / Ce / Zr / Ti / Pb site hosts its lattice specie, and the
+#     reactions only ever write 'O' or 'V_O' onto O sites.
+# Measured on the main trace: 18,341 offered migration events, all
+# interstitial->interstitial, and 0 Empty-specie O sites at any point.
+#
+# This scenario therefore documents the two test-side overrides that make the
+# engine's *own* destination contract reachable in an offline run (the migration
+# gate's comment reads "Is the site available (Empty or Vacancy)?"):
+#   1. ``oxygen_interstitial.valid_target_species`` gains 'V_O' so an O
+#      interstitial may hop onto an oxygen-vacancy site, and
+#   2. ``oxygen_vacancy.initial_concentration_bulk = 0.02`` so such sites exist
+#      from the start (the shipped YAML seeds none).
+# Both live in the in-memory ``defects_config`` only: no YAML edit, no grid
+# rebuild, no production change.  Note that sites carry a *pickled copy* of the
+# config (the Poisson re-injection at crystal.py:542-566 refreshes only
+# Act_E_dict), so the harness re-injects the live dict into every site -
+# without that step the overrides are silently ignored.
+CROSS_FIXTURE_NAME = "golden_trace_vcm_hfo2_cross_sublattice.json"
+CROSS_FIXTURE_PATH = (Path(__file__).resolve().parent / "fixtures"
+                      / CROSS_FIXTURE_NAME)
+
+# Bump when the cross fixture's *schema* changes (new/renamed recorded field).
+CROSS_SCHEMA = 1
+
+CROSS_SEED = SEED
+CROSS_N_STEPS = N_STEPS
+CROSS_DEFECT_NAME = "oxygen_interstitial"
+CROSS_DEFECT_SYMBOL = "O_i"
+CROSS_DESTINATION_SUBLATTICE = "O"
+CROSS_V_O_CONCENTRATION = 0.02
+CROSS_VALID_TARGET_SPECIES = ("Empty", "V_O")
+
+CROSS_PROVENANCE_KEYS = ("schema", "scenario", "preset", "grid", "n_sites",
+                         "seed", "n_steps", "grid_sha256", "inputs_sha256",
+                         "overrides", "cross_hops", "cross_hops_sha256")
+
+# =============================================================================
 # Fixture encoding: one event == one text line "rate|barrier|dest|label|origin"
 # =============================================================================
 
@@ -341,6 +384,92 @@ def _run_trace(crystal):
   return steps
 
 
+def _run_cross_trace(crystal):
+  """``CROSS_N_STEPS`` seeded steps plus every cross-sublattice hop seen.
+
+  Same observation protocol as :func:`_run_trace` (the wrapper calls straight
+  through to ``processes``, so the physics is untouched), with one addition:
+  for every *migration* whose source and destination sublattice differ, the
+  post-hop state of both sites is recorded.  Those records ARE the contract:
+
+    * ``dst_defect`` must equal ``src_defect`` - the Defect object travelled,
+      so the O-sublattice destination hosts the source's configuration
+      (``oxygen_interstitial``) instead of re-deriving one from its own
+      sublattice (which is what the pre-Phase-5 attribute flow did), and
+    * ``src_is_empty`` must be True - the source is left with a fresh empty
+      Defect (``clear_defect``), not with stale state.
+  """
+  crystal.defect_gen()
+  crystal._update_rates_lazily({}, {})  # materialize rates before step 1
+  rng = crystal.rng
+  calls = []
+  hops = []
+  state = {"step": 0}
+  original_processes = crystal.processes
+
+  def recording_processes(chosen_event):
+    catalog = _catalog_snapshot(crystal)
+    chosen_line = _resolve_chosen_line(catalog, _chosen_fields(chosen_event))
+    origin_idx, dest_idx = chosen_event[-1], chosen_event[1]
+    origin_site = crystal.grid_crystal[origin_idx]
+    dest_site = crystal.grid_crystal[dest_idx]
+    src_sublattice = origin_site.site_type
+    dst_sublattice = dest_site.site_type
+    src_defect = origin_site.defect.config.name
+    calls.append((catalog, _chosen_fields(chosen_event)))
+    original_processes(chosen_event)
+    if (isinstance(chosen_event[2], int)          # migration label
+        and src_sublattice != dst_sublattice):
+      rate, barrier, dest, label, origin = _parse_event(chosen_line)
+      hops.append({
+          "step": state["step"],
+          "origin": list(origin),
+          "dest": list(dest),
+          "label": label,
+          "rate": rate,
+          "barrier": barrier,
+          "src_sublattice": src_sublattice,
+          "dst_sublattice": dst_sublattice,
+          "src_defect": src_defect,
+          "dst_defect": dest_site.defect.config.name,
+          "dst_defect_sublattice": dest_site.defect.sublattice,
+          "src_is_empty": origin_site.defect.is_empty,
+      })
+
+  crystal.processes = recording_processes
+  steps = []
+  try:
+    for step in range(1, CROSS_N_STEPS + 1):
+      state["step"] = step
+      n_calls_before = len(calls)
+      time_before = crystal.time
+      crystal.step_kmc(rng)
+      dt = crystal.time - time_before
+      n_processes_calls = len(calls) - n_calls_before
+      if n_processes_calls:
+        catalog, chosen = calls[n_calls_before]
+        chosen_line = _resolve_chosen_line(catalog, chosen)
+      else:
+        # No event inside timestep_limits: the state is untouched, so taking
+        # the catalog after the step is still the table that was used.
+        catalog, chosen_line = _catalog_snapshot(crystal), None
+      steps.append({
+          "step": step,
+          "time": float(crystal.time),
+          "dt": float(dt),
+          "sum_rate": float(sum(record[0] for record in catalog)),
+          "n_catalog": len(catalog),
+          "n_active_sites": len(crystal.active_event_sites),
+          "n_generation_sites": len(crystal.generation_sites),
+          "n_processes_calls": n_processes_calls,
+          "chosen": chosen_line,
+          "catalog": catalog,
+      })
+  finally:
+    crystal.processes = original_processes
+  return steps, hops
+
+
 # =============================================================================
 # Fixture encoding (lossless, diff-minimal)
 # =============================================================================
@@ -475,6 +604,53 @@ def _build_meta(defects_config, vcm_act_e_dict, crystal) -> dict:
   }
 
 
+def _build_cross_meta(defects_config, vcm_act_e_dict, crystal, hops) -> dict:
+  """Provenance block of the cross-sublattice scenario.
+
+  Records the scenario's own inputs - including the two test-side overrides, so
+  that changing them fails the provenance test instead of silently re-blessing
+  a different run - and fingerprints the recorded hops.
+  """
+  overrides = {
+      f"{CROSS_DEFECT_NAME}.valid_target_species":
+          list(CROSS_VALID_TARGET_SPECIES),
+      "oxygen_vacancy.initial_concentration_bulk": CROSS_V_O_CONCENTRATION,
+      "site.defects_config": (
+          "live defects_config re-injected into every Site (the pickled grid "
+          "copy would silently ignore the overrides above)"),
+  }
+  inputs = {
+      "defects_config": defects_config,
+      "reactions_config": crystal.reactions_config,
+      "activation_energies": vcm_act_e_dict,
+      "mode": crystal.mode,
+      "technology": crystal.technology,
+      "affected_site": crystal.affected_site,
+      "sites_generation_layer": crystal.sites_generation_layer,
+      "temperature": crystal.temperature,
+      "simulation_type": crystal.simulation_type,
+  }
+  return {
+      "schema": CROSS_SCHEMA,
+      "scenario": "cross_sublattice",
+      "generator": "tests/test_golden_trace.py",
+      "preset": PRESET_NAME,
+      "grid": GRID_NAME,
+      "n_sites": len(crystal.grid_crystal),
+      "seed": CROSS_SEED,
+      "n_steps": CROSS_N_STEPS,
+      "grid_sha256": _sha256_file(GRID_PATH) if GRID_PATH.exists() else None,
+      "inputs_sha256": _sha256_object(inputs),
+      "rate_rel_tol": RATE_REL_TOL,
+      "rate_abs_tol": RATE_ABS_TOL,
+      "python": platform.python_version(),
+      "numpy": np.__version__,
+      "overrides": overrides,
+      "cross_hops": len(hops),
+      "cross_hops_sha256": _sha256_object(hops),
+  }
+
+
 def _write_fixture(trace) -> None:
   """Atomic write, mirroring kinetix/initialization.py:_save_grid_atomic."""
   FIXTURE_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -488,6 +664,35 @@ def _write_fixture(trace) -> None:
 def _read_fixture() -> dict:
   with open(FIXTURE_PATH) as handle:
     return json.load(handle)
+
+
+def _write_cross_fixture(trace) -> None:
+  """Atomic write of the cross fixture (same pattern as _write_fixture)."""
+  CROSS_FIXTURE_PATH.parent.mkdir(parents=True, exist_ok=True)
+  temp_path = CROSS_FIXTURE_PATH.with_suffix(".json.tmp")
+  with open(temp_path, "w") as handle:
+    json.dump(trace, handle, indent=1)
+    handle.write("\n")
+  os.replace(str(temp_path), str(CROSS_FIXTURE_PATH))
+
+
+def _read_cross_fixture() -> dict:
+  with open(CROSS_FIXTURE_PATH) as handle:
+    return json.load(handle)
+
+
+def _load_or_update_cross_fixture(actual_trace) -> dict:
+  """Recorded cross trace, or (re)written when regeneration was asked for."""
+  if os.environ.get(UPDATE_ENV_VAR):
+    _write_cross_fixture(actual_trace)
+    pytest.skip(f"{UPDATE_ENV_VAR} set: rewrote {CROSS_FIXTURE_PATH}")
+  if not CROSS_FIXTURE_PATH.exists():
+    pytest.fail(
+        f"cross-sublattice golden trace fixture is missing: "
+        f"{CROSS_FIXTURE_PATH}\n"
+        f"Generate it with:  {UPDATE_ENV_VAR}=1 python -m pytest "
+        f"tests/test_golden_trace.py::test_golden_trace_cross_sublattice")
+  return _read_cross_fixture()
 
 
 # =============================================================================
@@ -672,6 +877,75 @@ def actual_trace(grid_path, vcm_config, defects_config, vcm_act_e_dict):
           "steps": _encode_steps(steps)}
 
 
+# -----------------------------------------------------------------------------
+# Cross-sublattice scenario fixtures (see the module-level comment for why the
+# shipped presets cannot produce one and what the two overrides change).
+# -----------------------------------------------------------------------------
+
+def _load_cross_config() -> SimulationConfig:
+  """VCM_mock preset plus the cross-sublattice scenario's overrides."""
+  config = _load_vcm_config()
+  config.defects.defects["oxygen_vacancy"].initial_concentration_bulk = (
+      CROSS_V_O_CONCENTRATION)
+  return config
+
+
+def _cross_defects_config(config: SimulationConfig) -> dict:
+  """Live defects_config where O_i may also hop onto oxygen-vacancy sites."""
+  defects = config.defects.to_dict()
+  defects[CROSS_DEFECT_NAME]["valid_target_species"] = (
+      list(CROSS_VALID_TARGET_SPECIES))
+  return defects
+
+
+def _build_cross_lattice(vcm_config, defects_config, vcm_act_e_dict):
+  """Build the cross scenario lattice and re-inject the live defects_config.
+
+  Every Site is unpickled with the defects_config stored inside the grid file,
+  and the production re-injection refreshes ``Act_E_dict`` only
+  (crystal.py:542-566).  Without this step the scenario's overrides would never
+  reach the migration gate - ``Site.available_migrations`` reads
+  ``self.defects_config`` - and no cross-sublattice event would be offered.
+  """
+  crystal = _build_lattice(vcm_config, defects_config, vcm_act_e_dict)
+  for site in crystal.grid_crystal.values():
+    site.defects_config = defects_config
+  return crystal
+
+
+@pytest.fixture(scope="module")
+def cross_config():
+  return _load_cross_config()
+
+
+@pytest.fixture(scope="module")
+def cross_defects_config(cross_config):
+  return _cross_defects_config(cross_config)
+
+
+@pytest.fixture(scope="module")
+def cross_act_e_dict(cross_config, cross_defects_config):
+  return _load_act_e(cross_config, cross_defects_config)
+
+
+@pytest.fixture(scope="module")
+def cross_actual_trace(grid_path, cross_config, cross_defects_config,
+                       cross_act_e_dict):
+  """One deterministic run whose catalogs contain cross-sublattice hops."""
+  crystal = _build_cross_lattice(cross_config, cross_defects_config,
+                                 cross_act_e_dict)
+  assert len(crystal.grid_crystal) == EXPECTED_N_SITES, (
+      f"expected the cached {EXPECTED_N_SITES}-site grid, got "
+      f"{len(crystal.grid_crystal)} - was the grid rebuilt from scratch?")
+  steps, hops = _run_cross_trace(crystal)
+  return {
+      "meta": _build_cross_meta(cross_defects_config, cross_act_e_dict,
+                                crystal, hops),
+      "steps": _encode_steps(steps),
+      "cross_hops": hops,
+  }
+
+
 
 # =============================================================================
 # Tests
@@ -737,6 +1011,121 @@ def test_golden_trace_matches_fixture(actual_trace):
       "the kMC execution profile drifted from the golden trace "
       f"({len(diffs)} difference(s) reported).\n\n"
       + "\n".join(diffs[:60]) + "\n\n" + REGENERATE_HINT)
+
+
+CROSS_REGENERATE_HINT = (
+    "This fixture is the contract for object-transfer hops: after a\n"
+    "cross-sublattice migration the destination must host the SOURCE's\n"
+    "DefectConfig and the source must be left with a fresh empty Defect.\n"
+    "If this fails after a refactor, the refactor is wrong - regenerate only\n"
+    "when the scenario's inputs changed on purpose:\n"
+    f"    {UPDATE_ENV_VAR}=1 python -m pytest tests/test_golden_trace.py::"
+    f"test_golden_trace_cross_sublattice\n"
+    f"    git diff "
+    f"{CROSS_FIXTURE_PATH.relative_to(CROSS_FIXTURE_PATH.parent.parent.parent)}"
+)
+
+
+def _diff_cross_hops(expected_hops, actual_hops, max_diffs=10) -> list:
+  """Field-level differences between two cross-hop record lists."""
+  diffs = []
+  if len(expected_hops) != len(actual_hops):
+    diffs.append(f"cross-sublattice hops: fixture {len(expected_hops)} != "
+                 f"actual {len(actual_hops)}")
+  for index, (expected, actual) in enumerate(zip(expected_hops, actual_hops)):
+    if set(expected) != set(actual):
+      diffs.append(f"hop {index}: fields differ: fixture {sorted(expected)} "
+                   f"!= actual {sorted(actual)}")
+      continue
+    for key in sorted(expected):
+      if not _values_equal(expected[key], actual[key]):
+        diffs.append(f"hop {index} (step {expected.get('step')}): {key} "
+                     f"{expected[key]!r} != {actual[key]!r}")
+    if len(diffs) >= max_diffs:
+      break
+  return diffs
+
+
+def test_golden_trace_cross_sublattice(cross_actual_trace):
+  """A hop between sublattices must move the Defect object, config included.
+
+  The shipped presets cannot offer a cross-sublattice migration at all (see the
+  module-level comment), so this scenario adds the two documented test-side
+  overrides that make the engine's "Empty or Vacancy" destination contract
+  reachable.  The trace is compared exactly like the main one - provenance,
+  per-step digests, catalog lines, executed event - plus the recorded hop
+  records, which pin the semantics object transfer changed:
+
+    * the O-sublattice destination hosts the SOURCE's config
+      (``oxygen_interstitial``, whose own site_type is ``interstitial``) rather
+      than a config re-derived from its own sublattice, and
+    * the source is left with a fresh empty Defect.
+  """
+  fixture = _load_or_update_cross_fixture(cross_actual_trace)
+
+  # --- provenance ----------------------------------------------------------
+  expected_meta = fixture["meta"]
+  actual_meta = cross_actual_trace["meta"]
+  mismatches = [
+      f"  {key}: fixture={expected_meta.get(key)!r}  "
+      f"actual={actual_meta.get(key)!r}"
+      for key in CROSS_PROVENANCE_KEYS
+      if expected_meta.get(key) != actual_meta.get(key)
+  ]
+  assert not mismatches, (
+      "the cross-sublattice trace was recorded against different inputs.\n"
+      + "\n".join(mismatches) + "\n\n" + CROSS_REGENERATE_HINT)
+
+  # --- per-step trace, same machinery as the main trace --------------------
+  digest_diffs = [
+      f"step {expected['step']}: catalog digest {expected['catalog_digest']} "
+      f"!= {actual['catalog_digest']}"
+      for expected, actual in zip(fixture["steps"],
+                                  cross_actual_trace["steps"])
+      if expected["catalog_digest"] != actual["catalog_digest"]
+  ]
+  expected_catalogs = _decode_catalogs(fixture["steps"])
+  actual_catalogs = _decode_catalogs(cross_actual_trace["steps"])
+  diffs = list(digest_diffs)
+  diffs.extend(_diff_steps(fixture["steps"], cross_actual_trace["steps"]))
+  for step, (expected_lines, actual_lines) in enumerate(
+      zip(expected_catalogs, actual_catalogs), start=1):
+    if len(diffs) >= 60:
+      break
+    diffs.extend(_diff_catalog(expected_lines, actual_lines, step, max_diffs=5))
+  assert not diffs, (
+      "the cross-sublattice trace drifted from its golden fixture "
+      f"({len(diffs)} difference(s) reported).\n\n"
+      + "\n".join(diffs[:60]) + "\n\n" + CROSS_REGENERATE_HINT)
+
+  # --- the recorded hops ---------------------------------------------------
+  expected_hops = fixture["cross_hops"]
+  actual_hops = cross_actual_trace["cross_hops"]
+  assert len(expected_hops) >= 1, (
+      "the fixture records no cross-sublattice hop - the scenario no longer "
+      "exercises what it exists for.\n\n" + CROSS_REGENERATE_HINT)
+  hop_diffs = _diff_cross_hops(expected_hops, actual_hops)
+  assert not hop_diffs, (
+      "the cross-sublattice hops drifted from the golden fixture "
+      f"({len(hop_diffs)} difference(s) reported).\n\n"
+      + "\n".join(hop_diffs[:10]) + "\n\n" + CROSS_REGENERATE_HINT)
+
+  # --- semantic contract, independent of the fixture -----------------------
+  for hop in actual_hops:
+    where = f"step {hop['step']}: {hop['origin']} -> {hop['dest']}"
+    assert hop["src_sublattice"] == "interstitial", where
+    assert hop["dst_sublattice"] == CROSS_DESTINATION_SUBLATTICE, where
+    assert hop["src_defect"] == CROSS_DEFECT_NAME, where
+    assert hop["dst_defect"] == hop["src_defect"], (
+        f"{where}: the destination hosts {hop['dst_defect']!r} instead of the "
+        f"migrating {hop['src_defect']!r} - the hop did not carry the Defect "
+        f"object (pre-Phase-5 semantics re-derived the destination config "
+        f"from its own sublattice)")
+    assert hop["dst_defect_sublattice"] == "interstitial", (
+        f"{where}: expected the carried config to stay an interstitial-borne "
+        f"one, got site_type {hop['dst_defect_sublattice']!r}")
+    assert hop["src_is_empty"] is True, (
+        f"{where}: the source was not left with a fresh empty Defect")
 
 
 def test_trace_internal_invariants(actual_trace):
