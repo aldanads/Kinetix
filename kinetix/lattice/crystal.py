@@ -3002,7 +3002,7 @@ class Crystal_Lattice():
         return charge_state.get(site_gb_region, None)
       
     def _handle_migration_event(self, chosen_event, support_update_sites, event_update_sites):
-      """Handle migration events with multi-species support."""
+      """Handle migration events with object-transfer semantics."""
       source_idx = chosen_event[-1]
       dest_idx = chosen_event[1]
       dest_site = self.grid_crystal[dest_idx]
@@ -3016,36 +3016,38 @@ class Crystal_Lattice():
             if use_mass_conservation:
               defect_name = source_site._get_current_defect_name()
               self.scavenged_ions[defect_name] = self.scavenged_ions.get(defect_name,0) + 1
-          
-            extra_state = source_site.get_migrating_state(self.defects_config)
-            self._remove_species_at_site(source_idx, support_update_sites, event_update_sites,
-                                         attributes_to_reset=extra_state.keys() if extra_state else None)
             
+            self._remove_species_at_site(source_idx, support_update_sites,
+                                         event_update_sites)
+
             if self.poisson_config is not None and self.poisson_config.solve_Poisson:
               event_update_sites.update(self._get_mobile_sites(self.active_event_sites))
             return
           
-      # Get source species info
+      # Get source defect and resolve config
       defect_name = source_site._get_current_defect_name()
       chemical_specie = source_site.chemical_specie
       migrating_charge = source_site.ion_charge
-      
-      extra_state = source_site.get_migrating_state(self.defects_config)
+      defect = source_site.defect
       
       # Apply GB charge state modification
       gb_charge = self._get_gb_charge_state(defect_name, dest_site.position, event_type='migration')      
       if gb_charge is not None:
         migrating_charge = gb_charge
-          
-      self._introduce_specie_site(dest_idx, support_update_sites, event_update_sites, 
-                                  chemical_specie, migrating_charge, extra_state=extra_state)
-      self._remove_species_at_site(source_idx, support_update_sites, event_update_sites, 
-                                   attributes_to_reset=extra_state.keys() if extra_state else None)
-      
+        defect.charge = gb_charge  # state lives on the Defect: write it through
+
+      # Object transfer: the Defect hops to dest, source becomes empty.
+      # The dirty-site bookkeeping matches the legacy
+      # _introduce_specie_site / _remove_species_at_site pair exactly.
+      self._install_defect_site(dest_idx, support_update_sites,
+                                event_update_sites, defect)
+      self._remove_species_at_site(source_idx, support_update_sites,
+                                   event_update_sites)
+
       # Update Poisson-relevant sites
       if self.poisson_config is not None and self.poisson_config.solve_Poisson:
         event_update_sites.update(self._get_mobile_sites(self.active_event_sites))
-        
+
       # Handle cluster updates for neutral metal atoms
       if chemical_specie in self.METAL_SPECIES and migrating_charge == 0:
         self._remove_metal_atom_from_clusters(source_idx) 
@@ -3332,25 +3334,39 @@ class Crystal_Lattice():
 # =============================================================================
 #             Introduce particle
 # =============================================================================
-    def _introduce_specie_site(self,idx,support_update_sites, event_update_sites, chemical_specie, ion_charge = None, extra_state=None):
+    def _install_defect_site(self, idx, support_update_sites, event_update_sites, defect):
+        """Install an existing Defect at ``idx`` and track affected sites.
+
+        Phase 5 object-transfer counterpart of ``_introduce_specie_site``:
+        the Defect object is moved by reference (it carries chemical_specie,
+        charge, passivation_level and events), so no state is rebuilt. The
+        dirty-site bookkeeping is identical to ``_introduce_specie_site``.
+        """
+        self.grid_crystal[idx].install_defect(defect)
+        self._track_occupancy_update(idx, support_update_sites, event_update_sites)
+
+    def _introduce_specie_site(self, idx, support_update_sites, event_update_sites, chemical_specie, ion_charge=None):
         """Introduce species at site and track affected sites."""
-        # Chemical specie deposited
         site = self.grid_crystal[idx]
         site.introduce_specie(chemical_specie, ion_charge)
-        
-        # Apply additional migrating attributes (e.g., passivation_level)
-        if extra_state:
-          for attr, value in extra_state.items():
-            setattr(site, attr, value)
-        
+
+        self._track_occupancy_update(idx, support_update_sites, event_update_sites)
+
+    def _track_occupancy_update(self, idx, support_update_sites, event_update_sites):
+        """Track the sites affected by a newly occupied site at ``idx``.
+
+        Shared by ``_introduce_specie_site`` and ``_install_defect_site`` so
+        both entry points produce bit-identical dirty-site sets.
+        """
+        site = self.grid_crystal[idx]
+
         # Track sites occupied
         if idx not in self.active_event_sites:
-          self.active_event_sites.append(idx) 
+          self.active_event_sites.append(idx)
 
         event_update_sites.add(idx)
         support_update_sites.update(site.nearest_neighbors_idx)
-        support_update_sites.add(idx) 
-        
+        support_update_sites.add(idx)
         for affected_site_idx in support_update_sites:
             affected_site = self.grid_crystal[affected_site_idx]
             # Add sites that support the affected site
@@ -3358,46 +3374,48 @@ class Crystal_Lattice():
               if(isinstance(supporting_site_idx, tuple) and
                  self.grid_crystal[supporting_site_idx].chemical_specie != self.affected_site):
                  event_update_sites.add(supporting_site_idx)
-                 
+              
             # Add the affected site itself if occupied
             if affected_site.chemical_specie != self.affected_site:
                 event_update_sites.add(affected_site_idx)
                 
     
 # =============================================================================
-#             Remove particle 
+#             Remove particle
 # =============================================================================
-    def _remove_species_at_site(self,idx,support_update_sites, event_update_sites, attributes_to_reset=None):
-        """Remove species from site and track affected sites."""
+    def _remove_species_at_site(self, idx, support_update_sites, event_update_sites):
+        """Remove species from site and track affected sites.
+
+        Phase 5: the legacy ``attributes_to_reset`` setattr loop is gone -
+        clear_defect() installs a fresh empty Defect, which resets charge,
+        passivation_level and site_events in a single step.
+        """
         site = self.grid_crystal[idx]
         site.remove_specie(self.affected_site)
-        
-        if attributes_to_reset:
-          for attr in attributes_to_reset:
-            setattr(site, attr, 0)
 
         if idx in self.active_event_sites:
-          self.active_event_sites.remove(idx) 
-          
+          self.active_event_sites.remove(idx)
+
         event_update_sites.discard(idx)
         support_update_sites.update(site.nearest_neighbors_idx)
-        support_update_sites.add(idx) 
-        
-        # Include in update_specie_events all the particles that can migrate 
+        support_update_sites.add(idx)
+
+        # Include in update_specie_events all the particles that can migrate
         # to the sites in update_supp_av --> It might change the available migrations
         # or the activation energy
         for affected_site_idx in support_update_sites:
             affected_site = self.grid_crystal[affected_site_idx]
-            
+
             for supporting_site_idx in affected_site.supp_by:
               if(isinstance(supporting_site_idx, tuple) and
                    self.grid_crystal[supporting_site_idx].chemical_specie != self.affected_site):
                    event_update_sites.add(supporting_site_idx)
-            
+
             # Add the affected site itself if occupied
             if affected_site.chemical_specie != self.affected_site:
                 event_update_sites.add(affected_site_idx)
-        
+
+
 
     def track_time(self,t):
         

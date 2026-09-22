@@ -566,60 +566,47 @@ class Site():
         The DefectConfig installed is the one the legacy sublattice rule
         selects (see _resolve_defect_config), so the defect name — and with
         it event availability and activation energies — is unchanged.
-        Legacy quirks preserved: passivation_level and the registered
-        site_events persist across the swap (only the charge is taken from
-        the argument/config), exactly like the flat attributes behaved.
-        Phase 5 replaces this with a Defect object hop.
+
+        Re-introducing the species the site already hosts keeps the same Defect
+        object and only refreshes the charge. ``passivation_level`` is
+        physics-carrying state (it keys the activation energies and gates
+        capture / depassivation), and reaction products apply their
+        ``passivation_increment`` on top of it — the legacy flat assignment
+        never touched it either.
+
+        Swapping the species builds a fresh Defect, so the Phase 5 cleanup
+        holds: no passivation_level or event list is inherited from the
+        previous occupant (hops move the Defect object as a whole —
+        install_defect / clear_defect).
         """
-        prev_passivation = self.defect.passivation_level
-        prev_events = self.defect.events
         name, cfg = self._resolve_defect_config(chemical_specie)
         if ion_charge is None:
           # Legacy charge resolution: charge of the configuration the
           # sublattice rule selects (defects_config[None] keeps the legacy
           # KeyError for sites with no resolvable configuration).
           ion_charge = self.defects_config[name]['charge']
-        defect = self._make_initial_defect(chemical_specie, ion_charge)
-        defect.passivation_level = prev_passivation
-        defect.events = prev_events
-        self.install_defect(defect)
+
+        if self.defect.chemical_specie == chemical_specie:
+          # Same occupant species: keep the Defect (and its passivation_level
+          # and events), exactly like the legacy attribute assignment did.
+          self.defect.charge = ion_charge
+          return
+
+        self.install_defect(self._make_initial_defect(chemical_specie, ion_charge))
 
     def remove_specie(self,affected_site = 'Empty'):
         """Clear this site's occupant (legacy API).
 
-        Installs a fresh empty Defect, resetting ion_charge and site_events
-        exactly like the legacy attribute resets. Every production call
-        site passes the vacancy marker ('Empty'); any other marker is
-        written onto the fresh occupant, preserving the legacy behaviour.
-        passivation_level persists across the swap (legacy quirk; Phase 5
-        will make passivation travel with the Defect instead).
+        Installs a fresh empty Defect, resetting ion_charge, passivation_level
+        and site_events. Phase 5: the legacy passivation persistence quirk is
+        gone — an emptied site starts clean. Every production call site
+        passes the vacancy marker ('Empty'); any other marker is written onto
+        the fresh occupant, preserving the legacy behaviour.
         """
-        prev_passivation = self.defect.passivation_level
         self.clear_defect()
-        self.defect.passivation_level = prev_passivation
         if affected_site != 'Empty':
           self.chemical_specie = affected_site
-        
-    def get_migrating_state(self, defects_config):
-      """Extracts a dictionary of all attributes that should move with the defect."""
-      defect_name = self._get_current_defect_name()
-      if not defect_name or defect_name not in defects_config:
-        return None
-      
-      config = defects_config[defect_name]
-      
-      base_attrs = {'chemical_specie', 'ion_charge', 'defect_name'}
-      extra_state = {}
-      
-      # Dynamically add configured migrating attributes
-      for attr in config.get('migrating_attributes', []):
-        if attr in base_attrs:
-          continue # Handled by _introduce_specie_site
-        if hasattr(self, attr):
-          extra_state[attr] = getattr(self, attr)
-      
-      return extra_state
-        
+
     def available_pathways(self,grid_crystal,idx_origin, facets_type):
     
       self.site_events = []

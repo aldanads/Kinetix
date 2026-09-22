@@ -59,7 +59,7 @@ from unittest.mock import MagicMock
 from kinetix.configs.config_loader import load_activation_energies
 from kinetix.configs.simulation_config import SimulationConfig
 from kinetix.initialization import _process_activation_energies
-from kinetix.lattice.defect import Event
+from kinetix.lattice.defect import Event, Defect
 from kinetix.lattice.site import Site
 
 KB = constants.physical_constants['Boltzmann constant in eV/K'][0]
@@ -1021,25 +1021,81 @@ class TestEdgeCases:
     assert site.ion_charge == 0
     assert site.site_events == []
 
-  def test_get_migrating_state_follows_the_real_migrating_attributes(
-      self, pzt_defects, pzt_act_e):
-    site = make_site(pzt_defects, pzt_act_e, 'V_O', 'O')
+  def test_defect_object_survives_hop_by_identity(self,
+      pzt_defects, pzt_act_e):
+    """A hop moves the Defect object itself: install_defect transfers it by
+    reference and clear_defect leaves a fresh, empty Defect behind.
+
+    The YAML still declares which attributes ought to travel with a defect;
+    the transfer mechanism is now object-based, so the object carries them.
+    """
+    src = make_site(pzt_defects, pzt_act_e, 'V_O', 'O')
     vo_name = _defect_name_by_symbol(pzt_defects, 'V_O')
     attrs = pzt_defects[vo_name]['migrating_attributes']
     assert attrs is not None
     assert 'passivation_level' in attrs, (
       "fixture expectation: V_O must migrate its passivation level")
 
-    state = site.get_migrating_state(pzt_defects)
+    old = src.defect
+    old.charge = -1
+    old.passivation_level = 2
+    old.events = [Event(label=PLANE_EVENT, destination=(1, 0), barrier=0.4)]
 
-    assert 'passivation_level' in state
-    assert state['passivation_level'] == site.passivation_level
-    assert 'ion_charge' not in state  # handled by _introduce_specie_site
+    dst = make_site(pzt_defects, pzt_act_e, 'Empty', 'O')
+    dst.install_defect(src.defect)
+    src.clear_defect()
 
-  def test_get_migrating_state_is_none_without_a_defect(self, pzt_defects, pzt_act_e):
-    site = make_site(pzt_defects, pzt_act_e, 'Xe', 'Xe')
-    assert site.get_migrating_state(pzt_defects) is None
-# =============================================================================
+    # Same object on the destination, carrying all of its state.
+    assert dst.defect is old
+    assert dst.chemical_specie == 'V_O'
+    assert dst.ion_charge == -1
+    assert dst.passivation_level == 2
+    assert dst.site_events is old.events
+
+    # The source got a distinct, fresh empty Defect (state fully reset).
+    assert src.defect is not old
+    assert src.defect.is_empty
+    assert src.chemical_specie == 'Empty'
+    assert src.ion_charge == 0
+    assert src.passivation_level == 0
+    assert src.site_events == []
+
+  def test_reintroducing_the_same_species_keeps_the_defect(self,
+      pzt_defects, pzt_act_e):
+    """Reaction products that leave the species unchanged keep the occupant
+    Defect and only refresh the charge, so their ``passivation_increment``
+    applies on top of the current passivation_level.
+
+    passivation_level keys the activation energies and gates capture /
+    depassivation, so resetting it here would change PZT physics. This is the
+    legacy behaviour of the flat assignment ``self.ion_charge = ion_charge``.
+    """
+    site = make_site(pzt_defects, pzt_act_e, 'V_O', 'O')
+    occupant = site.defect
+    occupant.charge = -1
+    occupant.passivation_level = 1
+
+    site.introduce_specie('V_O', ion_charge=-1)
+
+    assert site.defect is occupant       # kept, not rebuilt
+    assert site.passivation_level == 1   # untouched by the re-introduction
+    assert site.ion_charge == -1
+
+  def test_species_swap_does_not_inherit_passivation(self,
+      pzt_defects, pzt_act_e):
+    """Swapping the species installs a fresh Defect: the previous occupant's
+    passivation_level and events are not inherited (Phase 5 cleanup)."""
+    site = make_site(pzt_defects, pzt_act_e, 'V_O', 'O')
+    site.passivation_level = 1
+    site.site_events = [Event(label=PLANE_EVENT, destination=(1, 0),
+                              barrier=0.4)]
+
+    site.introduce_specie('H', ion_charge=1)
+
+    assert site.chemical_specie == 'H'
+    assert site.defect.is_empty is False
+    assert site.passivation_level == 0
+    assert site.site_events == []
 # Latent coupling with the topology pass (documented, not fixed)
 # =============================================================================
 class TestLatentCoupling:
