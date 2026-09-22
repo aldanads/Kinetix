@@ -304,7 +304,7 @@ def oi_hop(system_state):
     # z boundaries, so the cluster cut sees bulk-like surroundings.
     best, origin_idx = np.inf, None
     for idx, site in system_state.grid_crystal.items():
-        if site.site_type != "interstitial" or site.chemical_specie != "Empty":
+        if site.site_type != "interstitial" or site.defect.chemical_specie != "Empty":
             continue
 
         # Orientation-independent z-boundary check (replaces Cartesian z
@@ -333,7 +333,7 @@ def oi_hop(system_state):
     dest_idx = None
     for n in origin.nearest_neighbors_idx:
         neighbor = system_state.grid_crystal[n]
-        if neighbor.site_type == "interstitial" and neighbor.chemical_specie == "Empty":
+        if neighbor.site_type == "interstitial" and neighbor.defect.chemical_specie == "Empty":
             dest_idx = n
             break
 
@@ -346,7 +346,7 @@ def oi_hop(system_state):
                 continue
             if neighbor.site_type != "interstitial":
                 continue
-            if neighbor.chemical_specie != "Empty":
+            if neighbor.defect.chemical_specie != "Empty":
                 continue
             # Use minimum image distance
             v = system_state._minimum_image_vector(np.array(neighbor.position) - origin_pos)
@@ -641,7 +641,7 @@ def _representative_site(system_state, wanted_types, wanted_specie=None):
     for idx, site in system_state.grid_crystal.items():
         if site.site_type not in wanted_types:
             continue
-        if wanted_specie is not None and site.chemical_specie != wanted_specie:
+        if wanted_specie is not None and site.defect.chemical_specie != wanted_specie:
             continue
         frac = lattice.get_fractional_coords(site.position)
         if not (frac_thr <= frac[2] <= 1.0 - frac_thr):
@@ -740,7 +740,7 @@ class TestMACEAdapterAllPathways:
                     "distance": f"{distance:.4f}",
                     "barrier": "FAILED",
                     "converged": False,
-                    "chemical_specie": neighbor_site.chemical_specie,
+                    "chemical_specie": neighbor_site.defect.chemical_specie,
                     "flags": "exception_raised",
                     "priority": "high",
                 })
@@ -755,7 +755,7 @@ class TestMACEAdapterAllPathways:
             # sweep easy to follow in cluster logs).
             info_str = format_barrier_info(
                 origin_idx, neighbor_idx, result, distance,
-                neighbor_site.chemical_specie,
+                neighbor_site.defect.chemical_specie,
                 wall_time=result.get("wall_time"),
                 endpoint_displacements=endpoint_displacements)
             print(info_str)
@@ -764,7 +764,7 @@ class TestMACEAdapterAllPathways:
             print(f"Hop {origin_idx} -> {neighbor_idx}: "
                   f"origin_pos={origin_pos} final_pos={dest_pos} "
                   f"distance={distance:.3f} Ang barrier={barrier_str} "
-                  f"specie={neighbor_site.chemical_specie}")
+                  f"specie={neighbor_site.defect.chemical_specie}")
             print()
 
             # Classify the barrier for the active-learning feedback loop.
@@ -779,7 +779,7 @@ class TestMACEAdapterAllPathways:
                 "barrier": (f"{result['barrier']:.4f}"
                             if result.get("barrier") is not None else ""),
                 "converged": result.get("converged", False),
-                "chemical_specie": neighbor_site.chemical_specie,
+                "chemical_specie": neighbor_site.defect.chemical_specie,
                 "flags": ", ".join(flags) if flags else "OK",
                 "priority": priority,
             })

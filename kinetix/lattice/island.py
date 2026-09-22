@@ -41,7 +41,7 @@ class Island:
         for idx in cluster_sites:
             site = grid_crystal[idx]
             z_idx = int(round(site.position[2] / z_step))
-            layers[z_idx] += 1 if site.chemical_specie != 'Empty' else 0
+            layers[z_idx] += 1 if site.defect.chemical_specie != 'Empty' else 0
         
         return layers
     
@@ -118,7 +118,7 @@ class Island:
             
             for element in site.migration_paths['Plane']:
     
-                if element[0] not in slice_sites and grid_crystal[element[0]].chemical_specie == System_state.chemical_specie:
+                if element[0] not in slice_sites and grid_crystal[element[0]].defect.chemical_specie == System_state.chemical_specie:
                     slice_sites.add(element[0])
                     stack.append(element[0])
                     

@@ -100,10 +100,11 @@ class Site():
           self.applicable_defects = []
 
         # Defect occupant (site/defect composition model). Every site always
-        # hosts exactly one Defect; chemical_specie / ion_charge /
-        # passivation_level / site_events live on it and are exposed through
-        # delegating properties. Legacy init semantics preserved: a freshly
-        # built site starts neutral (ion_charge=0) with the occupant named
+        # hosts exactly one Defect and all dynamic state lives on it:
+        # ``defect.chemical_specie``, ``defect.charge``,
+        # ``defect.passivation_level`` and ``defect.events`` (Phase 6 deleted
+        # the flat delegating aliases). Legacy init semantics preserved: a
+        # freshly built site starts neutral (charge=0) with the occupant named
         # by the ``chemical_specie`` argument ('Empty' -> empty Defect); the
         # legacy config-driven passivation initialisation is handled by the
         # Defect's config defaults.
@@ -112,47 +113,6 @@ class Site():
         current_defect = self._get_current_defect_name()
         if current_defect is not None:
           self.sites_generation_layer = defects_config[current_defect]["sites_generation_layer"]
-
-    # ------------------------------------------------------------------
-    # Defect-carried state (Phase 3). The four legacy attributes now live
-    # on self.defect; the delegating properties keep every existing
-    # read/write site working unchanged until Phase 6 removes the aliases.
-    # ------------------------------------------------------------------
-    @property
-    def chemical_specie(self):
-      """Occupant symbol; stored on (and travels with) the Defect."""
-      return self.defect.chemical_specie
-
-    @chemical_specie.setter
-    def chemical_specie(self, value):
-      self.defect.chemical_specie = value
-
-    @property
-    def ion_charge(self):
-      """Runtime charge; stored on (and travels with) the Defect."""
-      return self.defect.charge
-
-    @ion_charge.setter
-    def ion_charge(self, value):
-      self.defect.charge = value
-
-    @property
-    def passivation_level(self):
-      """Runtime passivation state; stored on (and travels with) the Defect."""
-      return self.defect.passivation_level
-
-    @passivation_level.setter
-    def passivation_level(self, value):
-      self.defect.passivation_level = value
-
-    @property
-    def site_events(self):
-      """Registered kMC Events; stored on (and travel with) the Defect."""
-      return self.defect.events
-
-    @site_events.setter
-    def site_events(self, value):
-      self.defect.events = value
 
     def _as_defect_config(self, name, cfg):
       """Normalize a registry entry (legacy dict or DefectConfig) to DefectConfig.
@@ -189,7 +149,7 @@ class Site():
       configuration selected by the legacy sublattice rule (see
       _resolve_defect_config); when no configuration matches (e.g. host
       species like 'Hf' with no defect config), a fresh empty Defect is
-      returned carrying the occupant symbol, so ``site.chemical_specie ==
+      returned carrying the occupant symbol, so ``site.defect.chemical_specie ==
       'Hf'`` keeps working while ``_get_current_defect_name`` keeps its
       legacy ``None`` result for that site.
       """
@@ -291,6 +251,13 @@ class Site():
     
       For empty sites, this is the list of candidate defects.
       For occupied sites, this is typically just the current defect.
+
+      Registry lookup is intentional in Phase 6: an *empty* site has no Defect
+      to read from (its occupant is the EMPTY_DEFECT_CONFIG template, which
+      carries no candidate information), so candidate discovery has to come
+      from the registry.  It is load-bearing physics, not legacy debt -
+      ``supported_by`` derives its ``destination_CN`` table from this list, and
+      ``GrainBoundary.modify_act_energy_GB`` iterates it for barrier edits.
       """
       if self.defects_config is None:
         return []
@@ -311,6 +278,11 @@ class Site():
       same sublattice, but works with current configs where each
       sublattice has at most one defect type.
       
+      Empty sites cannot read a configuration from the occupant: their Defect
+      is the EMPTY_DEFECT_CONFIG template, so candidate discovery requires the
+      registry lookup (see :meth:`_get_applicable_defects`).  Phase 6 keeps
+      that lookup deliberately.
+
       TODO: Redesign generation events to handle multiple candidate
       defects per sublattice.
       """
@@ -404,14 +376,14 @@ class Site():
           self.supp_by.append('top_layer')
 
         current_defect = self._get_current_defect_name()
-        if (self.chemical_specie != "Empty" and 
-            self.defects_config[current_defect]['symbol'] == self.chemical_specie and
+        if (self.defect.chemical_specie != "Empty" and 
+            self.defects_config[current_defect]['symbol'] == self.defect.chemical_specie and
             self.defects_config[current_defect]["CN_matters"]):
           # Go over the nearest neighbors
           for idx in self.nearest_neighbors_idx:
             neighbor = grid_crystal[idx]
             # Select the occupied sites that support this node
-            if (neighbor.chemical_specie == self.chemical_specie and idx != idx_origin):
+            if (neighbor.defect.chemical_specie == self.defect.chemical_specie and idx != idx_origin):
               self.supp_by.append(idx)
         # Calculate destination coordination for empty sites          
         elif self.applicable_defects:
@@ -428,7 +400,7 @@ class Site():
               continue
             
             # Continue if this is not a valid target for migration
-            if self.chemical_specie not in defect_config.get("valid_target_species", []):
+            if self.defect.chemical_specie not in defect_config.get("valid_target_species", []):
               continue
               
             defect_specie = defect_config["symbol"]
@@ -436,7 +408,7 @@ class Site():
             
             for idx in self.nearest_neighbors_idx:
               neighbor = grid_crystal[idx]
-              if (neighbor.chemical_specie == defect_specie and idx != idx_origin):
+              if (neighbor.defect.chemical_specie == defect_specie and idx != idx_origin):
                 cn_count += 1
             self.destination_CN[defect_name] = cn_count 
               
@@ -619,11 +591,11 @@ class Site():
         """
         self.clear_defect()
         if affected_site != 'Empty':
-          self.chemical_specie = affected_site
+          self.defect.chemical_specie = affected_site
 
     def available_pathways(self,grid_crystal,idx_origin, facets_type):
     
-      self.site_events = []
+      self.defect.events = []
       current_defect = self._get_current_defect_name()
       
       if current_defect == None:
@@ -663,28 +635,28 @@ class Site():
                     
                     # Migrating on the substrate
                     if self.sites_generation_layer in self.supp_by:
-                        self.site_events.append(Event(
+                        self.defect.events.append(Event(
                           label=num_event, destination=site_idx,
                           barrier=self.Act_E_dict[0] + energy_change))
                         
                     # Migrating on the film (111)
                     elif grid_crystal[site_idx].wulff_facet == facets_type[0]:
                         if self.edges_v[num_event] == None: 
-                            self.site_events.append(Event(
+                            self.defect.events.append(Event(
                               label=num_event, destination=site_idx,
                               barrier=self.Act_E_dict[7] + energy_change))
                         elif self.edges_v[num_event] == facets_type[0]:
-                            self.site_events.append(Event(
+                            self.defect.events.append(Event(
                               label=num_event, destination=site_idx,
                               barrier=self.Act_E_dict[10] + energy_change))
                         elif self.edges_v[num_event] == facets_type[1]:
-                            self.site_events.append(Event(
+                            self.defect.events.append(Event(
                               label=num_event, destination=site_idx,
                               barrier=self.Act_E_dict[9] + energy_change))
                             
                     # Migrating on the film (100)
                     elif grid_crystal[site_idx].wulff_facet == facets_type[1]:
-                        self.site_events.append(Event(
+                        self.defect.events.append(Event(
                           label=num_event, destination=site_idx,
                           barrier=self.Act_E_dict[8] + energy_change))
     
@@ -708,24 +680,24 @@ class Site():
                    
                     # Migrating upward from the substrate
                     if self.sites_generation_layer in self.supp_by and grid_crystal[site_idx].wulff_facet == facets_type[0]:
-                        self.site_events.append(Event(
+                        self.defect.events.append(Event(
                           label=num_event, destination=site_idx,
                           barrier=self.Act_E_dict[1] + energy_change))
                     
                     elif self.sites_generation_layer in self.supp_by and grid_crystal[site_idx].wulff_facet == facets_type[0]:
-                        self.site_events.append(Event(
+                        self.defect.events.append(Event(
                           label=num_event, destination=site_idx,
                           barrier=self.Act_E_dict[5] + energy_change))
                         
                     # Migrating upward from the film (111)
                     elif self.wulff_facet == facets_type[0]:
-                        self.site_events.append(Event(
+                        self.defect.events.append(Event(
                           label=num_event, destination=site_idx,
                           barrier=self.Act_E_dict[3] + energy_change))
                         
                     # Migrating upward from the film (100)
                     elif self.wulff_facet ==  facets_type[1]:
-                        self.site_events.append(Event(
+                        self.defect.events.append(Event(
                           label=num_event, destination=site_idx,
                           barrier=self.Act_E_dict[8] + energy_change))
     
@@ -741,24 +713,24 @@ class Site():
                     
                     # From layer 1 to substrate
                     if self.wulff_facet == facets_type[0] and self.sites_generation_layer in grid_crystal[site_idx].supp_by:
-                        self.site_events.append(Event(
+                        self.defect.events.append(Event(
                           label=num_event, destination=site_idx,
                           barrier=self.Act_E_dict[2] + energy_change))
                     
                     elif self.wulff_facet == facets_type[1] and self.sites_generation_layer in grid_crystal[site_idx].supp_by:
-                        self.site_events.append(Event(
+                        self.defect.events.append(Event(
                           label=num_event, destination=site_idx,
                           barrier=self.Act_E_dict[6] + energy_change))
                     
                     # Migrating downward from the film (111)
                     elif self.wulff_facet == facets_type[0]:
-                        self.site_events.append(Event(
+                        self.defect.events.append(Event(
                           label=num_event, destination=site_idx,
                           barrier=self.Act_E_dict[4] + energy_change))
                         
                     # Migrating downward from the film (100)
                     elif self.wulff_facet == facets_type[1]:
-                        self.site_events.append(Event(
+                        self.defect.events.append(Event(
                           label=num_event, destination=site_idx,
                           barrier=self.Act_E_dict[8] + energy_change))
                 
@@ -787,7 +759,7 @@ class Site():
                   continue
                   
                 # 2. Chemical Check: Is the site available (Empty or Vacancy)?
-                if dest_site.chemical_specie not in valid_target_species:
+                if dest_site.defect.chemical_specie not in valid_target_species:
                   continue
                   
                 # 3. Support/Topology Check
@@ -809,7 +781,7 @@ class Site():
                     f"migration of {current_defect!r} from {self.idx} rejected: "
                     f"destination {dest_site.idx} (site_type "
                     f"{dest_site.site_type!r}, occupant "
-                    f"{dest_site.chemical_specie!r}) accepted the chemical check "
+                    f"{dest_site.defect.chemical_specie!r}) accepted the chemical check "
                     f"but carries no destination_CN entry for {current_defect!r}. "
                     f"destination_CN is only computed for sites that were empty "
                     f"when supported_by() ran; a defect with CN_matters=True "
@@ -822,16 +794,16 @@ class Site():
                 
                 # 5. Barrier Model   
                 energy_change = max(energy_site_destiny - self.energy_site, 0)
-                self.site_events.append(Event(
+                self.defect.events.append(Event(
                   label=num_event, destination=site_idx,
                   barrier=Act_E_mig[num_event] + energy_change))
             
     def available_reduction(self,idx_origin):
         current_defect = self._get_current_defect_name()
-        if self.ion_charge > 0:
+        if self.defect.charge > 0:
           E_reduction = self.Act_E_dict[current_defect]['E_reduction']
           CN_redox = self.CN_redox_energy
-          self.site_events.append(Event(
+          self.defect.events.append(Event(
             label='reduction', destination=idx_origin,
             barrier=E_reduction - CN_redox))
             
@@ -839,12 +811,12 @@ class Site():
         current_defect = self._get_current_defect_name()
         is_surface_atom = (len(self.supp_by) < len(self.nearest_neighbors_idx)) # Fully coordinated atoms can't oxidize
         at_electrode_interface = ('top_layer' in self.supp_by) or ('bottom_layer' in self.supp_by) # Atoms at the interface with the top or bottom electrode can oxidize
-        can_oxidize = self.ion_charge == 0 # Neutral atoms can oxidize
+        can_oxidize = self.defect.charge == 0 # Neutral atoms can oxidize
         
         if can_oxidize and (is_surface_atom or at_electrode_interface):
           E_oxidation = self.Act_E_dict[current_defect]['E_oxidation']
           CN_redox = self.CN_redox_energy  
-          self.site_events.append(Event(
+          self.defect.events.append(Event(
             label='oxidation', destination=idx_origin,
             barrier=E_oxidation + CN_redox))
     
@@ -854,7 +826,7 @@ class Site():
         Check all possible reactions involving this site.
         """
         site = grid_crystal[idx_origin]
-        current_specie = site.chemical_specie
+        current_specie = site.defect.chemical_specie
     
         
         for reaction_name, reaction in self.reactions_config.items():
@@ -889,7 +861,7 @@ class Site():
         
         for reactant in reaction["reactants"]:
           # Check if chemical_specie matches this reactant role
-          if site.chemical_specie == reactant["symbol"]:
+          if site.defect.chemical_specie == reactant["symbol"]:
           
             # Check sublattice constraint
             if "sublattice" in reactant: 
@@ -905,7 +877,7 @@ class Site():
         Check if site matches a specific reactant role (symbol + sublattice).
         """
         # Check chemical specie
-        if site.chemical_specie != reactant['symbol']:
+        if site.defect.chemical_specie != reactant['symbol']:
           return False
           
         if 'sublattice' in reactant:
@@ -939,7 +911,7 @@ class Site():
         for neighbor_idx in site.nearest_neighbors_idx:
           neighbor = grid_crystal[neighbor_idx]
           if self._site_matches_reactant(neighbor,partner_requirements):
-            self.site_events.append(Event(
+            self.defect.events.append(Event(
               label=reaction['name'],
               destination=neighbor_idx,
               barrier=Act_E
@@ -984,16 +956,16 @@ class Site():
           
           if neighbor_defect is not None and "max_passivation_level" in self.defects_config[neighbor_defect]:
             max_passivation = self.defects_config[neighbor_defect]["max_passivation_level"]
-            if neighbor.passivation_level >= max_passivation:
+            if neighbor.defect.passivation_level >= max_passivation:
               continue # Trap is full
             
           if isinstance(Act_E,dict):
-            passivation_key = str(neighbor.passivation_level)
+            passivation_key = str(neighbor.defect.passivation_level)
             Act_E_value = Act_E[passivation_key]
           else:
             Act_E_value = Act_E
           
-          self.site_events.append(Event(
+          self.defect.events.append(Event(
             label=reaction['name'],
             destination=neighbor_idx,
             barrier=Act_E_value
@@ -1027,7 +999,7 @@ class Site():
       
       # 3. Check passivation constraint (if applicable)
       min_passivation = reactants[0].get('min_passivation',0)
-      current_passivation = getattr(site, 'passivation_level', 0)
+      current_passivation = site.defect.passivation_level
       if current_passivation < min_passivation:
         return
         
@@ -1036,7 +1008,7 @@ class Site():
       Act_E = self.Act_E_dict[current_defect][reaction['name']]
       
       if isinstance(Act_E, dict):
-        passivation_key = str(site.passivation_level)
+        passivation_key = str(site.defect.passivation_level)
         Act_E_value = Act_E[passivation_key]
       else:
         Act_E_value = Act_E
@@ -1064,7 +1036,7 @@ class Site():
               continue
             
             # Chemical check using valid_target_species (e.g., must be "Empty)
-            if neighbor.chemical_specie not in valid_targets:
+            if neighbor.defect.chemical_specie not in valid_targets:
               continue
             
             # It passes the checks
@@ -1074,7 +1046,7 @@ class Site():
           if not valid_neighbor_found:
             return # No physically valid destination available  
         
-      self.site_events.append(Event(
+      self.defect.events.append(Event(
         label=reaction['name'],
         destination=idx_origin,
         barrier=Act_E_value
@@ -1082,7 +1054,7 @@ class Site():
         
         
     def deposition_event(self,TR,idx_origin,num_event,Act_E):
-        self.site_events.append(Event(
+        self.defect.events.append(Event(
           label=num_event, destination=idx_origin, barrier=Act_E, rate=TR))
         
     def ion_generation_interface(self,idx_origin):
@@ -1092,14 +1064,14 @@ class Site():
           return
 
         E_gen = self.Act_E_dict[current_defect]['E_gen_defect']
-        self.site_events.append(Event(
+        self.defect.events.append(Event(
           label='generation', destination=idx_origin, barrier=E_gen))
         
     def remove_event_type(self,event_label):
         
-        for i, event in enumerate(self.site_events):
+        for i, event in enumerate(self.defect.events):
             if event.label == event_label:
-                del self.site_events[i]
+                del self.defect.events[i]
                 break
             
     def detect_planes_test(self,System_state):
@@ -1188,8 +1160,8 @@ class Site():
             
                 # Check if one of the edges is occupied for the chemical speice (both sites)
                 for edge in edges:
-                    if (grid_crystal[self.mig_paths_plane[edge[0][0]]].chemical_specie == chemical_specie 
-                        and grid_crystal[self.mig_paths_plane[edge[0][1]]].chemical_specie == chemical_specie):
+                    if (grid_crystal[self.mig_paths_plane[edge[0][0]]].defect.chemical_specie == chemical_specie 
+                        and grid_crystal[self.mig_paths_plane[edge[0][1]]].defect.chemical_specie == chemical_specie):
                         self.edges_v[num_event] = edge[1] # Associate the edge with the facet
                     
         # Store the result in the cache
@@ -1242,7 +1214,7 @@ class Site():
         
         # Iterate over the registered Events directly (Phase 4: Event carries
         # the label, the registered barrier and the computed rate).
-        for event in self.site_events:
+        for event in self.defect.events:
           
             if relevant_field:
               Act_E = event.barrier
@@ -1282,7 +1254,7 @@ class Site():
                   
               elif isinstance(event_type, int):
                 mig_vec = migration_pathways[event_type]['direction']
-                Act_E = max(event.barrier - self.ion_charge * np.dot(E_site_field,mig_vec) * 1e-10 ,self.Act_E_dict[current_defect]['E_min_mig'])
+                Act_E = max(event.barrier - self.defect.charge * np.dot(E_site_field,mig_vec) * 1e-10 ,self.Act_E_dict[current_defect]['E_min_mig'])
                 
               elif any(event_type == reaction['name'] for reaction in self.reactions_config.values()): # Reactions
                 # Check if this reaction is field-dependent

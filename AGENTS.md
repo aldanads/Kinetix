@@ -62,28 +62,39 @@ state; the flat attribute-by-attribute migration machinery is gone.
 | 3 | Move attributes to Defect (delegating properties) | ✅ `dc8859f` |
 | 4 | Hot-path migration to `list[Event]` (`site_events` is `list[Event]`) | ✅ `f806250` |
 | 5 | Remove `migrating_attributes` runtime use → object-transfer hops | ✅ `a224b49` |
-| 6 | Delete dict flow + legacy bridges (delegating properties, YAML keys) | ⏭️ Next |
+| 6 | Final cleanup: delegating properties, `migrating_attributes`, latent bugs | ✅ Phase 6 |
 
-**Phase 5 essentials (current state):**
+**Phase 6 essentials (epic complete):**
+- The four delegating properties (`chemical_specie`, `ion_charge`,
+  `passivation_level`, `site_events`) are **gone**: all state is read/written
+  as `site.defect.chemical_specie` / `.charge` / `.passivation_level` /
+  `.events`. A missed read raises AttributeError, but a missed *write* would
+  silently create a shadow attribute — grep these names after touching them.
+- `DefectConfig.migrating_attributes`, its YAML keys and every runtime
+  reference are deleted. Both fixtures' `meta.inputs_sha256` was regenerated
+  for that schema change with **steps proven byte-identical** (main `1a3b3bb3…`,
+  cross `e2bf330b…`, 4 hops unchanged) — nothing else in them changed.
 - Migration hop = `dst.install_defect(src.defect)` + `src.clear_defect()`
-  (crystal.py `_handle_migration_event` :3004). The Defect object transfers by
-  reference; the source gets a fresh empty Defect.
-- `_install_defect_site` (:3337) / `_remove_species_at_site` (:3386) do the
-  dirty-site bookkeeping; `extra_state`/`attributes_to_reset` parameters are gone.
-- GB charge override is written through to `defect.charge` **before** the hop.
-- `Site.get_migrating_state` is deleted; `DefectConfig.migrating_attributes`
-  (YAML key) still exists for Phase 6 cleanup.
-- `Site.introduce_specie` (:563): re-introducing the **same species keeps the
-  Defect object** and only refreshes charge (passivation is physics-carrying);
-  a species swap installs a fresh Defect (no state inheritance).
+  (`_handle_migration_event` :3014); GB charge is written through to
+  `defect.charge` **before** the hop; `_install_defect_site` (:3347) /
+  `_remove_species_at_site` (:3396) do the dirty-site bookkeeping.
+- `destination_CN` is guarded (`available_migrations` :777) with an actionable
+  error, and loaded grids bind the **live** `defects_config` onto every site
+  (`crystal_grid` :986) — the pickled copy can no longer go stale.
+- `introduce_specie` (:549): same species keeps the Defect (charge refresh
+  only, passivation untouched); a species swap installs a fresh Defect.
 
 **Key design decisions:**
 - Every Site always hosts exactly one Defect (empty sites get an empty Defect, never None).
 - `site_type` (sublattice) belongs to Site, not Defect; `EMPTY_DEFECT_CONFIG.site_type = "Empty"`.
 - Config-time-immutable: `enabled_events`, `max_passivation_level`, barriers. Runtime-dynamic (on Defect): `chemical_specie`, `charge`, `passivation_level`, `events`.
-- No DefectRegistry — lookup is plain `dict[str, DefectConfig]` (legacy dict-of-dicts still flows through until Phase 6).
+- No DefectRegistry — lookup is plain `dict[str, DefectConfig]`; sites share
+  ONE live reference to it (Phase 6 binding at `crystal_grid` :986).
 - No shared/singleton Defect instances across sites (per-site mutable state).
-- Sublattice-based config resolution (`_get_current_defect_name` :301) preserved until Phase 6 (compat finding C1).
+- Config resolution: **occupied** sites read `defect.name`; **empty** sites
+  still use the sublattice registry lookup (`_get_current_defect_name` :272),
+  kept deliberately — an empty Defect carries no candidate information, and
+  `destination_CN`/GB barrier tables depend on it (C1 resolved & documented).
 - `Event.catalog_tuple()` (:69) format is depended on by the balanced tree + superbasin.
 - Pickle compat: `Site.__setstate__` (:227) migrates legacy flat-attribute pickles onto a Defect and normalizes events to `Event`.
 
@@ -98,6 +109,9 @@ state; the flat attribute-by-attribute migration machinery is gone.
 - Regenerate **only** when physics or input parameters intentionally change:
   `KINETIX_UPDATE_GOLDEN_TRACE=1 python -m pytest tests/test_golden_trace.py`,
   then review `git diff` of the fixture.
+- Phase 6 regenerated **only** `meta.inputs_sha256` in both fixtures (the
+  config schema lost `migrating_attributes`); the `steps` blocks and all 4
+  cross-hops were re-hashed byte-identical before/after (proof above).
 - Cross-sublattice scenario (`test_golden_trace_cross_sublattice`): same preset /
   grid / seed plus two **test-side-only** overrides — O_i
   `valid_target_species += 'V_O'` and V_O `initial_concentration_bulk = 0.02` —
@@ -113,13 +127,13 @@ state; the flat attribute-by-attribute migration machinery is gone.
   `KINETIX_UPDATE_GOLDEN_TRACE=1 python -m pytest "tests/test_golden_trace.py::test_golden_trace_cross_sublattice"`.
 
 ## Testing
-- Full suite: `pytest tests/ -q` → **366 passed, 1 skipped** (~23 min); the 39
+- Full suite: `pytest tests/ -q` → **365 passed, 1 skipped** (~23 min); the 39
   `solver`-marked tests are ~22 min of that (see *Test Execution* below).
 - Golden trace alone: `pytest tests/test_golden_trace.py -v` → 5 tests (~25 s).
 - Notable files: `test_site.py` (64), `test_migration_pathways.py` (37),
   `test_cluster_island.py` (43), `test_balanced_tree.py` (29),
   `test_state_loader.py` (31), `test_kmc_loop.py` (12),
-  `test_gb_charge_and_state_transfer.py` (23), `test_superbasin.py` (17),
+  `test_gb_charge_and_state_transfer.py` (22), `test_superbasin.py` (17),
   `test_golden_trace.py` (5).
 - `test_mace_adapter.py` (marked `mace`) self-skips at module level without the
   `mace` extra — collects nothing; its `slow`-marked pathway sweeps
@@ -196,37 +210,29 @@ Measured selections (Kinetix env):
 - H5 `electrode_scavenging` bool form ✅
 - B11 `_find_clusters` 3-arg TypeError ✅
 - M1 `passivation_level` conditionally absent ✅ (Phase 3: always on Defect)
+- `destination_CN` gap (latent KeyError/AttributeError on occupied
+  destinations) ✅ guarded with an actionable error (site.py:777, Phase 6)
+- Live-vs-pickled `defects_config` staleness ✅ live registry bound onto every
+  loaded site (crystal.py:986, Phase 6)
+- C1 / M7 ✅ occupant sites read `defect.name`, empty-site lookup documented
+  (site.py:249), one shared live config reference
 - Phase-5 regression class (session of `a224b49`): deleted-method dangling
   callers, dropped Poisson refresh / dirty-site bookkeeping, discarded GB
   charge override, passivation reset on re-introduction — all fixed pre-commit.
 
-### Open (tracked for later phases)
-- **B2**: Superbasin label convention `num_event - 2` (`superbasin.py:319`) — Phase 6.
-- **B3**: Two producers of the 5-element list event shape — verify remnants in Phase 6.
-- **B6**: Superbasin absorbing moves bypass `catalog_tuple` — Phase 6.
-- **C1**: Defect identity derived from sublattice, not occupant — composition model fixes this; Phase 6 completes.
-- **H7**: Superbasin virtual moves not state-preserving — post-refactor.
-- **M4**: Energy caches keyed by `supp_by` only — Phase 4+.
-- **M7**: Config references pickled per site — Phase 6 optimization.
-- **Finding A (coverage closed, behaviour intended)**: cross-sublattice hops now
-  keep the source's DefectConfig (object transfer) where legacy re-derived it
-  from the destination sublattice. Pinned by
-  `test_golden_trace_cross_sublattice` + its fixture (4 hops); note the *main*
-  trace still contains 0 such hops and that the scenario needs the test-side
-  overrides documented in *Golden Trace Contract* — the shipped presets cannot
-  produce a cross-sublattice hop at all.
-- **Live-vs-pickled `defects_config` (open)**: Sites run on the `defects_config`
-  pickled inside the grid; the Poisson re-injection (crystal.py:542-566)
-  refreshes `Act_E_dict` only. A defects-YAML edit therefore does NOT change an
-  existing grid's runtime behaviour (the main trace's `inputs_sha256` still fails
-  provenance, so it is caught there). Rebuild the grid or re-inject explicitly.
-- **`destination_CN` gap (open, latent)**: `Site.available_migrations` reads
-  `dest_site.destination_CN[current_defect]` (site.py:785) for every destination
-  that passes its "Empty or Vacancy" gate, but `destination_CN` is populated by
-  `supported_by` (site.py:404-427) only for sites that were Empty when it ran. An
-  occupied destination whose occupant has `CN_matters=True` (PZT
-  `oxygen_vacancy`) would raise AttributeError/KeyError. Latent today: no shipped
-  config declares an occupied target species for a mobile defect.
+### Open (post-epic debt — NOT addressed by Phase 6)
+- **B2**: Superbasin label convention `num_event - 2` (`superbasin.py:319`).
+- **B3**: Two producers of the 5-element list event shape — verify remnants.
+- **B6**: Superbasin absorbing moves bypass `catalog_tuple`.
+- **H7**: Superbasin virtual moves not state-preserving.
+- **M4**: Energy caches keyed by `supp_by` only.
+- **`site.py:465` bare name**: `detect_edges(..., chemical_specie)` references
+  an undefined local (deposition path, not test-covered) — pre-existing, Phase 6
+  did not touch it.
+- **Finding A (closed, behaviour intended)**: cross-sublattice hops keep the
+  source's DefectConfig (object transfer), pinned by
+  `test_golden_trace_cross_sublattice` (4 hops); scenario needs its documented
+  overrides — shipped presets offer 0 such hops, and the *main* trace has none.
 
 ## Coding Conventions
 - **4-space indent in production**, **2-space indent in tests** — match the file you edit.
@@ -239,7 +245,7 @@ Measured selections (Kinetix env):
 
 ## Data Files
 - `data/parameters/presets/` — simulation presets (YAML; e.g. `VCM_mock.yaml`, `PZT_ZrPbO3.yaml`)
-- `data/parameters/defects/` — defect configs (YAML; legacy `migrating_attributes` keys live until Phase 6)
+- `data/parameters/defects/` — defect configs (YAML)
 - `data/parameters/reactions/` — reaction configs (YAML)
 - `data/parameters/electrical/`, `data/parameters/grain_boundaries/` — field / GB configs
 - `data/parameters/activation_energies/` — barrier data (JSON)
@@ -256,10 +262,14 @@ Measured selections (Kinetix env):
 - **DO NOT** delete `_remove_species_at_site` / `_install_defect_site` bookkeeping — dangling callers crash the kMC loop (this bit a previous session).
 - **DO NOT** reset `passivation_level` on species re-introduction — it keys
   activation energies (`Act_E[str(level)]`) and gates capture/depassivation; resetting it yields invalid barrier keys (`KeyError`).
-- **DO NOT** remove delegating properties on `Site` (`chemical_specie`, `ion_charge`, `passivation_level`, `site_events`) until Phase 6.
+- **DO NOT** re-add flat state accessors to `Site` — Phase 6 deleted the four
+  delegating properties; use `site.defect.chemical_specie` / `.charge` /
+  `.passivation_level` / `.events` everywhere.
 - **DO NOT** change `Event.catalog_tuple()` format (balanced tree + superbasin depend on it).
 - **DO NOT** share `Defect` instances between sites (per-site mutable state).
-- **DO NOT** delete `DefectConfig.migrating_attributes` or the YAML keys yet (Phase 6).
+- **DO NOT** delete `_get_current_defect_name` / `applicable_defects` — the
+  empty-site registry lookup feeds `destination_CN` and the GB barrier tables;
+  removing them drifts both golden traces (verified Phase 6).
 - **DO NOT** use `caplog` for `kinetix.*` loggers (`propagate=False`); use `kinetix_log_collector`.
 - **DO NOT** use the base conda python (no pymatgen); use the `Kinetix` env.
 

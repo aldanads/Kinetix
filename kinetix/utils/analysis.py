@@ -37,7 +37,7 @@ class Island:
         for idx in self.island_sites:
             site = grid_crystal[idx]
             z_idx = int(round(site.position[2] / z_step))
-            layers[z_idx] += 1 if site.chemical_specie != 'Empty' else 0
+            layers[z_idx] += 1 if site.defect.chemical_specie != 'Empty' else 0
         
         self.layers = layers
         
@@ -83,7 +83,7 @@ def average_thickness(System_state):
     
     for site in grid_crystal.values():
         z_idx = int(round(site.position[2] / z_step))
-        layers[z_idx] += 1 if site.chemical_specie != 'Empty' else 0
+        layers[z_idx] += 1 if site.defect.chemical_specie != 'Empty' else 0
         
     sites_per_layer = len(grid_crystal)/z_steps
     normalized_layers = [count / sites_per_layer for count in layers]
@@ -125,14 +125,14 @@ def plot_crystal_surface(System_state,i):
     for site in grid_crystal.values():
         top_layer_empty_sites = 0
         for jump in site.migration_paths['Up']:
-            if grid_crystal[jump[0]].chemical_specie == 'Empty': top_layer_empty_sites +=1
+            if grid_crystal[jump[0]].defect.chemical_specie == 'Empty': top_layer_empty_sites +=1
                             
-        if (site.chemical_specie != 'Empty') and top_layer_empty_sites >= 2:
+        if (site.defect.chemical_specie != 'Empty') and top_layer_empty_sites >= 2:
             x.append(site.position[0])
             y.append(site.position[1])
             z.append(site.position[2]+z_step)
             
-        elif (site.chemical_specie == 'Empty') and ('Substrate' in site.supp_by) and top_layer_empty_sites >= 2:
+        elif (site.defect.chemical_specie == 'Empty') and ('Substrate' in site.supp_by) and top_layer_empty_sites >= 2:
             x.append(site.position[0])
             y.append(site.position[1])
             z.append(site.position[2])
@@ -201,7 +201,7 @@ def detect_islands(grid_crystal,idx_site,visited,island_slice,chemical_specie):
 
     site = grid_crystal[idx_site] 
     
-    if idx_site not in visited and site.chemical_specie == chemical_specie:
+    if idx_site not in visited and site.defect.chemical_specie == chemical_specie:
         visited.add(idx_site)
         island_slice.add(idx_site)
         # dfs_recursive
@@ -217,7 +217,7 @@ def build_island_2(grid_crystal,visited,island_sites,island_slice,chemical_speci
         
         for element in grid_crystal[site].migration_paths['Up']:
 
-            if element[0] not in visited and grid_crystal[element[0]].chemical_specie == chemical_specie:
+            if element[0] not in visited and grid_crystal[element[0]].defect.chemical_specie == chemical_specie:
                 visited.add(element[0])
                 island_sites.add(element[0])
                 visited,island_sites = build_island(grid_crystal,visited,island_sites,island_slice,chemical_specie)
@@ -230,7 +230,7 @@ def build_island(grid_crystal,visited,island_sites,idx,chemical_specie):
         
     for element in site.migration_paths['Up'] + site.migration_paths['Plane']:
 
-        if element[0] not in visited and grid_crystal[element[0]].chemical_specie == chemical_specie:
+        if element[0] not in visited and grid_crystal[element[0]].defect.chemical_specie == chemical_specie:
             visited.add(element[0])
             island_sites.add(element[0])
             visited,island_sites = build_island(grid_crystal,visited,island_sites,element[0],chemical_specie)
@@ -566,7 +566,7 @@ for i in range(1):
 
 
 
-# for event in grid_crystal[sites_occupied[-5]].site_events:
+# for event in grid_crystal[sites_occupied[-5]].defect.events:
 #     v1 = np.array(System_state.idx_to_cart(event[1])) - np.array(grid_crystal[sites_occupied[-5]].position)
 #     print(np.dot(v1,n_plane),event[1],sites_occupied[-5])
 # =============================================================================

@@ -47,8 +47,8 @@ Only two helpers know the internal representation of an event
 refactor replaces the raw ``[rate, dest, label, E_act]`` list with an ``Event``
 dataclass: the physics columns in the fixture must NOT change, only those two
 helpers.  Likewise this file never touches ``ion_charge`` /
-``passivation_level`` / ``migrating_attributes`` directly, so Phases 3 and 5
-must leave the trace bit-identical without any edit here.
+``passivation_level`` directly, so Phases 3, 5 and 6 must leave the trace
+bit-identical without any edit here.
 
 Regenerating the fixture
 ------------------------
@@ -309,7 +309,7 @@ def _catalog_snapshot(crystal):
       for item in crystal.superbasin_dict[idx].site_events_absorbing:
         records.append((float(item[0]), float(item[3]), item[1], item[2], idx))
       continue
-    for event in crystal.grid_crystal[idx].site_events:
+    for event in crystal.grid_crystal[idx].defect.events:
       rate, barrier, dest, label = _event_fields(event)
       records.append((rate, barrier, dest, label, idx))
   return records

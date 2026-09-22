@@ -14,6 +14,8 @@ import numpy as np
 from unittest.mock import MagicMock, patch
 from pathlib import Path
 
+from kinetix.lattice.defect import make_empty_defect
+
 # =============================================================================
 # Helper: Minimal mock for Crystal_Lattice methods under test
 # =============================================================================
@@ -105,7 +107,9 @@ class MockSite:
   def __init__(self, position, site_type='interstitial', chemical_specie='Empty'):
     self.position = tuple(position)
     self.site_type = site_type
-    self.chemical_specie = chemical_specie
+    # State lives on the Defect (Phase 6 removed Site's flat aliases).
+    self.defect = make_empty_defect()
+    self.defect.chemical_specie = chemical_specie
           
 # =============================================================================
 # Fixtures
@@ -147,11 +151,11 @@ def small_lattice(domain_size):
     
     # --- Neighbors for edge_x site (across x-boundary) ---
     # These sit near x=Lx, so PBC wraps them to appear near x=0
-    # Steep UP: dist = sqrt(2.0² + 1.5²) = 2.5 Å
+    # Steep UP: dist = sqrt(2.0ï¿½ + 1.5ï¿½) = 2.5 ï¿½
     grid['edge_x_nb_up'] = MockSite(position=(Lx - 2.0, Ly / 2, z_mid + 1.5))
-    # Steep DOWN: dist = sqrt(2.0² + 2.5²) = 3.2 Å
+    # Steep DOWN: dist = sqrt(2.0ï¿½ + 2.5ï¿½) = 3.2 ï¿½
     grid['edge_x_nb_down'] = MockSite(position=(Lx - 2.0, Ly / 2, z_mid - 2.5))
-    # Shallow: dist = sqrt(2.0² + 0.1²) ˜ 2.0 Å
+    # Shallow: dist = sqrt(2.0ï¿½ + 0.1ï¿½) ï¿½ 2.0 ï¿½
     grid['edge_x_nb_shallow'] = MockSite(position=(Lx - 2.0, Ly / 2 + 0.1, z_mid))
     
     # Neighbors for bulk site

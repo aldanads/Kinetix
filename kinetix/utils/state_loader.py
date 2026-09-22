@@ -171,7 +171,7 @@ def load_state_from_dump(system_state, dump_path: str, tolerance: float = 0.1):
     # Apply passivation level
     site = system_state.grid_crystal[idx]
     if passivation_level > 0:
-      site.passivation_level = passivation_level
+      site.defect.passivation_level = passivation_level
      
     loaded_count += 1      
     

@@ -49,8 +49,9 @@ class MockSite:
     """Minimal mock of the Site class for state transfer tests.
 
     Faithful to the post-refactor Site model: the site always hosts exactly
-    one Defect (never None) and the legacy flat attributes are read/write
-    views onto it, so the tests exercise the same protocol production does.
+    one Defect (never None) and its dynamic state is read/written through that
+    Defect - exactly like the production Site after Phase 6 removed the flat
+    delegating aliases.
     """
 
     def __init__(self, position, site_type='interstitial', chemical_specie='Empty',
@@ -66,48 +67,15 @@ class MockSite:
           defect = make_empty_defect()
           if chemical_specie != 'Empty':
             # Unresolved-species branch of Site._make_initial_defect: an empty
-            # Defect carrying the symbol, so chemical_specie keeps working.
+            # Defect carrying the symbol, so defect.chemical_specie keeps working.
             defect.chemical_specie = chemical_specie
             defect.charge = ion_charge
             defect.passivation_level = passivation_level
         self.defect = defect
 
-    # ---- Defect-carried state as delegating views (as in production Site) ----
-    @property
-    def chemical_specie(self):
-        return self.defect.chemical_specie
-
-    @chemical_specie.setter
-    def chemical_specie(self, value):
-        self.defect.chemical_specie = value
-
-    @property
-    def ion_charge(self):
-        return self.defect.charge
-
-    @ion_charge.setter
-    def ion_charge(self, value):
-        self.defect.charge = value
-
-    @property
-    def passivation_level(self):
-        return self.defect.passivation_level
-
-    @passivation_level.setter
-    def passivation_level(self, value):
-        self.defect.passivation_level = value
-
-    @property
-    def site_events(self):
-        return self.defect.events
-
-    @site_events.setter
-    def site_events(self, value):
-        self.defect.events = value
-
     def _get_current_defect_name(self):
-        """Simplified: return defect name based on chemical_specie."""
-        if self.chemical_specie == 'Empty':
+        """Simplified: return defect name based on the occupant symbol."""
+        if self.defect.chemical_specie == 'Empty':
             return None
         # This would normally check applicable_defects and Act_E_dict
         return getattr(self, '_defect_name', None)
@@ -122,7 +90,7 @@ class MockSite:
             self.defect.charge = ion_charge
           return
         fresh = make_empty_defect()
-        fresh.chemical_specie = chemical_specie
+        fresh.defect.chemical_specie = chemical_specie
         fresh.charge = ion_charge or 0
         self.install_defect(fresh)
 
@@ -130,7 +98,7 @@ class MockSite:
         """Clear the occupant with a fresh empty Defect."""
         self.clear_defect()
         if affected_site != 'Empty':
-          self.chemical_specie = affected_site
+          self.defect.chemical_specie = affected_site
 
     # ---- object-transfer protocol support (Phase 5) ----
     def install_defect(self, defect):
@@ -205,7 +173,7 @@ def gb_model_hydrogen(gb_config_hydrogen):
 
 @pytest.fixture
 def defects_config_full():
-    """Full defects config with migrating_attributes."""
+    """Full defects config for state-transfer tests."""
     return {
         'hydrogen_interstitial': {
             'symbol': 'H',
@@ -215,7 +183,6 @@ def defects_config_full():
             'valid_target_species': ['Empty'],
             'activation_energies_key': 'H',
             'enabled_events': ['migration', 'reaction', 'generation'],
-            'migrating_attributes': ['ion_charge'],
             'description': 'Hydrogen defect in interstitial'
         },
         'oxygen_vacancy': {
@@ -226,7 +193,6 @@ def defects_config_full():
             'valid_target_species': ['O'],
             'activation_energies_key': 'V_O',
             'enabled_events': ['migration', 'reaction'],
-            'migrating_attributes': ['ion_charge', 'passivation_level'],
             'max_passivation_level': 3,
             'charge_per_passivation': -1,
             'description': 'Intrinsic vacancy in oxide lattice'
@@ -239,7 +205,6 @@ def defects_config_full():
             'valid_target_species': ['Empty'],
             'activation_energies_key': 'H2',
             'enabled_events': [],
-            'migrating_attributes': [],
             'description': 'Hydrogen gas in interstitial'
         }
     }
@@ -521,12 +486,10 @@ class TestGBBarrierModification:
 class TestDefectStateTransfer:
     """Test object-transfer hops (install_defect / clear_defect).
 
-    These tests verify the *new* mechanism: a defect is a stateful object
-    that hops by identity, replacing the old attribute-by-attribute machinery
-    (``get_migrating_state`` / ``extra_state`` / ``attributes_to_reset``).
-    They keep reading the real config's ``migrating_attributes`` key to
-    confirm the YAML still declares the same intent, but the *transfer*
-    mechanism is now object-based.
+    These tests verify the mechanism: a defect is a stateful object that hops
+    by identity, replacing the old attribute-by-attribute machinery
+    (``get_migrating_state`` / ``extra_state`` / ``attributes_to_reset`` and
+    the per-defect YAML list of state to copy - all deleted by Phase 6).
     """
 
     def _make_defect(self, defects_config_full, name, chemical_specie,
@@ -540,24 +503,12 @@ class TestDefectStateTransfer:
     def _fake_event(self, label):
         return Event(label=label, destination=(1, 0), barrier=0.3, rate=1.0)
 
-    def test_migrating_attributes_key_declares_same_intent(self, defects_config_full):
-        """The YAML still lists what ought to travel with a hop; the *mechanism*
-        is now object-based, so we just sanity-check the key, not the transfer."""
-        vo_name = [k for k in defects_config_full
-                   if defects_config_full[k].get('site_type') == 'O']
-        if not vo_name:
-            pytest.skip("fixture has no O-site defect")
-        attrs = defects_config_full[vo_name[0]].get('migrating_attributes')
-        assert attrs is not None
-        assert 'passivation_level' in attrs, (
-            "fixture expectation: V_O must migrate its passivation level")
-
     def test_empty_site_always_hosts_a_defect(self, defects_config_full):
         """Phase 2 contract: an empty site hosts an *empty* Defect, never None."""
         site = MockSite(position=(10, 10, 10), chemical_specie='Empty')
         assert site.defect is not None
         assert site.defect.is_empty is True
-        assert site.chemical_specie == 'Empty'
+        assert site.defect.chemical_specie == 'Empty'
         assert site._get_current_defect_name() is None
 
     def test_unknown_defect_name_hosts_a_defect_carrying_the_symbol(
@@ -567,7 +518,7 @@ class TestDefectStateTransfer:
         missing occupant."""
         site = MockSite(position=(10, 10, 10), chemical_specie='X')
         assert site.defect is not None
-        assert site.chemical_specie == 'X'
+        assert site.defect.chemical_specie == 'X'
         assert site._get_current_defect_name() is None
         # NOTE: no ``is_empty`` assertion here on purpose. A host lattice atom
         # (Hf, O) is *occupied*, not vacant, yet today it is built from
@@ -595,15 +546,15 @@ class TestDefectStateTransfer:
         src.clear_defect()
 
         # Destination has the transferred state
-        assert dst.chemical_specie == 'V_O'
-        assert dst.ion_charge == 0   # GB-modified
-        assert dst.passivation_level == 2  # preserved on the Object
+        assert dst.defect.chemical_specie == 'V_O'
+        assert dst.defect.charge == 0   # GB-modified
+        assert dst.defect.passivation_level == 2  # preserved on the Object
         assert dst.defect is src_defect
 
         # Source is empty: a fresh empty Defect, not None and not the hopped one
-        assert src.chemical_specie == 'Empty'
-        assert src.ion_charge == 0
-        assert src.passivation_level == 0
+        assert src.defect.chemical_specie == 'Empty'
+        assert src.defect.charge == 0
+        assert src.defect.passivation_level == 0
         assert src.defect is not src_defect
         assert src.defect.is_empty is True
 
@@ -619,9 +570,9 @@ class TestDefectStateTransfer:
         dst.install_defect(src.defect)
         src.clear_defect()
 
-        assert dst.ion_charge == -1   # unchanged
-        assert dst.passivation_level == 1
-        assert src.chemical_specie == 'Empty'
+        assert dst.defect.charge == -1   # unchanged
+        assert dst.defect.passivation_level == 1
+        assert src.defect.chemical_specie == 'Empty'
 
     def test_generation_defaults_no_extra_state_needed(self, defects_config_full):
         """Generated defects start with defaults; no extra_state needed."""
@@ -632,9 +583,9 @@ class TestDefectStateTransfer:
         site.install_defect(generated_defect)
 
         # passivation_level should already be at default (0)
-        assert site.chemical_specie == 'V_O'
-        assert site.ion_charge == 0
-        assert site.passivation_level == 0
+        assert site.defect.chemical_specie == 'V_O'
+        assert site.defect.charge == 0
+        assert site.defect.passivation_level == 0
 
     def test_h2_formation_object_transfer(self, defects_config_full):
         """H2_gas hops as a defect object; no extra_state required."""
@@ -647,9 +598,9 @@ class TestDefectStateTransfer:
         dst.install_defect(src.defect)
         src.clear_defect()
 
-        assert dst.chemical_specie == 'H2'
-        assert dst.ion_charge == 0
-        assert src.chemical_specie == 'Empty'
+        assert dst.defect.chemical_specie == 'H2'
+        assert dst.defect.charge == 0
+        assert src.defect.chemical_specie == 'Empty'
 
 
 if __name__ == '__main__':

@@ -35,6 +35,7 @@ import pytest
 
 from kinetix.configs.defect_config import DefectsConfig
 from kinetix.lattice.crystal import Crystal_Lattice
+from kinetix.lattice.defect import make_empty_defect
 from kinetix.utils.state_loader import (
     decode_species_key_passivation,
     load_state_from_dump,
@@ -117,9 +118,11 @@ class MockSite:
 
     def __init__(self, position, specie="O", ion_charge=0):
         self.position = position
-        self.chemical_specie = specie
-        self.ion_charge = ion_charge
-        self.passivation_level = 0
+        # State lives on the Defect (Phase 6 removed Site's flat aliases).
+        self.defect = make_empty_defect()
+        self.defect.chemical_specie = specie
+        self.defect.charge = ion_charge
+        self.defect.passivation_level = 0
 
 
 def make_site(position, specie="O", ion_charge=0):
@@ -165,8 +168,8 @@ class MockSystemState:
             {"idx": idx, "specie": chemical_specie, "charge": ion_charge}
         )
         site = self.grid_crystal[idx]
-        site.chemical_specie = chemical_specie
-        site.ion_charge = ion_charge
+        site.defect.chemical_specie = chemical_specie
+        site.defect.charge = ion_charge
         event_update_sites.add(idx)
 
     def update_sites_topology(self, support_update_sites, event_update_sites):
@@ -445,7 +448,7 @@ class TestLoadStateFromDump:
         assert entry["idx"] == (1, 0, 0)
         assert entry["specie"] == "H"
         assert entry["charge"] == pytest.approx(1.0)
-        assert grid[(1, 0, 0)].chemical_specie == "H"
+        assert grid[(1, 0, 0)].defect.chemical_specie == "H"
         # Time is taken from the dump timestep.
         assert system.time == pytest.approx(1000.0)
         assert system.list_time == pytest.approx([1000.0])
@@ -492,7 +495,7 @@ class TestLoadStateFromDump:
         load_state_from_dump(system, str(dump))
 
         assert system.introduced[0]["specie"] == "V_O"
-        assert grid[(0, 0, 0)].passivation_level == 1
+        assert grid[(0, 0, 0)].defect.passivation_level == 1
 
     def test_missing_charge_column_defaults_to_neutral(self, tmp_path, pzt_defects_dict):
         grid = make_grid()
@@ -508,7 +511,7 @@ class TestLoadStateFromDump:
         load_state_from_dump(system, str(dump))
 
         assert system.introduced[0]["charge"] == 0
-        assert grid[(0, 0, 0)].ion_charge == 0
+        assert grid[(0, 0, 0)].defect.charge == 0
 
     def test_atom_far_from_every_site_is_skipped_with_warning(self, tmp_path,
                                                               pzt_defects_dict,

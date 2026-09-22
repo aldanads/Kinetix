@@ -214,7 +214,7 @@ class Crystal_Lattice():
           for defect, cfg in self.defects_config.items():
             site = self.grid_crystal[site_idx]
             
-            if site.chemical_specie == cfg['symbol'] and cfg['enabled_events']:
+            if site.defect.chemical_specie == cfg['symbol'] and cfg['enabled_events']:
               event_update_sites.add(site_idx)
               self.active_event_sites.append(site_idx)    
 
@@ -563,7 +563,7 @@ class Crystal_Lattice():
           
           if reset_energies:  
             for site in self.grid_crystal.values():
-              site.site_events = [] # Clear old events
+              site.defect.events = [] # Clear old events
             
               
     def _minimum_image_vector(self, vec):
@@ -922,9 +922,9 @@ class Crystal_Lattice():
           else: shallow.append((n_idx, unit, dist))
   
       logger.debug("Steep UP neighbors   (z>+0.5): %d", len(steep_up))
-      for idx,u,d in steep_up:   logger.debug("   idx=%s dir=%s dist=%.3f specie=%s", idx, np.round(u,3), d, self.grid_crystal[idx].chemical_specie)
+      for idx,u,d in steep_up:   logger.debug("   idx=%s dir=%s dist=%.3f specie=%s", idx, np.round(u,3), d, self.grid_crystal[idx].defect.chemical_specie)
       logger.debug("Steep DOWN neighbors (z<-0.5): %d", len(steep_down))
-      for idx,u,d in steep_down: logger.debug("   idx=%s dir=%s dist=%.3f specie=%s", idx, np.round(u,3), d, self.grid_crystal[idx].chemical_specie)
+      for idx,u,d in steep_down: logger.debug("   idx=%s dir=%s dist=%.3f specie=%s", idx, np.round(u,3), d, self.grid_crystal[idx].defect.chemical_specie)
       logger.debug("Shallow neighbors: %d", len(shallow))
       
     def diagnose_interstitial_presence(self, site_idx, radius_neighbors, z_window=3.0):
@@ -958,9 +958,9 @@ class Crystal_Lattice():
           lat = np.linalg.norm(vec[:2])
   
           if 0 < dz < z_window:
-              above.append((idx, lat, dz, s.chemical_specie))
+              above.append((idx, lat, dz, s.defect.chemical_specie))
           elif -z_window < dz < 0:
-              below.append((idx, lat, dz, s.chemical_specie))
+              below.append((idx, lat, dz, s.defect.chemical_specie))
   
       logger.debug("Interstitial sites ABOVE (0 < dz < %s): %d", z_window, len(above))
       for idx, lat, dz, sp in sorted(above, key=lambda x: x[2]):
@@ -1786,7 +1786,7 @@ class Crystal_Lattice():
         
         for site in self.active_event_sites:
           particle_locations.append(self.grid_crystal[site].position)
-          charges.append(self.grid_crystal[site].ion_charge * constants.e * self.screening_factor)
+          charges.append(self.grid_crystal[site].defect.charge * constants.e * self.screening_factor)
            
         if len(particle_locations) == 0:
           particle_locations = np.empty((0, 3), dtype=np.float64)
@@ -1987,12 +1987,12 @@ class Crystal_Lattice():
                 site = self.grid_crystal[idx]
 
                 if idx in generation_sites_set:
-                    if ((self.sites_generation_layer not in site.supp_by and len(site.supp_by) < 3) or (site.chemical_specie != self.affected_site)):
+                    if ((self.sites_generation_layer not in site.supp_by and len(site.supp_by) < 3) or (site.defect.chemical_specie != self.affected_site)):
                         self.generation_sites.remove(idx)
                         site.remove_event_type('generation')
                     
                 else:
-                    if (self.sites_generation_layer in site.supp_by or len(site.supp_by) > 2) and site.chemical_specie == self.affected_site:
+                    if (self.sites_generation_layer in site.supp_by or len(site.supp_by) > 2) and site.defect.chemical_specie == self.affected_site:
                         self.generation_sites.append(idx)
                         site.deposition_event(self.TR_gen,idx,'generation',self.Act_E_gen)
            
@@ -2022,7 +2022,7 @@ class Crystal_Lattice():
                 
                 # Cleanup branch
                 if idx in generation_sites_set:
-                    if (site.chemical_specie != self.affected_site):
+                    if (site.defect.chemical_specie != self.affected_site):
                         self.generation_sites.remove(idx)
                         site.remove_event_type('generation')
                     continue # Already handled, move to the next site
@@ -2035,7 +2035,7 @@ class Crystal_Lattice():
                   (sites_generation_layer == 'bottom_layer' and site.is_at_bottom_interface)
                 )
                       
-                if (is_at_interface and site.chemical_specie == self.affected_site):
+                if (is_at_interface and site.defect.chemical_specie == self.affected_site):
                   self.generation_sites.append(idx)
                   site.ion_generation_interface(idx)
                   update_gen_sites.add(idx)    
@@ -2282,7 +2282,7 @@ class Crystal_Lattice():
         for defect in self.defects_config.values():
           for idx,site in self.grid_crystal.items():
               
-              if site.site_type in defect['allowed_sublattices'] and site.chemical_specie in defect["valid_target_species"]:
+              if site.site_type in defect['allowed_sublattices'] and site.defect.chemical_specie in defect["valid_target_species"]:
                 if self.gb_model.get_site_gb_region(site.position) == 'inner_boundary':
                   probability = defect['initial_concentration_GB']
                 else:
@@ -2316,7 +2316,7 @@ class Crystal_Lattice():
             for idx in self.generation_sites:
                 if self.rng.random() < P:   
                     # Introduce specie in the site
-                    update_specie_events,support_update_sites = self.introduce_specie_site(idx,support_update_sites, event_update_sites,self.grid_crystal[idx].ion_charge)
+                    update_specie_events,support_update_sites = self.introduce_specie_site(idx,support_update_sites, event_update_sites,self.grid_crystal[idx].defect.charge)
             
             # Update sites availables, the support to each site and available migrations
             self.update_sites(update_specie_events,support_update_sites)
@@ -2349,7 +2349,7 @@ class Crystal_Lattice():
             # Update sites availables, the support to each site and available migrations
             self.update_sites(update_specie_events,support_update_sites)
                 
-            logger.debug('Particle in position: %s is a %s', central_site.position, central_site.chemical_specie)
+            logger.debug('Particle in position: %s is a %s', central_site.position, central_site.defect.chemical_specie)
             logger.debug('Neighbors of that particle: %s', central_site.nearest_neighbors_idx)
             logger.debug('Neighbors are supported by:')
             for idx_3 in central_site.nearest_neighbors_idx:
@@ -2431,7 +2431,7 @@ class Crystal_Lattice():
             
             for neighbor_idx in site.nearest_neighbors_idx:
               neighbor = self.grid_crystal[neighbor_idx]
-              if neighbor.site_type == 'interstitial' and neighbor.chemical_specie == 'Empty':
+              if neighbor.site_type == 'interstitial' and neighbor.defect.chemical_specie == 'Empty':
                 neighbors.append(neighbor_idx)
             
             # 4. Place atoms in sites
@@ -2457,8 +2457,8 @@ class Crystal_Lattice():
             # 6. Verification output
             logger.debug("=== Test Case 3: V_O Passivation ===")
             logger.debug("V_O site index: %s", central_idx)
-            logger.debug("V_O passivation_level: %s", site.passivation_level)
-            logger.debug("V_O charge: %s", site.ion_charge)
+            logger.debug("V_O passivation_level: %s", site.defect.passivation_level)
+            logger.debug("V_O charge: %s", site.defect.charge)
             logger.debug("H atoms placed: %s", n_placed)
             logger.debug("Expected charge after %s H: %s", n_placed, central_config['charge'] + n_placed * central_config['charge_per_passivation'])
             logger.debug("=====================================")  
@@ -2742,7 +2742,7 @@ class Crystal_Lattice():
         if idx not in superbasin_dict:
           TR_catalog.extend([
             event.catalog_tuple(idx)
-            for event in grid_crystal[idx].site_events
+            for event in grid_crystal[idx].defect.events
           ])
         else:
           # The superbasin keeps its own internal record for the aggregated
@@ -2875,7 +2875,7 @@ class Crystal_Lattice():
       
       # === Search for valid superbasin candidates ===
       for idx in active_event_sites:
-        for event in self.grid_crystal[idx].site_events:
+        for event in self.grid_crystal[idx].defect.events:
           # Check criteria:
           #   - idx not already in superbasin_dict
           #   - migration event (int label; checked first so the barrier of a
@@ -3036,8 +3036,8 @@ class Crystal_Lattice():
           
       # Get source defect and resolve config
       defect_name = source_site._get_current_defect_name()
-      chemical_specie = source_site.chemical_specie
-      migrating_charge = source_site.ion_charge
+      chemical_specie = source_site.defect.chemical_specie
+      migrating_charge = source_site.defect.charge
       defect = source_site.defect
       
       # Apply GB charge state modification
@@ -3095,7 +3095,7 @@ class Crystal_Lattice():
         use_mass_conservation = False
         
       # Electrostatic driving force
-      should_scavenge = (site.ion_charge * self.V) < 0
+      should_scavenge = (site.defect.charge * self.V) < 0
       
       return should_scavenge, use_mass_conservation
          
@@ -3130,7 +3130,7 @@ class Crystal_Lattice():
       site = self.grid_crystal[site_idx]
       
       if chosen_event[2] == 'reduction':
-        site.ion_charge -= 1
+        site.defect.charge -= 1
         event_update_sites.add(site_idx)
         self._add_metal_atom_to_clusters(site_idx)
       
@@ -3138,7 +3138,7 @@ class Crystal_Lattice():
         if site.is_at_top_interface and self.V < 0:
           self._remove_species_at_site(site_idx, support_update_sites, event_update_sites)
         else:
-          site.ion_charge += 1
+          site.defect.charge += 1
           event_update_sites.add(site_idx)
         self._remove_metal_atom_from_clusters(site_idx)   
         
@@ -3180,14 +3180,14 @@ class Crystal_Lattice():
         
         if product['symbol'] != 'Empty':
           defect = self._defect_by_name(product['symbol'])
-          species_changed = (site.chemical_specie != product['symbol'])
+          species_changed = (site.defect.chemical_specie != product['symbol'])
           
           if species_changed:
             if 'charge' in defect:
               ion_charge = defect['charge']
     
           else:
-            ion_charge = site.ion_charge
+            ion_charge = site.defect.charge
                     
             # Introduce species
           self._introduce_specie_site(
@@ -3200,11 +3200,11 @@ class Crystal_Lattice():
           
           # Handle passivation increment
           if 'passivation_increment' in product:
-            site.passivation_level += product['passivation_increment']
+            site.defect.passivation_level += product['passivation_increment']
             
             # Handle charge variation
             if 'charge_per_passivation' in defect:
-              site.ion_charge += defect['charge_per_passivation'] * product['passivation_increment']
+              site.defect.charge += defect['charge_per_passivation'] * product['passivation_increment']
           
           
         else:
@@ -3237,7 +3237,7 @@ class Crystal_Lattice():
       # 1. Collect all valid empty interstitial neighbors
       for neighbor_idx in site.nearest_neighbors_idx:
         neighbor = self.grid_crystal[neighbor_idx]
-        if neighbor.site_type == product['sublattice'] and neighbor.chemical_specie in defect["valid_target_species"]:
+        if neighbor.site_type == product['sublattice'] and neighbor.defect.chemical_specie in defect["valid_target_species"]:
           empty_neighbors.append(neighbor_idx)
           
       # 2. Return None if no space available (reaction blocked)
@@ -3382,11 +3382,11 @@ class Crystal_Lattice():
             # Add sites that support the affected site
             for supporting_site_idx in affected_site.supp_by:
               if(isinstance(supporting_site_idx, tuple) and
-                 self.grid_crystal[supporting_site_idx].chemical_specie != self.affected_site):
+                 self.grid_crystal[supporting_site_idx].defect.chemical_specie != self.affected_site):
                  event_update_sites.add(supporting_site_idx)
               
             # Add the affected site itself if occupied
-            if affected_site.chemical_specie != self.affected_site:
+            if affected_site.defect.chemical_specie != self.affected_site:
                 event_update_sites.add(affected_site_idx)
                 
     
@@ -3418,11 +3418,11 @@ class Crystal_Lattice():
 
             for supporting_site_idx in affected_site.supp_by:
               if(isinstance(supporting_site_idx, tuple) and
-                   self.grid_crystal[supporting_site_idx].chemical_specie != self.affected_site):
+                   self.grid_crystal[supporting_site_idx].defect.chemical_specie != self.affected_site):
                    event_update_sites.add(supporting_site_idx)
 
             # Add the affected site itself if occupied
-            if affected_site.chemical_specie != self.affected_site:
+            if affected_site.defect.chemical_specie != self.affected_site:
                 event_update_sites.add(affected_site_idx)
 
 
@@ -3795,7 +3795,7 @@ class Crystal_Lattice():
       Returns:
           str: Species key (e.g., "H", "V_O_0", "V_O_2", "H2")
       """
-      symbol = site.chemical_specie
+      symbol = site.defect.chemical_specie
       
       # Check if this defect supports passivation
       defect_name = site._get_current_defect_name()
@@ -3803,7 +3803,7 @@ class Crystal_Lattice():
       max_passivation = defect_config.get('max_passivation_level', 0)
       
       if max_passivation > 0:
-        return f"{symbol}_{site.passivation_level}"
+        return f"{symbol}_{site.defect.passivation_level}"
       else:
         return symbol
                     
@@ -3849,7 +3849,7 @@ class Crystal_Lattice():
         }
         
         if include_charge:
-          atom['charge'] = site.ion_charge
+          atom['charge'] = site.defect.charge
           
         atoms.append(atom)
         
@@ -3909,7 +3909,7 @@ class Crystal_Lattice():
                 
         # species_mapping = {self.chemical_specie: 1}  # Example species mapping
         # active_event_sites_cart = [(self.idx_to_cart(site)) for site in self.active_event_sites]
-        # species_ids = [species_mapping.get(self.grid_crystal[site].chemical_specie) for site in self.active_event_sites]
+        # species_ids = [species_mapping.get(self.grid_crystal[site].defect.chemical_specie) for site in self.active_event_sites]
         # Define particle IDs
         particle_ids = list(range(1, len(active_event_sites_cart) + 1))  # Unique IDs for each particle
         
@@ -3992,7 +3992,7 @@ class Crystal_Lattice():
 
         for site in grid_crystal.values():
             z_idx = int(round(site.position[2] / z_step))
-            layers[z_idx] += 1 if site.chemical_specie != 'Empty' else 0
+            layers[z_idx] += 1 if site.defect.chemical_specie != 'Empty' else 0
 
         sites_per_layer = len(grid_crystal)/z_steps
         normalized_layers = [count / sites_per_layer for count in layers]
@@ -4072,7 +4072,7 @@ class Crystal_Lattice():
       # Get metal neighbors (only neutral atoms)
       metal_neighbors = [
         nb for nb in self.grid_crystal[site_id].supp_by 
-        if not isinstance(nb, str) and self.grid_crystal[nb].ion_charge == 0
+        if not isinstance(nb, str) and self.grid_crystal[nb].defect.charge == 0
       ]
       
       # Separate neighbors into: in-cluster vs. singletons
@@ -4238,7 +4238,7 @@ class Crystal_Lattice():
             
           # Filter neighbors: must be metal (charge 0) AND in the same cluster
           for nb in grid_crystal[atom].nearest_neighbors_idx:
-            if nb in atom_set and grid_crystal[nb].ion_charge == 0 and nb not in visited:
+            if nb in atom_set and grid_crystal[nb].defect.charge == 0 and nb not in visited:
               stack.append(nb)
               
         components.append(component) 
@@ -4293,7 +4293,7 @@ class Crystal_Lattice():
 
         site = self.grid_crystal[idx_site] 
         
-        if idx_site not in visited and site.chemical_specie == chemical_specie:
+        if idx_site not in visited and site.defect.chemical_specie == chemical_specie:
             visited.add(idx_site)
             island_slice.add(idx_site)
             # dfs_recursive
@@ -4312,7 +4312,7 @@ class Crystal_Lattice():
             
         for element in site.migration_paths['Up'] + site.migration_paths['Plane']+site.migration_paths['Down']:
     
-            if element[0] not in visited and self.grid_crystal[element[0]].chemical_specie == chemical_specie:
+            if element[0] not in visited and self.grid_crystal[element[0]].defect.chemical_specie == chemical_specie:
                 visited.add(element[0])
                 island_sites.add(element[0])
                 visited,island_sites = self.build_island(visited,island_sites,element[0],chemical_specie)
@@ -4329,7 +4329,7 @@ class Crystal_Lattice():
             
             for element in site.migration_paths['Up'] + site.migration_paths['Plane'] + site.migration_paths['Down']:
         
-                if element[0] not in visited and self.grid_crystal[element[0]].chemical_specie == chemical_specie:
+                if element[0] not in visited and self.grid_crystal[element[0]].defect.chemical_specie == chemical_specie:
                     visited.add(element[0])
                     island_sites.add(element[0])
                     stack.append(element[0])
@@ -4380,7 +4380,7 @@ class Crystal_Lattice():
             
             for element in site.migration_paths['Up'] + site.migration_paths['Plane'] + site.migration_paths['Down']:
     
-                if element[0] not in peak_sites and grid_crystal[element[0]].chemical_specie == chemical_specie:
+                if element[0] not in peak_sites and grid_crystal[element[0]].defect.chemical_specie == chemical_specie:
                     peak_sites.add(element[0])
                     
                     if self.idx_to_cart(element[0])[2] > thickness:
@@ -4517,14 +4517,14 @@ class Crystal_Lattice():
         for site in grid_crystal.values():
             top_layer_empty_sites = 0
             for jump in site.migration_paths['Up']:
-                if grid_crystal[jump[0]].chemical_specie == 'Empty': top_layer_empty_sites +=1
+                if grid_crystal[jump[0]].defect.chemical_specie == 'Empty': top_layer_empty_sites +=1
                      
-            if (site.chemical_specie != 'Empty') and top_layer_empty_sites >= 2:
+            if (site.defect.chemical_specie != 'Empty') and top_layer_empty_sites >= 2:
                 x.append(site.position[0])
                 y.append(site.position[1])
                 z.append(site.position[2]+z_step)
                 
-            elif (site.chemical_specie == 'Empty') and ('bottom_layer' in site.supp_by) and top_layer_empty_sites >= 2:
+            elif (site.defect.chemical_specie == 'Empty') and ('bottom_layer' in site.supp_by) and top_layer_empty_sites >= 2:
                 x.append(site.position[0])
                 y.append(site.position[1])
                 z.append(site.position[2])

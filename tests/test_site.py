@@ -42,7 +42,7 @@ Pinned coupling / quirks (reported, not fixed)
 * ``transition_rates`` indexes ``defects_config[current_defect]
   ['field_dependent_generation']`` directly, so a defect config lacking that key
   raises ``KeyError`` even for a purely thermal run.
-* ``self.site_events`` holds ``Event`` instances (Phase 4).  ``transition_rates``
+* ``self.defect.events`` holds ``Event`` instances (Phase 4).  ``transition_rates``
   reads ``Event.label`` / ``Event.barrier`` and writes the Arrhenius rate onto
   ``Event.rate``; the registered barrier is never overwritten.
 """
@@ -59,7 +59,7 @@ from unittest.mock import MagicMock
 from kinetix.configs.config_loader import load_activation_energies
 from kinetix.configs.simulation_config import SimulationConfig
 from kinetix.initialization import _process_activation_energies
-from kinetix.lattice.defect import Event, Defect
+from kinetix.lattice.defect import Event, Defect, make_empty_defect
 from kinetix.lattice.site import Site
 
 KB = constants.physical_constants['Boltzmann constant in eV/K'][0]
@@ -167,16 +167,18 @@ class GridSiteStub:
                is_at_top_interface=False, is_at_bottom_interface=False,
                supp_by=(), migration_paths=None, passivation_level=0,
                ion_charge=0, current_defect=None):
+    # Every Site hosts exactly one Defect (Phase 6: state is read through it).
+    self.defect = make_empty_defect()
     self.site_type = site_type
-    self.chemical_specie = chemical_specie
+    self.defect.chemical_specie = chemical_specie
     self.position = tuple(position)
     self.destination_CN = destination_CN if destination_CN is not None else {}
     self.is_at_top_interface = is_at_top_interface
     self.is_at_bottom_interface = is_at_bottom_interface
     self.supp_by = tuple(supp_by)
     self.migration_paths = migration_paths or {'Plane': [], 'Up': [], 'Down': []}
-    self.passivation_level = passivation_level
-    self.ion_charge = ion_charge
+    self.defect.passivation_level = passivation_level
+    self.defect.charge = ion_charge
     self.nearest_neighbors_idx = []
     self._current_defect = current_defect
 
@@ -225,7 +227,7 @@ class TestSiteInitialization:
     site = Site(chemical_specie='H', position=(1.0, 2.0, 3.0),
                 site_type='interstitial')
     assert site.position == (1.0, 2.0, 3.0)
-    assert site.chemical_specie == 'H'
+    assert site.defect.chemical_specie == 'H'
     assert site.site_type == 'interstitial'
 
   def test_site_type_defaults_to_chemical_specie(self):
@@ -234,14 +236,14 @@ class TestSiteInitialization:
 
   def test_empty_cache_and_event_containers(self):
     site = Site(chemical_specie='Empty', position=(0.0, 0.0, 0.0))
-    assert site.site_events == []
+    assert site.defect.events == []
     assert site.nearest_neighbors_idx == []
     assert site.migration_paths == {'Plane': [], 'Up': [], 'Down': []}
     assert site.cache_TR == {} and site.cache_planes == {}
     assert site.in_cluster_with_electrode == {'bottom_layer': False,
                                               'top_layer': False}
     assert (site.is_at_top_interface, site.is_at_bottom_interface) == (False, False)
-    assert site.ion_charge == 0
+    assert site.defect.charge == 0
 
   def test_applicable_defects_are_exactly_those_allowing_the_sublattice(
       self, pzt_defects, pzt_act_e):
@@ -296,7 +298,7 @@ class TestSiteInitialization:
     current = site._get_current_defect_name()
     assert 'passivation_level' in pzt_defects[current], (
       "fixture expectation: oxygen_vacancy must declare passivation_level")
-    assert site.passivation_level == pzt_defects[current]['passivation_level']
+    assert site.defect.passivation_level == pzt_defects[current]['passivation_level']
 
   def test_passivation_level_defaults_to_zero_when_not_declared(
       self, pzt_defects, pzt_act_e):
@@ -313,7 +315,7 @@ class TestSiteInitialization:
                 defects_config=pzt_defects)
     current = site._get_current_defect_name()
     assert 'passivation_level' not in pzt_defects[current]
-    assert site.passivation_level == 0
+    assert site.defect.passivation_level == 0
 
   def test_inactive_site_has_no_applicable_defects(self, pzt_defects, pzt_act_e):
     site = Site(chemical_specie='H', position=(0.0, 0.0, 0.0),
@@ -365,8 +367,8 @@ class TestMigrationEvents:
 
     site.available_pathways(grid, (0, 0), facets_type=None)
 
-    assert len(site.site_events) == 3
-    plane_event, up_event, down_event = site.site_events
+    assert len(site.defect.events) == 3
+    plane_event, up_event, down_event = site.defect.events
     assert plane_event.destination == (1, 0) and plane_event.label == PLANE_EVENT
     assert up_event.destination == (2, 0) and up_event.label == UP_EVENT
     assert down_event.destination == (3, 0) and down_event.label == DOWN_EVENT
@@ -389,7 +391,7 @@ class TestMigrationEvents:
     site.available_pathways(grid, (0, 0), facets_type=None)
 
     expected = act['E_mig_plane'] + act['CN_clustering_energy'][cn]
-    assert site.site_events[0].barrier == pytest.approx(expected)
+    assert site.defect.events[0].barrier == pytest.approx(expected)
 
   def test_negative_energy_difference_is_clamped_to_zero(
       self, pzt_defects, pzt_act_e):
@@ -408,7 +410,7 @@ class TestMigrationEvents:
 
     site.available_pathways(grid, (0, 0, 0), facets_type=None)
 
-    assert site.site_events[0].barrier == pytest.approx(act['E_mig_plane'])
+    assert site.defect.events[0].barrier == pytest.approx(act['E_mig_plane'])
 
   def test_destination_on_a_foreign_sublattice_is_skipped(
       self, pzt_defects, pzt_act_e):
@@ -424,7 +426,7 @@ class TestMigrationEvents:
 
     site.available_pathways(grid, (0, 0), facets_type=None)
 
-    assert site.site_events == []
+    assert site.defect.events == []
 
   def test_occupied_destination_is_skipped(self, pzt_defects, pzt_act_e):
     site = make_site(pzt_defects, pzt_act_e, 'H', 'interstitial')
@@ -439,7 +441,7 @@ class TestMigrationEvents:
 
     site.available_pathways(grid, (0, 0), facets_type=None)
 
-    assert site.site_events == []
+    assert site.defect.events == []
 
   def test_destination_in_the_support_set_is_skipped(self, pzt_defects, pzt_act_e):
     site = make_site(pzt_defects, pzt_act_e, 'H', 'interstitial',
@@ -452,7 +454,7 @@ class TestMigrationEvents:
 
     site.available_pathways(grid, (0, 0), facets_type=None)
 
-    assert site.site_events == []
+    assert site.defect.events == []
 
   def test_site_without_migration_paths_emits_nothing(self, pzt_defects, pzt_act_e):
     site = make_site(pzt_defects, pzt_act_e, 'H', 'interstitial')
@@ -460,7 +462,7 @@ class TestMigrationEvents:
 
     site.available_pathways({(0, 0): site}, (0, 0), facets_type=None)
 
-    assert site.site_events == []
+    assert site.defect.events == []
 # =============================================================================
 # Event filtering (enabled_events from the real defect config)
 # =============================================================================
@@ -476,7 +478,7 @@ class TestEventFiltering:
 
     site.available_pathways(grid, (0, 0), facets_type=None)
 
-    assert site.site_events == []
+    assert site.defect.events == []
 
   def test_reaction_only_defect_emits_no_migration_events(
       self, pzt_defects, pzt_act_e, pzt_reactions):
@@ -491,67 +493,67 @@ class TestEventFiltering:
 
     site.available_pathways(grid, (0, 0), facets_type=None)
 
-    assert site.site_events == []
+    assert site.defect.events == []
 
   def test_reduction_requires_the_event_flag(self, ceria_defects, ceria_act_e):
     defects = config_with_events(ceria_defects, 'Ag_interstitial', ['migration'])
     assert 'reduction' not in defects['Ag_interstitial']['enabled_events']
     site = make_site(defects, ceria_act_e, 'Ag', 'interstitial')
-    site.ion_charge = ceria_defects['Ag_interstitial']['charge']
+    site.defect.charge = ceria_defects['Ag_interstitial']['charge']
     site.CN_redox_energy = site.calculate_CN_contribution_redox_energy()
 
     site.available_pathways({}, (0, 0), facets_type=None)
 
-    assert site.site_events == []
+    assert site.defect.events == []
 
   def test_reduction_event_uses_the_real_barrier(self, ceria_defects, ceria_act_e):
     site = make_site(ceria_defects, ceria_act_e, 'Ag', 'interstitial')
-    site.ion_charge = ceria_defects['Ag_interstitial']['charge']
+    site.defect.charge = ceria_defects['Ag_interstitial']['charge']
     site.CN_redox_energy = site.calculate_CN_contribution_redox_energy()
     act = ceria_act_e['Ag_interstitial']
 
     site.available_pathways({}, (0, 0), facets_type=None)
 
-    reductions = [e for e in site.site_events if e.label == 'reduction']
+    reductions = [e for e in site.defect.events if e.label == 'reduction']
     assert len(reductions) == 1
     assert reductions[0].barrier == pytest.approx(
       act['E_reduction'] - site.CN_redox_energy)
 
   def test_oxidation_event_uses_the_real_barrier(self, ceria_defects, ceria_act_e):
     site = make_site(ceria_defects, ceria_act_e, 'Ag', 'interstitial')
-    site.ion_charge = 0
+    site.defect.charge = 0
     site.nearest_neighbors_idx = [(1, 0, 0)]  # surface atom -> can oxidize
     site.CN_redox_energy = site.calculate_CN_contribution_redox_energy()
     act = ceria_act_e['Ag_interstitial']
 
     site.available_pathways({}, (0, 0), facets_type=None)
 
-    oxidations = [e for e in site.site_events if e.label == 'oxidation']
+    oxidations = [e for e in site.defect.events if e.label == 'oxidation']
     assert len(oxidations) == 1
     assert oxidations[0].barrier == pytest.approx(
       act['E_oxidation'] + site.CN_redox_energy)
 
   def test_charged_species_cannot_oxidize(self, ceria_defects, ceria_act_e):
     site = make_site(ceria_defects, ceria_act_e, 'Ag', 'interstitial')
-    site.ion_charge = ceria_defects['Ag_interstitial']['charge']
+    site.defect.charge = ceria_defects['Ag_interstitial']['charge']
     site.nearest_neighbors_idx = [(1, 0, 0)]
     site.CN_redox_energy = site.calculate_CN_contribution_redox_energy()
 
     site.available_pathways({}, (0, 0), facets_type=None)
 
-    assert [e for e in site.site_events if e.label == 'oxidation'] == []
+    assert [e for e in site.defect.events if e.label == 'oxidation'] == []
 
   def test_neutral_fully_coordinated_bulk_atom_cannot_oxidize(
       self, ceria_defects, ceria_act_e):
     site = make_site(ceria_defects, ceria_act_e, 'Ag', 'interstitial')
-    site.ion_charge = 0
+    site.defect.charge = 0
     site.nearest_neighbors_idx = [(1, 0, 0)]
     site.supp_by = ((1, 0, 0),)  # fully coordinated -> not a surface atom
     site.CN_redox_energy = site.calculate_CN_contribution_redox_energy()
 
     site.available_pathways({}, (0, 0), facets_type=None)
 
-    assert [e for e in site.site_events if e.label == 'oxidation'] == []
+    assert [e for e in site.defect.events if e.label == 'oxidation'] == []
 # =============================================================================
 # Reactions (real reaction config)
 # =============================================================================
@@ -582,8 +584,8 @@ class TestReactionEvents:
 
     site.available_reactions(grid, 'origin')
 
-    assert len(site.site_events) == 1
-    event = site.site_events[0]
+    assert len(site.defect.events) == 1
+    event = site.defect.events[0]
     assert event.destination == 'nb' and event.label == reaction['name']
     assert event.barrier == pytest.approx(pzt_act_e[h_name][reaction['name']])
 
@@ -601,7 +603,7 @@ class TestReactionEvents:
 
     site.available_reactions(grid, 'origin')
 
-    assert [e for e in site.site_events if e.label == reaction['name']] == []
+    assert [e for e in site.defect.events if e.label == reaction['name']] == []
 
   def test_removal_event_respects_the_configured_removal_layer(
       self, pzt_defects, pzt_act_e, pzt_reactions):
@@ -615,15 +617,15 @@ class TestReactionEvents:
 
     # Default: not at the bottom interface -> no removal.
     site.available_reactions(grid, 'origin')
-    assert [e for e in site.site_events if e.label == reaction['name']] == []
+    assert [e for e in site.defect.events if e.label == reaction['name']] == []
 
-    site.site_events = []
+    site.defect.events = []
     site.set_interface_flags(bottom_z=0.0, top_z=10.0)
     assert site.is_at_bottom_interface is True
 
     site.available_reactions(grid, 'origin')
 
-    removal = [e for e in site.site_events if e.label == reaction['name']]
+    removal = [e for e in site.defect.events if e.label == reaction['name']]
     assert len(removal) == 1
     assert removal[0].barrier == pytest.approx(pzt_act_e[h_name][reaction['name']])
 
@@ -642,7 +644,7 @@ class TestReactionEvents:
     site.available_reactions({'origin': site, 'nb': neighbour}, 'origin')
 
     neighbour_rxn = _reaction_by_type(pzt_reactions, 'bimolecular_neighbor')
-    assert [e for e in site.site_events if e.label == neighbour_rxn['name']] == []
+    assert [e for e in site.defect.events if e.label == neighbour_rxn['name']] == []
 class TestPassivation:
   def test_vacancy_config_declares_the_passivation_budget(self, pzt_defects):
     vo_name = _defect_name_by_symbol(pzt_defects, 'V_O')
@@ -665,7 +667,7 @@ class TestPassivation:
 
     site.available_reactions({'origin': site, 'vo': neighbour}, 'origin')
 
-    events = [e for e in site.site_events if e.label == reaction['name']]
+    events = [e for e in site.defect.events if e.label == reaction['name']]
     assert len(events) == 1
     assert events[0].destination == 'vo'
     assert events[0].barrier == pytest.approx(barrier_table['0'])
@@ -685,7 +687,7 @@ class TestPassivation:
 
     site.available_reactions({'origin': site, 'vo': neighbour}, 'origin')
 
-    assert [e for e in site.site_events if e.label == reaction['name']] == []
+    assert [e for e in site.defect.events if e.label == reaction['name']] == []
 
   def test_depassivation_is_gated_by_the_real_min_passivation(
       self, pzt_defects, pzt_act_e, pzt_reactions):
@@ -703,16 +705,16 @@ class TestPassivation:
     grid = {'origin': site, 'dest': dest}
 
     # Below the threshold: blocked.
-    site.passivation_level = min_pass - 1
+    site.defect.passivation_level = min_pass - 1
     site.available_reactions(grid, 'origin')
-    assert [e for e in site.site_events if e.label == reaction['name']] == []
+    assert [e for e in site.defect.events if e.label == reaction['name']] == []
 
     # At the threshold: released, using the level-keyed real barrier.
-    site.site_events = []
-    site.passivation_level = min_pass
+    site.defect.events = []
+    site.defect.passivation_level = min_pass
     site.available_reactions(grid, 'origin')
 
-    events = [e for e in site.site_events if e.label == reaction['name']]
+    events = [e for e in site.defect.events if e.label == reaction['name']]
     assert len(events) == 1
     assert events[0].barrier == pytest.approx(barrier_table[str(min_pass)])
 
@@ -724,12 +726,12 @@ class TestPassivation:
                     if r['type'] == 'unimolecular_reaction'
                     and 'min_passivation' in r['reactants'][0])
     min_pass = reaction['reactants'][0]['min_passivation']
-    site.passivation_level = min_pass
+    site.defect.passivation_level = min_pass
     site.nearest_neighbors_idx = []  # no empty interstitial nearby
 
     site.available_reactions({'origin': site}, 'origin')
 
-    assert [e for e in site.site_events if e.label == reaction['name']] == []
+    assert [e for e in site.defect.events if e.label == reaction['name']] == []
 # =============================================================================
 # Transition rates (Arrhenius + field corrections)
 # =============================================================================
@@ -744,13 +746,13 @@ class TestTransitionRates:
     site = make_site(pzt_defects, pzt_act_e, 'H', 'interstitial')
     barrier = pzt_act_e['hydrogen_interstitial']['E_mig_plane']
     dest = (1, 0)
-    site.site_events = [Event(label=PLANE_EVENT, destination=dest,
+    site.defect.events = [Event(label=PLANE_EVENT, destination=dest,
                               barrier=barrier)]
 
     site.transition_rates(T=300)
 
-    assert len(site.site_events) == 1
-    event = site.site_events[0]
+    assert len(site.defect.events) == 1
+    event = site.defect.events[0]
     assert event.rate == pytest.approx(arrhenius(barrier))
     assert event.destination == dest
     assert event.label == PLANE_EVENT
@@ -760,18 +762,18 @@ class TestTransitionRates:
     barrier = pzt_act_e['hydrogen_interstitial']['E_mig_plane']
 
     cold_site = make_site(pzt_defects, pzt_act_e, 'H', 'interstitial')
-    cold_site.site_events = [Event(label=PLANE_EVENT, destination=(1, 0),
+    cold_site.defect.events = [Event(label=PLANE_EVENT, destination=(1, 0),
                                    barrier=barrier)]
     cold_site.transition_rates(T=300)
 
     hot_site = make_site(pzt_defects, pzt_act_e, 'H', 'interstitial')
-    hot_site.site_events = [Event(label=PLANE_EVENT, destination=(1, 0),
+    hot_site.defect.events = [Event(label=PLANE_EVENT, destination=(1, 0),
                                   barrier=barrier)]
     hot_site.transition_rates(T=600)
 
-    assert hot_site.site_events[0].rate > cold_site.site_events[0].rate
-    assert hot_site.site_events[0].rate == pytest.approx(arrhenius(barrier, 600))
-    assert cold_site.site_events[0].rate == pytest.approx(arrhenius(barrier, 300))
+    assert hot_site.defect.events[0].rate > cold_site.defect.events[0].rate
+    assert hot_site.defect.events[0].rate == pytest.approx(arrhenius(barrier, 600))
+    assert cold_site.defect.events[0].rate == pytest.approx(arrhenius(barrier, 300))
 
   def test_rate_cache_is_temperature_aware(self, pzt_defects, pzt_act_e):
     """The cache key is ``(round(Act_E, 3), round(T, 1))``.
@@ -782,15 +784,15 @@ class TestTransitionRates:
     site = make_site(pzt_defects, pzt_act_e, 'H', 'interstitial')
     barrier = pzt_act_e['hydrogen_interstitial']['E_mig_plane']
 
-    site.site_events = [Event(label=PLANE_EVENT, destination=(1, 0),
+    site.defect.events = [Event(label=PLANE_EVENT, destination=(1, 0),
                               barrier=barrier)]
     site.transition_rates(T=300)
-    cold = site.site_events[0].rate
+    cold = site.defect.events[0].rate
 
-    site.site_events = [Event(label=PLANE_EVENT, destination=(1, 0),
+    site.defect.events = [Event(label=PLANE_EVENT, destination=(1, 0),
                               barrier=barrier)]
     site.transition_rates(T=600)
-    hot = site.site_events[0].rate
+    hot = site.defect.events[0].rate
 
     assert hot == pytest.approx(arrhenius(barrier, 600))
     assert cold == pytest.approx(arrhenius(barrier, 300))
@@ -799,37 +801,37 @@ class TestTransitionRates:
                                   (round(barrier, 3), 600.0)}
 
     # Same barrier at the same temperature still shares one cache entry.
-    site.site_events = [Event(label=PLANE_EVENT, destination=(1, 0),
+    site.defect.events = [Event(label=PLANE_EVENT, destination=(1, 0),
                               barrier=barrier)]
     site.transition_rates(T=300)
-    assert site.site_events[0].rate == pytest.approx(cold)
+    assert site.defect.events[0].rate == pytest.approx(cold)
     assert len(site.cache_TR) == 2
 
   def test_zero_barrier_gives_the_attempt_frequency(self, pzt_defects, pzt_act_e):
     site = make_site(pzt_defects, pzt_act_e, 'H', 'interstitial')
-    site.site_events = [Event(label=PLANE_EVENT, destination=(1, 0),
+    site.defect.events = [Event(label=PLANE_EVENT, destination=(1, 0),
                               barrier=0.0)]
 
     site.transition_rates(T=300)
 
-    assert site.site_events[0].rate == pytest.approx(NU0)
+    assert site.defect.events[0].rate == pytest.approx(NU0)
 
   def test_negative_barrier_is_clamped_but_the_event_keeps_its_energy(
       self, pzt_defects, pzt_act_e):
     """`Act_E = max(Act_E, 0)` only affects the rate, not the stored energy."""
     site = make_site(pzt_defects, pzt_act_e, 'H', 'interstitial')
-    site.site_events = [Event(label=PLANE_EVENT, destination=(1, 0),
+    site.defect.events = [Event(label=PLANE_EVENT, destination=(1, 0),
                               barrier=-0.5)]
 
     site.transition_rates(T=300)
 
-    assert site.site_events[0].rate == pytest.approx(NU0)
-    assert site.site_events[0].barrier == -0.5
+    assert site.defect.events[0].rate == pytest.approx(NU0)
+    assert site.defect.events[0].barrier == -0.5
 
   def test_equal_barriers_share_one_cache_entry(self, pzt_defects, pzt_act_e):
     site = make_site(pzt_defects, pzt_act_e, 'H', 'interstitial')
     barrier = pzt_act_e['hydrogen_interstitial']['E_mig_plane']
-    site.site_events = [Event(label=PLANE_EVENT, destination=(1, 0),
+    site.defect.events = [Event(label=PLANE_EVENT, destination=(1, 0),
                               barrier=barrier),
                         Event(label=UP_EVENT, destination=(2, 0),
                               barrier=barrier)]
@@ -837,7 +839,7 @@ class TestTransitionRates:
     site.transition_rates(T=300)
 
     assert len(site.cache_TR) == 1
-    assert site.site_events[0].rate == site.site_events[1].rate == pytest.approx(
+    assert site.defect.events[0].rate == site.defect.events[1].rate == pytest.approx(
       arrhenius(barrier))
 
   def test_pre_rated_event_rate_is_overwritten_in_place(
@@ -845,20 +847,20 @@ class TestTransitionRates:
     """Deposition events are pre-seeded with a placeholder rate (Event.rate)."""
     site = make_site(pzt_defects, pzt_act_e, 'H', 'interstitial')
     barrier = pzt_act_e['hydrogen_interstitial']['E_mig_plane']
-    site.site_events = [Event(label=PLANE_EVENT, destination=(1, 0),
+    site.defect.events = [Event(label=PLANE_EVENT, destination=(1, 0),
                               barrier=barrier, rate=0.0)]
 
     site.transition_rates(T=300)
 
-    assert site.site_events[0].rate == pytest.approx(arrhenius(barrier))
+    assert site.defect.events[0].rate == pytest.approx(arrhenius(barrier))
 
   def test_field_lowers_the_forward_migration_barrier(
       self, pzt_defects, pzt_act_e):
     site = make_site(pzt_defects, pzt_act_e, 'H', 'interstitial')
     act = pzt_act_e['hydrogen_interstitial']
     h_name = _defect_name_by_symbol(pzt_defects, 'H')
-    site.ion_charge = pzt_defects[h_name]['charge']
-    site.site_events = [Event(label=PLANE_EVENT, destination=(1, 0),
+    site.defect.charge = pzt_defects[h_name]['charge']
+    site.defect.events = [Event(label=PLANE_EVENT, destination=(1, 0),
                               barrier=act['E_mig_plane'])]
     field = np.array([0.0, 0.0, 1e7])
     migration_pathways = {
@@ -870,17 +872,17 @@ class TestTransitionRates:
                           clusters=None, atom_to_cluster={})
 
     shifted = (act['E_mig_plane']
-               - site.ion_charge * np.dot(field, [0, 0, 1]) * 1e-10)
+               - site.defect.charge * np.dot(field, [0, 0, 1]) * 1e-10)
     assert shifted > act['E_min_mig'], "fixture expectation: floor not reached"
-    assert site.site_events[0].rate == pytest.approx(arrhenius(shifted))
+    assert site.defect.events[0].rate == pytest.approx(arrhenius(shifted))
 
   def test_field_correction_is_floored_at_the_real_E_min_mig(
       self, pzt_defects, pzt_act_e):
     site = make_site(pzt_defects, pzt_act_e, 'H', 'interstitial')
     act = pzt_act_e['hydrogen_interstitial']
     h_name = _defect_name_by_symbol(pzt_defects, 'H')
-    site.ion_charge = pzt_defects[h_name]['charge']
-    site.site_events = [Event(label=PLANE_EVENT, destination=(1, 0),
+    site.defect.charge = pzt_defects[h_name]['charge']
+    site.defect.events = [Event(label=PLANE_EVENT, destination=(1, 0),
                               barrier=act['E_mig_plane'])]
     # Large enough that the raw field shift would drive the barrier negative.
     field = np.array([0.0, 0.0, 1e10])
@@ -892,14 +894,14 @@ class TestTransitionRates:
                           migration_pathways=migration_pathways,
                           clusters=None, atom_to_cluster={})
 
-    assert site.site_events[0].rate == pytest.approx(arrhenius(act['E_min_mig']))
+    assert site.defect.events[0].rate == pytest.approx(arrhenius(act['E_min_mig']))
 
   def test_reduction_barrier_is_shifted_at_the_top_electrode(
       self, ceria_defects, ceria_act_e):
     site = make_site(ceria_defects, ceria_act_e, 'Ag', 'interstitial',
                      supp_by=('top_layer',))
     act = ceria_act_e['Ag_interstitial']
-    site.site_events = [Event(label='reduction', destination=(0,),
+    site.defect.events = [Event(label='reduction', destination=(0,),
                               barrier=act['E_reduction'])]
     field = np.array([0.0, 0.0, 1e7])
 
@@ -910,7 +912,7 @@ class TestTransitionRates:
     field_proj = np.dot(field, [0, 0, 1]) * 1e-10
     expected_barrier = max(act['E_reduction'] - 0.5 * field_proj,
                            act['E_reduction_min'])
-    assert site.site_events[0].rate == pytest.approx(arrhenius(expected_barrier))
+    assert site.defect.events[0].rate == pytest.approx(arrhenius(expected_barrier))
 
   def test_subthreshold_field_leaves_the_barrier_untouched(
       self, ceria_defects, ceria_act_e):
@@ -918,14 +920,14 @@ class TestTransitionRates:
     site = make_site(ceria_defects, ceria_act_e, 'Ag', 'interstitial',
                      supp_by=('top_layer',))
     act = ceria_act_e['Ag_interstitial']
-    site.site_events = [Event(label='reduction', destination=(0,),
+    site.defect.events = [Event(label='reduction', destination=(0,),
                               barrier=act['E_reduction'])]
 
     site.transition_rates(T=300, E_site_field=np.array([0.0, 0.0, 1e5]),
                           migration_pathways={}, clusters=None,
                           atom_to_cluster={})
 
-    assert site.site_events[0].rate == pytest.approx(arrhenius(act['E_reduction']))
+    assert site.defect.events[0].rate == pytest.approx(arrhenius(act['E_reduction']))
 # =============================================================================
 # Edge cases: boundaries, support sets, species bookkeeping
 # =============================================================================
@@ -955,7 +957,7 @@ class TestEdgeCases:
     site = make_site(pzt_defects, pzt_act_e, 'H', 'interstitial')
     h_name = _defect_name_by_symbol(pzt_defects, 'H')
     assert pzt_defects[h_name]['CN_matters'] is True
-    assert pzt_defects[h_name]['symbol'] == site.chemical_specie
+    assert pzt_defects[h_name]['symbol'] == site.defect.chemical_specie
     n1, n2 = ('n1',), ('n2',)
     site.nearest_neighbors_idx = [n1, n2]
     grid = {n1: GridSiteStub(site_type='interstitial', chemical_specie='H'),
@@ -1000,42 +1002,38 @@ class TestEdgeCases:
 
     site.introduce_specie('H')
 
-    assert site.chemical_specie == 'H'
-    assert site.ion_charge == pzt_defects[h_name]['charge']
+    assert site.defect.chemical_specie == 'H'
+    assert site.defect.charge == pzt_defects[h_name]['charge']
 
   def test_introduce_specie_accepts_an_explicit_charge(self, pzt_defects, pzt_act_e):
     site = make_site(pzt_defects, pzt_act_e, 'Empty', 'interstitial')
 
     site.introduce_specie('H', ion_charge=0)
 
-    assert site.ion_charge == 0
+    assert site.defect.charge == 0
 
   def test_remove_specie_clears_charge_and_events(self, pzt_defects, pzt_act_e):
     site = make_site(pzt_defects, pzt_act_e, 'H', 'interstitial')
-    site.site_events = [Event(label=PLANE_EVENT, destination=(1, 0),
+    site.defect.events = [Event(label=PLANE_EVENT, destination=(1, 0),
                               barrier=0.4)]
 
     site.remove_specie('Empty')
 
-    assert site.chemical_specie == 'Empty'
-    assert site.ion_charge == 0
-    assert site.site_events == []
+    assert site.defect.chemical_specie == 'Empty'
+    assert site.defect.charge == 0
+    assert site.defect.events == []
 
   def test_defect_object_survives_hop_by_identity(self,
       pzt_defects, pzt_act_e):
     """A hop moves the Defect object itself: install_defect transfers it by
     reference and clear_defect leaves a fresh, empty Defect behind.
 
-    The YAML still declares which attributes ought to travel with a defect;
-    the transfer mechanism is now object-based, so the object carries them.
+    All the state the old per-defect YAML list used to copy
+    attribute-by-attribute travels with the object now (the key itself was
+    deleted in Phase 6), so the assertions below check it on the receiving
+    Defect.
     """
     src = make_site(pzt_defects, pzt_act_e, 'V_O', 'O')
-    vo_name = _defect_name_by_symbol(pzt_defects, 'V_O')
-    attrs = pzt_defects[vo_name]['migrating_attributes']
-    assert attrs is not None
-    assert 'passivation_level' in attrs, (
-      "fixture expectation: V_O must migrate its passivation level")
-
     old = src.defect
     old.charge = -1
     old.passivation_level = 2
@@ -1047,18 +1045,18 @@ class TestEdgeCases:
 
     # Same object on the destination, carrying all of its state.
     assert dst.defect is old
-    assert dst.chemical_specie == 'V_O'
-    assert dst.ion_charge == -1
-    assert dst.passivation_level == 2
-    assert dst.site_events is old.events
+    assert dst.defect.chemical_specie == 'V_O'
+    assert dst.defect.charge == -1
+    assert dst.defect.passivation_level == 2
+    assert dst.defect.events is old.events
 
     # The source got a distinct, fresh empty Defect (state fully reset).
     assert src.defect is not old
     assert src.defect.is_empty
-    assert src.chemical_specie == 'Empty'
-    assert src.ion_charge == 0
-    assert src.passivation_level == 0
-    assert src.site_events == []
+    assert src.defect.chemical_specie == 'Empty'
+    assert src.defect.charge == 0
+    assert src.defect.passivation_level == 0
+    assert src.defect.events == []
 
   def test_reintroducing_the_same_species_keeps_the_defect(self,
       pzt_defects, pzt_act_e):
@@ -1068,7 +1066,7 @@ class TestEdgeCases:
 
     passivation_level keys the activation energies and gates capture /
     depassivation, so resetting it here would change PZT physics. This is the
-    legacy behaviour of the flat assignment ``self.ion_charge = ion_charge``.
+    legacy behaviour of the flat assignment ``self.defect.charge = ion_charge``.
     """
     site = make_site(pzt_defects, pzt_act_e, 'V_O', 'O')
     occupant = site.defect
@@ -1078,24 +1076,24 @@ class TestEdgeCases:
     site.introduce_specie('V_O', ion_charge=-1)
 
     assert site.defect is occupant       # kept, not rebuilt
-    assert site.passivation_level == 1   # untouched by the re-introduction
-    assert site.ion_charge == -1
+    assert site.defect.passivation_level == 1   # untouched by the re-introduction
+    assert site.defect.charge == -1
 
   def test_species_swap_does_not_inherit_passivation(self,
       pzt_defects, pzt_act_e):
     """Swapping the species installs a fresh Defect: the previous occupant's
     passivation_level and events are not inherited (Phase 5 cleanup)."""
     site = make_site(pzt_defects, pzt_act_e, 'V_O', 'O')
-    site.passivation_level = 1
-    site.site_events = [Event(label=PLANE_EVENT, destination=(1, 0),
+    site.defect.passivation_level = 1
+    site.defect.events = [Event(label=PLANE_EVENT, destination=(1, 0),
                               barrier=0.4)]
 
     site.introduce_specie('H', ion_charge=1)
 
-    assert site.chemical_specie == 'H'
+    assert site.defect.chemical_specie == 'H'
     assert site.defect.is_empty is False
-    assert site.passivation_level == 0
-    assert site.site_events == []
+    assert site.defect.passivation_level == 0
+    assert site.defect.events == []
 # Latent coupling with the topology pass (documented, not fixed)
 # =============================================================================
 class TestLatentCoupling:
@@ -1118,12 +1116,12 @@ class TestLatentCoupling:
       for name, cfg in pzt_defects.items()
     }
     site = make_site(stripped, pzt_act_e, 'H', 'interstitial')
-    site.site_events = [Event(label=PLANE_EVENT, destination=(1, 0),
+    site.defect.events = [Event(label=PLANE_EVENT, destination=(1, 0),
                               barrier=0.4)]
 
     site.transition_rates(T=300)  # must not raise
 
-    assert site.site_events[0].rate == pytest.approx(arrhenius(0.4))
+    assert site.defect.events[0].rate == pytest.approx(arrhenius(0.4))
 
   def test_available_migrations_requires_supp_by(self, pzt_defects, pzt_act_e):
     """Before the topology pass, the migration filter raises AttributeError."""
@@ -1146,7 +1144,7 @@ class TestLatentCoupling:
 
     site.available_pathways({}, (0, 0), facets_type=None)
 
-    assert site.site_events == []
+    assert site.defect.events == []
 # =============================================================================
 # Empty-config boundary conditions (isolated, no real config needed)
 # =============================================================================
@@ -1158,7 +1156,7 @@ class TestEmptyConfigBoundaries:
 
     site.available_pathways({}, (0, 0), facets_type=None)
 
-    assert site.site_events == []
+    assert site.defect.events == []
     assert site.applicable_defects == []
     assert site._get_current_defect_name() is None
 
@@ -1171,17 +1169,17 @@ class TestEmptyConfigBoundaries:
 
     site.available_reactions({'origin': site, 'nb': neighbour}, 'origin')
 
-    assert site.site_events == []
+    assert site.defect.events == []
 
   def test_remove_event_type_drops_the_matching_label(self, pzt_defects, pzt_act_e):
     site = make_site(pzt_defects, pzt_act_e, 'H', 'interstitial')
     # Pre-rated events, as transition_rates leaves them.
-    site.site_events = [Event(label=PLANE_EVENT, destination=(1, 0),
+    site.defect.events = [Event(label=PLANE_EVENT, destination=(1, 0),
                               barrier=0.4, rate=1.0),
                         Event(label=UP_EVENT, destination=(2, 0),
                               barrier=0.2, rate=1.0)]
 
     site.remove_event_type(UP_EVENT)
 
-    assert len(site.site_events) == 1
-    assert site.site_events[0].label == PLANE_EVENT
+    assert len(site.defect.events) == 1
+    assert site.defect.events[0].label == PLANE_EVENT

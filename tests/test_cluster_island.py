@@ -58,8 +58,9 @@ def make_site(
     algorithms read."""
     return SimpleNamespace(
         position=position,
-        chemical_specie=specie,
-        ion_charge=ion_charge,
+        # State lives on the Defect (Phase 6 removed Site's flat aliases).
+        defect=SimpleNamespace(chemical_specie=specie, charge=ion_charge,
+                               passivation_level=0, events=[]),
         nearest_neighbors_idx=list(neighbors),
         supp_by=list(supp_by),
         migration_paths={
@@ -180,7 +181,7 @@ class TestDfsFindComponents:
         # Non-periodic grid: a lone metal at the corner stays a single-site
         # component even though it has Empty neighbors.
         grid = make_grid_5x5(occupied=[(0, 0)])
-        atoms = [c for c, s in grid.items() if s.chemical_specie == "Ag"]
+        atoms = [c for c, s in grid.items() if s.defect.chemical_specie == "Ag"]
         assert atoms == [(0, 0)]
         components = call(
             Crystal_Lattice._dfs_find_components, SimpleNamespace(), atoms, grid
@@ -191,7 +192,7 @@ class TestDfsFindComponents:
         # The canonical example: (1,1), (1,2), (2,1) occupied -> one 3-site
         # cluster; everything else Empty.
         grid = make_grid_5x5(occupied=[(1, 1), (1, 2), (2, 1)])
-        atoms = [c for c, s in grid.items() if s.chemical_specie == "Ag"]
+        atoms = [c for c, s in grid.items() if s.defect.chemical_specie == "Ag"]
         components = call(
             Crystal_Lattice._dfs_find_components, SimpleNamespace(), atoms, grid
         )
@@ -201,7 +202,7 @@ class TestDfsFindComponents:
     def test_5x5_grid_periodic_wrap_merges_corners(self):
         # Periodic grid: corners (0,0) and (4,0) become neighbors.
         grid = make_grid_5x5(occupied=[(0, 0), (4, 0)], periodic=True)
-        atoms = [c for c, s in grid.items() if s.chemical_specie == "Ag"]
+        atoms = [c for c, s in grid.items() if s.defect.chemical_specie == "Ag"]
         components = call(
             Crystal_Lattice._dfs_find_components, SimpleNamespace(), atoms, grid
         )
@@ -475,7 +476,7 @@ class TestDetectIslands:
             (0, 0), set(), set(), "Empty",
         )
         assert len(island_slice) == 22
-        assert all(grid[s].chemical_specie == "Empty" for s in island_slice)
+        assert all(grid[s].defect.chemical_specie == "Empty" for s in island_slice)
 
     def test_previsited_start_yields_nothing(self):
         """A start site that is already visited is not re-added."""
@@ -575,7 +576,7 @@ class TestIslandLayersTerraces:
     def test_layers_ignore_empty_sites(self):
         grid, system = make_island_system()
         island = Island(1, 2.0, {(0, 0, 2), (2, 0, 2), (4, 0, 0)})
-        grid[(0, 0, 2)].chemical_specie = "Empty"
+        grid[(0, 0, 2)].defect.chemical_specie = "Empty"
         layers = island._layers_calculation(system)
         assert layers == [1, 1, 0, 0, 0, 0]
 
@@ -622,7 +623,7 @@ class TestMorphologyEdgeCases:
 
     def test_5x5_grid_all_sites_occupied_is_one_giant_cluster(self):
         grid = make_grid_5x5(occupied=[(x, y) for x in range(5) for y in range(5)])
-        atoms = [c for c, s in grid.items() if s.chemical_specie == "Ag"]
+        atoms = [c for c, s in grid.items() if s.defect.chemical_specie == "Ag"]
         assert len(atoms) == 25
         components = call(
             Crystal_Lattice._dfs_find_components, SimpleNamespace(), atoms, grid
@@ -632,7 +633,7 @@ class TestMorphologyEdgeCases:
 
     def test_5x5_grid_all_empty_yields_no_metal_atoms(self):
         grid = make_grid_5x5(occupied=[])
-        atoms = [c for c, s in grid.items() if s.chemical_specie == "Ag"]
+        atoms = [c for c, s in grid.items() if s.defect.chemical_specie == "Ag"]
         components = call(
             Crystal_Lattice._dfs_find_components, SimpleNamespace(), atoms, grid
         )

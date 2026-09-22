@@ -87,8 +87,7 @@ def vcm_config():
 
 @pytest.fixture(scope="module")
 def defects_config(vcm_config):
-    """Real VCM defects config as a dict (no test-side normalization needed:
-    the migrating_attributes loader bug was fixed in defect_config.py)."""
+    """Real VCM defects config as a dict (no test-side normalization needed)."""
     return vcm_config.defects.to_dict()
 
 
@@ -145,7 +144,7 @@ def _sum_total_rate(crystal):
     for idx in crystal.active_event_sites + crystal.generation_sites:
         if idx in crystal.superbasin_dict:
             continue
-        for event in crystal.grid_crystal[idx].site_events:
+        for event in crystal.grid_crystal[idx].defect.events:
             total += event.rate
     return total
 
@@ -182,9 +181,9 @@ def _make_recorder(crystal):
         )
         if isinstance(label, int):
             # Migration event: source must currently host the mobile defect.
-            assert crystal.grid_crystal[src_idx].chemical_specie == "O_i", (
+            assert crystal.grid_crystal[src_idx].defect.chemical_specie == "O_i", (
                 f"migration event from non-defect site {src_idx!r} "
-                f"(species={crystal.grid_crystal[src_idx].chemical_specie!r})"
+                f"(species={crystal.grid_crystal[src_idx].defect.chemical_specie!r})"
             )
         else:
             assert label in reaction_names, f"unknown event label {label!r}"
@@ -195,7 +194,7 @@ def _make_recorder(crystal):
                 "dest": dest_idx,
                 "label": label,
                 "source": src_idx,
-                "source_specie": crystal.grid_crystal[src_idx].chemical_specie,
+                "source_specie": crystal.grid_crystal[src_idx].defect.chemical_specie,
             }
         )
         original_processes(chosen_event)
@@ -276,7 +275,7 @@ def deterministic_rerun(vcm_config, defects_config, vcm_act_e_dict):
     crystal = _build_lattice(vcm_config, defects_config, vcm_act_e_dict)
     crystal.defect_gen()
     n_oi = sum(
-        1 for s in crystal.grid_crystal.values() if s.chemical_specie == "O_i"
+        1 for s in crystal.grid_crystal.values() if s.defect.chemical_specie == "O_i"
     )
     assert n_oi > 0, "defect_gen() introduced no defects in the rerun build"
     rng = crystal.rng
@@ -305,7 +304,7 @@ class TestSystemConstruction:
         n_oi = sum(
             1
             for site in crystal.grid_crystal.values()
-            if site.chemical_specie == "O_i"
+            if site.defect.chemical_specie == "O_i"
         )
         assert n_oi > 0
 
@@ -381,7 +380,7 @@ class TestEventExecution:
         """After the run, no site hosts a species outside the VCM set."""
         crystal = run_result["crystal"]
         for site in crystal.grid_crystal.values():
-            assert site.chemical_specie in VALID_SPECIES
+            assert site.defect.chemical_specie in VALID_SPECIES
 
 
 class TestRateConsistency:
@@ -444,7 +443,7 @@ class TestDeterminism:
             return sum(
                 1
                 for s in crystal.grid_crystal.values()
-                if s.chemical_specie == specie
+                if s.defect.chemical_specie == specie
             )
 
         for specie in ("O_i", "V_O", "Empty"):

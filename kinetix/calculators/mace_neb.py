@@ -449,7 +449,7 @@ class KinetixMACEAdapter(ActivationEnergyCalculator):
     # -- species resolution ------------------------------------------------  
     def _site_elements(self, site):
       """Elements contributed by the site (list; empty = no atom) """
-      label = site.chemical_specie
+      label = site.defect.chemical_specie
       if label not in self.species_map:
         raise KeyError(f"Unknown species {label!r}: add 'physical_element' to "
                        f"defects_config or host composition")

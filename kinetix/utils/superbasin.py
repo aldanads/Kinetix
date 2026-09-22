@@ -88,7 +88,7 @@ class Superbasin():
                 is_absorbing = True # Assume that it is an absorbing state
                 site_has_migrations = False
                 
-                for event in site.site_events:
+                for event in site.defect.events:
                     
                     if not event.is_migration:
                       continue # Skip redox, generation, etc. Keep only migrations
@@ -113,7 +113,7 @@ class Superbasin():
 
                 elif not is_absorbing:
                     # Explore neighbors via migration
-                    for event in site.site_events:
+                    for event in site.defect.events:
                         if not event.is_migration:
                           continue
                         dest = event.destination
@@ -340,9 +340,9 @@ class Superbasin():
         
         for site in sites_occupied:
             # It should be occupied, but it is not
-            if System_state.grid_crystal[site].chemical_specie != System_state.chemical_specie:
+            if System_state.grid_crystal[site].defect.chemical_specie != System_state.chemical_specie:
                 # Select deposition event
-                # event = System_state.grid_crystal[site].site_events[0]
+                # event = System_state.grid_crystal[site].defect.events[0]
                 # Remove the site from sites_occupied
                 # System_state.sites_occupied.remove(event.destination)
                 System_state.sites_occupied.remove(site)

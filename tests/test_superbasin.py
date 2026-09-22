@@ -37,7 +37,7 @@ import numpy as np
 import pytest
 from scipy import constants
 
-from kinetix.lattice.defect import Event
+from kinetix.lattice.defect import Event, make_empty_defect
 from kinetix.utils.superbasin import Superbasin
 
 KB_EV = constants.physical_constants['Boltzmann constant in eV/K'][0]
@@ -54,10 +54,12 @@ class FakeSite:
   """
 
   def __init__(self, site_events=(), chemical_specie='VO', supp_by=()):
-    self.site_events = [Event(label=label, destination=dest, barrier=e_act,
-                              rate=rate)
-                        for rate, dest, label, e_act in site_events]
-    self.chemical_specie = chemical_specie
+    # State lives on the Defect (Phase 6 removed Site's flat aliases).
+    self.defect = make_empty_defect()
+    self.defect.events = [Event(label=label, destination=dest, barrier=e_act,
+                                rate=rate)
+                          for rate, dest, label, e_act in site_events]
+    self.defect.chemical_specie = chemical_specie
     self.supp_by = set(supp_by)
 
 

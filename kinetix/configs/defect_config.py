@@ -41,7 +41,6 @@ class DefectConfig:
     sites_generation_layer: Layer in which interstitial sites are generated.
     interface_tolerance_generation: Tolerance (nm) for interface site
       generation.
-    migrating_attributes: Site attributes tracked for migrating defects.
     field_dependent_generation: Whether generation depends on the E-field.
     electrode_scavenging: Whether the defect is scavenged at electrodes.
     description: Free-text description taken from the YAML file.
@@ -65,7 +64,6 @@ class DefectConfig:
   CN_matters: bool = False
   sites_generation_layer: str | None = None
   interface_tolerance_generation: float | None = 0.0
-  migrating_attributes: list[str] = field(default_factory=list)
   field_dependent_generation: bool = False
   electrode_scavenging: bool = False
   description: str = ""
@@ -106,7 +104,6 @@ class DefectConfig:
       'CN_matters': self.CN_matters,
       'sites_generation_layer': self.sites_generation_layer,
       'interface_tolerance_generation': self.interface_tolerance_generation,
-      'migrating_attributes': self.migrating_attributes,
       'field_dependent_generation': self.field_dependent_generation,
       'electrode_scavenging': self.electrode_scavenging,
       'description': self.description,
@@ -148,7 +145,6 @@ class DefectConfig:
       CN_matters=data.get('CN_matters', False),
       sites_generation_layer=data.get('sites_generation_layer'),
       interface_tolerance_generation=data.get('interface_tolerance_generation'),
-      migrating_attributes=data.get('migrating_attributes') or [],
       field_dependent_generation=data.get('field_dependent_generation'),
       electrode_scavenging=data.get('electrode_scavenging'),
       description=data.get('description', ''),
