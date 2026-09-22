@@ -19,3 +19,5 @@ batch_sim.sh
 *.model
 *.extxyz
 slurm_batch.sh
+*.md
+!AGENTS.md

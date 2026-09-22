@@ -12,6 +12,10 @@ from kinetix.utils.mpi_context import MPIContext
 from kinetix.configs.mesh_config import MeshConfig
 from kinetix.configs.solver_config import PoissonSolverConfig
 
+# Every test in this module builds a FEM mesh and solves the Poisson equation
+# (DOLFINx) — minutes each. Deselect with: pytest tests/ -m "not solver"
+pytestmark = pytest.mark.solver
+
 
 def _mock_mesh_config() -> MeshConfig:
     """MeshConfig with the values the legacy test parameter dict carried."""

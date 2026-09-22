@@ -13,6 +13,10 @@ from kinetix.configs.mesh_config import MeshConfig
 from kinetix.configs.solver_config import HeatSolverConfig, PoissonSolverConfig
 
 
+# Every test in this module builds a FEM mesh and solves the heat equation
+# (DOLFINx) - minutes each. Deselect with: pytest tests/ -m "not solver"
+pytestmark = pytest.mark.solver
+
 def _mock_mesh_config() -> MeshConfig:
   """MeshConfig with the values the legacy test parameter dicts carried."""
   return MeshConfig(

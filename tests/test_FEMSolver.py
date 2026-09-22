@@ -10,6 +10,10 @@ from kinetix.solvers.base import FEMSolverBase
 from kinetix.utils.mpi_context import MPIContext
 from kinetix.configs.mesh_config import MeshConfig
 
+# Every test in this module drives the FEMSolverBase / DOLFINx stack.
+# Deselect with: pytest tests/ -m "not solver"
+pytestmark = pytest.mark.solver
+
 
 def _mock_mesh_config() -> MeshConfig:
     """MeshConfig with the values the legacy test parameter dict carried."""

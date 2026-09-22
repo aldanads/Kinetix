@@ -62,3 +62,18 @@ force-include = { "data/parameters" = "data/parameters" }
 
 [tool.hatch.build.targets.sdist]
 include = ["data/parameters/**"]
+
+# ---------------------------------------------------------------------------
+# Pytest configuration
+#
+# Category markers let agents run fast feedback by default:
+#   pytest tests/ -q -m "not solver and not mace"   # ~30 s - few minutes
+# Tests marked `slow` are ADDITIONALLY skipped unless --runslow is passed
+# (see tests/conftest.py) — they run real MACE CI-NEB sweeps for hours.
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "solver: Poisson/heat/FEM solver tests (very slow, ~20min total)",
+    "mace: MACE-related tests (very slow without GPU)",
+]

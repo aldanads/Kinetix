@@ -41,6 +41,12 @@ from unittest import mock
 import numpy as np
 import pytest
 
+# These tests need the optional mace-torch stack (torch + mace) and either a
+# GPU or minutes-to-hours of CPU NEB time. The pathway sweeps additionally
+# carry @pytest.mark.slow (skipped unless --runslow, see tests/conftest.py).
+# Deselect with: pytest tests/ -m "not mace"
+pytestmark = pytest.mark.mace
+
 # Repository root (parent of tests/); the model cache lives under data/cache/...
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
