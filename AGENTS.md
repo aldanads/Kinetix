@@ -47,6 +47,7 @@
 | `kinetix/configs/` | Typed config dataclasses: `simulation_config`, `defect_config`, `reaction_config`, `electrical_config`, `grain_boundary_config`, `material_config`, `mesh_config`, `solver_config`, `calculator_config` + `config_loader` |
 | `kinetix/initialization.py` | Lattice construction, grid loading/caching, config wiring |
 | `kinetix/solvers/` | Poisson + heat FEM solvers (DOLFINx) |
+| `kinetix/solvers/coordinator.py` | SolverCoordinator — orchestrates Poisson/Heat field solving |
 | `kinetix/calculators/mace_neb.py` | MACE NEB barrier calculator (optional, GPU; `max_passivation_level` validated here) |
 | `kinetix/logging_config.py` | Root logger `propagate=False` (affects caplog — see Testing) |
 | `kinetix/cli.py` / `kinetix/__main__.py` | Simulation workflow driver |
@@ -220,6 +221,12 @@ Measured selections (Kinetix env):
 - Phase-5 regression class (session of `a224b49`): deleted-method dangling
   callers, dropped Poisson refresh / dirty-site bookkeeping, discarded GB
   charge override, passivation reset on re-introduction — all fixed pre-commit.
+- H: `kinetix/__init__.py` unconditional FEM import → fixed with try/except
+  (Phase 2 of the crystal.py split)
+- B: Missing `return` in `_evaluate_fields_for_kmc` → fixed
+  (`kinetix/solvers/coordinator.py`)
+- M: Unbound `clusters` in `prepare_clusters_for_bcs` → fixed
+  (`kinetix/solvers/coordinator.py`)
 
 ### Open (post-epic debt — NOT addressed by Phase 6)
 - **B2**: Superbasin label convention `num_event - 2` (`superbasin.py:319`).

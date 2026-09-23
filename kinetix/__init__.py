@@ -13,8 +13,11 @@ from kinetix.lattice.cluster import Cluster
 from kinetix.lattice.grain_boundary import GrainBoundary
 from kinetix.lattice.island import Island
 from kinetix.configs.simulation_config import SimulationConfig
-from kinetix.solvers.poisson import PoissonSolver
-from kinetix.solvers.heat import HeatSolver
+try:
+    from kinetix.solvers.poisson import PoissonSolver
+    from kinetix.solvers.heat import HeatSolver
+except ImportError:
+    pass  # dolfinx not available on this system
 from kinetix.solvers.electrical import ElectricalController
 from kinetix.utils.superbasin import Superbasin
 from kinetix.utils.mpi_context import MPIContext
@@ -33,3 +36,5 @@ __all__ = [
     "MPIContext",
     "__version__",
 ]
+# Without the FEM stack the solver names above are absent; keep `import *` valid.
+__all__ = [name for name in __all__ if name in globals()]
