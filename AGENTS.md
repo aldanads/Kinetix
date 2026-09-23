@@ -43,6 +43,7 @@
 | `kinetix/utils/superbasin.py` | Superbasin acceleration (note quirk at :319 — bug B2) |
 | `kinetix/utils/balanced_tree.py` | Balanced binary tree for BKL event selection |
 | `kinetix/utils/state_loader.py` | LAMMPS dump parsing, state restore |
+| `kinetix/utils/metadata.py` | MetadataWriter — metadata output (JSON now, H5MD/NOMAD future) |
 | `kinetix/configs/` | Typed config dataclasses: `simulation_config`, `defect_config`, `reaction_config`, `electrical_config`, `grain_boundary_config`, `material_config`, `mesh_config`, `solver_config`, `calculator_config` + `config_loader` |
 | `kinetix/initialization.py` | Lattice construction, grid loading/caching, config wiring |
 | `kinetix/solvers/` | Poisson + heat FEM solvers (DOLFINx) |

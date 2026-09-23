@@ -15,6 +15,7 @@ import logging
 from kinetix.lattice.crystal import Crystal_Lattice
 from kinetix.solvers.electrical import ElectricalController
 from kinetix.utils.mpi_context import MPIContext
+from kinetix.utils.metadata import MetadataWriter
 from kinetix.material_fetcher import MaterialDataFetcher
 from kinetix.configs.electrical_config import ElectricalConfig, VoltageConfig, CurrentConfig, VoltageMode, CurrentModel
 from kinetix.configs.config_loader import get_api_key,load_activation_energies, get_grids_root,get_mesh_root,get_parameters_root
@@ -477,7 +478,7 @@ def initialization(n_sim,params, config_name='PZT_ZrTi_PbO3_2.yaml'):
 
         # 9. Post initialization steps
         # Write metadata
-        System_state.write_metadata(paths['data']) 
+        MetadataWriter(paths['data'], config).write_json(System_state) 
 
         Elec_controller.crystal_size = System_state.crystal_size #  The crystal_size after the generation of the lattice may differ from the parameter provided in a NN points separation
         System_state.timestep_limits = Elec_controller.voltage_update_time  
