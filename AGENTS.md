@@ -34,8 +34,9 @@
 ## Architecture (Key Modules)
 | Module | Role |
 |---|---|
-| `kinetix/lattice/crystal.py` (~4.5k lines) | `Crystal_Lattice`/`System_state` — kMC loop, event execution (`processes` :2905, handlers :3004+), field solving, GB charge states |
+| `kinetix/lattice/crystal.py` (~4.0k lines) | `Crystal_Lattice`/`System_state` — kMC loop (`step_kmc`/`_kmc_step`), lattice construction, rate evaluation, superbasin driving; delegates events/solvers/metadata out |
 | `kinetix/lattice/site.py` (~1.3k lines) | `Site` — lattice site with topology + **Defect composition**; event generation (`available_pathways` :610, `available_reactions` :818) |
+| `kinetix/lattice/events.py` | EventHandler — kMC event dispatch/handlers, dirty-site bookkeeping, affected-state refresh |
 | `kinetix/lattice/defect.py` (190 lines) | `Event` (:40, `catalog_tuple` :69), `Defect` (:80), `EMPTY_DEFECT_CONFIG` (:157), `make_empty_defect` (:175) |
 | `kinetix/lattice/cluster.py` | Cluster/filament analysis (`_find_clusters`) |
 | `kinetix/lattice/island.py` | Island — deposition morphology |
@@ -51,6 +52,41 @@
 | `kinetix/calculators/mace_neb.py` | MACE NEB barrier calculator (optional, GPU; `max_passivation_level` validated here) |
 | `kinetix/logging_config.py` | Root logger `propagate=False` (affects caplog — see Testing) |
 | `kinetix/cli.py` / `kinetix/__main__.py` | Simulation workflow driver |
+
+## crystal.py Split Progress (epic: break up the 4.5k-line god class)
+Extraction order: metadata → solvers → events. Each phase moves code verbatim
+into a class that holds **no simulation state** (everything goes through
+`self.system`) and leaves thin one-line delegates on `Crystal_Lattice`, so
+`cli.py`, `superbasin.py`, `state_loader.py` and the tests are unchanged.
+
+| Phase | Module | Status |
+|---|---|---|
+| 1 | `kinetix/utils/metadata.py` — `MetadataWriter` (`write_json`; H5MD/NOMAD stubs) | ✅ `6b040e3` |
+| 2 | `kinetix/solvers/coordinator.py` — `SolverCoordinator` | ✅ `f15d6aa` |
+| 3 | `kinetix/lattice/events.py` — `EventHandler` (17 methods) | ✅ Phase 3 |
+
+**Phase 3 essentials:**
+- Moved: `processes`, `_handle_{migration,generation,redox,reaction}_event`,
+  `_should_scavenge`, `_defect_by_name`, `_find_empty_neighbor`,
+  `_is_at_top_electrode`, `_get_mobile_sites`, `_get_gb_charge_state`,
+  `_install_defect_site`, `_introduce_specie_site`, `_track_occupancy_update`,
+  `_remove_species_at_site`, `update_sites_topology`, `_update_rates_lazily`.
+  Bodies are byte-identical (verified against `git show HEAD:…`), only
+  re-indented to the 4-space convention with `self.` → `self.system.`.
+- **Delegates kept** (external callers): `processes` (`superbasin.py:134/138/351`),
+  `_update_rates_lazily` (`_kmc_step`, golden trace, `test_kmc_loop.py`),
+  `update_sites_topology` (`defect_gen`, `state_loader.py:180`),
+  `_introduce_specie_site` (deposition paths, `state_loader.py:166`),
+  `_get_mobile_sites` (init :210).
+- `_is_active_site` **stays on `Crystal_Lattice`** (lattice construction and
+  `_resolve_defect_config` use it); the handler calls
+  `self.system._is_active_site(...)`.
+- `_kmc_step` calls `self.processes(...)` **through the delegate on purpose**:
+  the golden trace wraps the *instance* attribute to observe the event catalog
+  (`tests/test_golden_trace.py:344`). Never call `self.event_handler.processes`
+  from the loop.
+- Lazy `event_handler` property (same pattern as `solver_coordinator`), so
+  `Crystal_Lattice.__new__` buildouts and legacy pickles resolve it.
 
 ## Site/Defect Refactor Status (Epic: decouple defect state from Site)
 **Target:** Site *has-a* Defect composition model; the Defect carries all dynamic
@@ -129,14 +165,15 @@ state; the flat attribute-by-attribute migration machinery is gone.
   `KINETIX_UPDATE_GOLDEN_TRACE=1 python -m pytest "tests/test_golden_trace.py::test_golden_trace_cross_sublattice"`.
 
 ## Testing
-- Full suite: `pytest tests/ -q` → **365 passed, 1 skipped** (~23 min); the 39
+- Full suite: `pytest tests/ -q` → **405 passed, 1 skipped** (~23 min); the 39
   `solver`-marked tests are ~22 min of that (see *Test Execution* below).
 - Golden trace alone: `pytest tests/test_golden_trace.py -v` → 5 tests (~25 s).
-- Notable files: `test_site.py` (64), `test_migration_pathways.py` (37),
-  `test_cluster_island.py` (43), `test_balanced_tree.py` (29),
-  `test_state_loader.py` (31), `test_kmc_loop.py` (12),
-  `test_gb_charge_and_state_transfer.py` (22), `test_superbasin.py` (17),
-  `test_golden_trace.py` (5).
+- Notable files: `test_site.py` (64), `test_cluster_island.py` (43),
+  `test_migration_pathways.py` (37), `test_state_loader.py` (31),
+  `test_balanced_tree.py` (29), `test_gb_charge_and_state_transfer.py` (22),
+  `test_event_handler.py` (17), `test_superbasin.py` (17),
+  `test_solver_coordinator.py` (14), `test_kmc_loop.py` (12),
+  `test_metadata_writer.py` (9), `test_golden_trace.py` (5).
 - `test_mace_adapter.py` (marked `mace`) self-skips at module level without the
   `mace` extra — collects nothing; its `slow`-marked pathway sweeps
   (`--runslow`) also live there.
@@ -150,12 +187,12 @@ state; the flat attribute-by-attribute migration machinery is gone.
 
 ## Test Execution
 
-**Default (fast feedback, ~40 s):**
+**Default (fast feedback, ~55 s):**
 
 ```bash
 pytest tests/ -q -m "not solver and not mace"
 ```
-Runs: 326 tests + 1 module-level skip (39 solver tests deselected).
+Runs: 366 tests + 1 module-level skip (39 solver tests deselected).
 **Use this by default — do NOT run the full suite for quick feedback.**
 
 **Full suite (slow, ~23 min):**
@@ -163,7 +200,7 @@ Runs: 326 tests + 1 module-level skip (39 solver tests deselected).
 ```bash
 pytest tests/ -q
 ```
-Runs: all 365 tests (the 39 `solver` tests take ~22 min; measured 21m43s).
+Runs: all 405 tests (the 39 `solver` tests take ~22 min; measured 21m43s).
 
 **Specific categories:**
 
@@ -200,10 +237,10 @@ Measured selections (Kinetix env):
 
 | Selection | Tests | Wall time |
 |---|---|---|
-| `-m "not solver and not mace"` | 326 (+1 module skip) | ~40 s |
+| `-m "not solver and not mace"` | 366 (+1 module skip) | ~55 s |
 | `-m solver` | 39 | ~22 min |
 | `-m mace` (no `mace` extra installed) | 0 (module skip) | ~5 s |
-| full suite (`pytest tests/ -q`) | 365 (+1 module skip) | ~23 min |
+| full suite (`pytest tests/ -q`) | 405 (+1 module skip) | ~23 min |
 
 ## Known Bugs (from the 7-part decoupling investigation; report not stored in repo)
 ### Fixed
@@ -237,6 +274,15 @@ Measured selections (Kinetix env):
 - **`site.py:465` bare name**: `detect_edges(..., chemical_specie)` references
   an undefined local (deposition path, not test-covered) — pre-existing, Phase 6
   did not touch it.
+- **`_is_at_top_electrode` dead + wrong flag** (found in Phase 3, moved verbatim
+  to `events.py:346`): the method returns
+  `grid_crystal[site_idx].is_at_bottom_interface` although its name says *top*,
+  and it has **no callers anywhere** in the package. Behaviour pinned by
+  `tests/test_event_handler.py::test_is_at_top_electrode_reads_interface_flag` so
+  a future caller cannot silently inherit the wrong flag.
+- **`site.py:93-94` interface flags**: `is_at_bottom_interface` /
+  `is_at_top_interface` are set by `neighbors_analysis` only for the outermost
+  layers; `Site.calculate_site_energy` and the removal-layer rules read them.
 - **Finding A (closed, behaviour intended)**: cross-sublattice hops keep the
   source's DefectConfig (object transfer), pinned by
   `test_golden_trace_cross_sublattice` (4 hops); scenario needs its documented
@@ -267,7 +313,14 @@ Measured selections (Kinetix env):
 - **DO NOT** change physics (barriers, rates, field corrections, GB rules) during refactor phases.
 - **DO NOT** add attributes to `@dataclass(slots=True)` classes casually — slots are fixed at class creation.
 - **DO NOT** touch the kMC loop / event handlers in `crystal.py` without running `pytest tests/test_golden_trace.py`.
-- **DO NOT** delete `_remove_species_at_site` / `_install_defect_site` bookkeeping — dangling callers crash the kMC loop (this bit a previous session).
+- **DO NOT** delete `_remove_species_at_site` / `_install_defect_site` bookkeeping — dangling callers crash the kMC loop (this bit a previous session). They now live on `EventHandler` (`events.py`) and are reached through the handler.
+- **DO NOT** call `self.event_handler.processes(...)` from `_kmc_step` — the kMC
+  loop must go through the `Crystal_Lattice.processes` **delegate**, because the
+  golden trace wraps the *instance* attribute (`tests/test_golden_trace.py:344`)
+  to observe the event catalog; bypassing it silently voids the physics contract.
+- **DO NOT** add simulation state to `EventHandler` / `SolverCoordinator` — both
+  read and write the system through `self.system` (pickles, MPI rank ownership
+  and the golden trace depend on the state staying on `Crystal_Lattice`).
 - **DO NOT** reset `passivation_level` on species re-introduction — it keys
   activation energies (`Act_E[str(level)]`) and gates capture/depassivation; resetting it yields invalid barrier keys (`KeyError`).
 - **DO NOT** re-add flat state accessors to `Site` — Phase 6 deleted the four
