@@ -63,7 +63,7 @@ class MetadataWriter:
 
         # === Try cache first ===
         cache_key = f'summary_{crystal.id_material}'
-        summary_dict = crystal._load_mp_cache(cache_key)
+        summary_dict = crystal.lattice_builder._load_mp_cache(cache_key)
 
         try:
             # === Cache miss: fetch from API (rank 0)
@@ -84,7 +84,7 @@ class MetadataWriter:
                                     'number': summary_dict.get('symmetry', {}).get('number', 0),
                                 },
                             }
-                            crystal._save_mp_cache(cache_key, summary_minimal)
+                            crystal.lattice_builder._save_mp_cache(cache_key, summary_minimal)
                             summary_dict = summary_minimal
                 else:
                     summary_dict = None

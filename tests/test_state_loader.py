@@ -156,6 +156,13 @@ class MockSystemState:
         if species_id_to_type is not None:
             self.SPECIES_ID_TO_TYPE = dict(species_id_to_type)
 
+    @property
+    def event_handler(self):
+        """The load path calls ``system.event_handler.<name>`` after the global
+        delegate cleanup; this recorder already implements those two methods, so
+        it doubles as its own EventHandler."""
+        return self
+
     def _species_id_gen(self):
         self.species_id_gen_calls += 1
         self.SPECIES_TYPE_MAP, self.SPECIES_ID_TO_TYPE = build_species_maps(

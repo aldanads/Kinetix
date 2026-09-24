@@ -17,8 +17,8 @@ The loop holds no simulation state: every read/write goes through
 ``self.simulator`` (``time``, ``rank``/``mpi_ctx``, ``superbasin_dict``,
 ``events_tracking``, ...), so MPI rank ownership, pickles and the golden trace
 observe the pre-split state. Field solving stays out of the loop: ``step_kmc``
-reaches it via ``simulator._evaluate_fields_for_kmc()`` /
-``simulator.get_timestep_limit()``, which delegate to the SolverCoordinator.
+reaches it via ``simulator.solver_coordinator._evaluate_fields_for_kmc()`` /
+``simulator.solver_coordinator.get_timestep_limit()``.
 
 MPI NOTE (moved verbatim): ``step_kmc`` keeps its historical ``rank == 0``
 guard and the ``mpi_ctx.bcast(payload, root=0)`` of ``simulator.time``. In serial
@@ -27,11 +27,12 @@ broadcast is skipped and ``rank`` is 0; in MPI runs the loop executes on rank 0
 only and *time* is the only synchronised value. This extraction added and
 removed no MPI logic - it only reads those two fields from the system.
 
-``KMCSimulator`` keeps thin delegates with the original method names (plus
-a lazy ``kmc_loop`` property), so cli.py, the tests and the golden trace's
-instance-level wrapper are unchanged. ``_kmc_step`` calls
-``self.simulator.processes(...)`` - the *system* delegate - on purpose: the golden
-trace wraps the instance attribute ``crystal.processes``
+Global delegate cleanup: the loop is self-contained. Only ``step_kmc`` - the
+core public API called by cli.py and the golden trace - survives as a thin
+facade on ``KMCSimulator``; the other eight extracted names are reached
+directly as ``simulator.kmc_loop.<name>``. ``_kmc_step`` calls
+``self.simulator.processes(...)`` - the *retained* EventHandler delegate - on
+purpose: the golden trace wraps the instance attribute ``crystal.processes``
 (``tests/test_golden_trace.py``) to observe the executed event catalog.
 """
 from __future__ import annotations
@@ -54,13 +55,13 @@ logger = logging.getLogger(__name__)
 class KMCLoop:
     """BKL kMC step orchestration for KMCSimulator.
 
-    KMCSimulator keeps thin delegates with the original method names so
-    external callers (cli.py, tests) and the golden trace's instance-level
-    wrapper are unchanged.
+    The loop is self-contained: ``KMCSimulator`` keeps only the ``step_kmc``
+    facade plus a lazy ``kmc_loop`` property; the other eight methods are
+    reached as ``simulator.kmc_loop.<name>``.
 
     The loop runs on rank 0 (serial on every rank when ``mpi_ctx`` is None);
     field solving - the remaining MPI concern - is orchestrated by the
-    SolverCoordinator and reached through system delegates.
+    SolverCoordinator and reached as ``simulator.solver_coordinator.<name>``.
 
     Args:
         simulator: The ``KMCSimulator``/``simulator`` the loop advances.
@@ -93,7 +94,7 @@ class KMCLoop:
         Update the system
         """
 
-        E_field_dict, T_field_dict = self.simulator._evaluate_fields_for_kmc()
+        E_field_dict, T_field_dict = self.simulator.solver_coordinator._evaluate_fields_for_kmc()
 
         # === Step 1: Rank 0 executes kMC, others prepare to receive ===
         if self.simulator.rank == 0:
@@ -140,7 +141,7 @@ class KMCLoop:
             Event details if an event occurred, None otherwise
         """
         if self.simulator._fields_changed or self.simulator._dirty_sites:
-          self.simulator._update_rates_lazily(E_field_dict, T_field_dict)
+          self.simulator.event_handler._update_rates_lazily(E_field_dict, T_field_dict)
 
         grid_crystal = self.simulator.grid_crystal
         superbasin_dict = self.simulator.superbasin_dict
@@ -172,7 +173,7 @@ class KMCLoop:
 
         # Handle case: No events possible
         if not TR_catalog:
-          timestep_limit = self.simulator.get_timestep_limit()
+          timestep_limit = self.simulator.solver_coordinator.get_timestep_limit()
           self.simulator.track_time(timestep_limit)
           return timestep_limit, None
 
@@ -183,7 +184,7 @@ class KMCLoop:
 
         # --- Handle case: No valid transitions ---
         if sumTR is None or sumTR == 0:
-          timestep_limit = self.simulator.get_timestep_limit()
+          timestep_limit = self.simulator.solver_coordinator.get_timestep_limit()
           self.simulator.track_time(timestep_limit)
           return timestep_limit, None
 
@@ -195,7 +196,7 @@ class KMCLoop:
         time_step = -np.log(rng.random()) / sumTR
 
         # --- Calculate maximum allowed timestep ---
-        timestep_limit = self.simulator.get_timestep_limit()
+        timestep_limit = self.simulator.solver_coordinator.get_timestep_limit()
 
         # --- Execute event or advance time ---
         if time_step <= timestep_limit:

@@ -33,8 +33,9 @@ if TYPE_CHECKING:
 class SolverCoordinator:
     """Orchestrates Poisson/Heat field solving around the kMC system state.
 
-    KMCSimulator keeps thin delegates with the original method names so
-    cli.py and the kMC-loop call sites are unchanged.
+    The coordinator is self-contained: no extracted method survives on
+    ``KMCSimulator``. Callers reach it directly as
+    ``simulator.solver_coordinator.<name>`` (cli.py, the kMC loop, tests).
 
     Args:
         simulator: The ``KMCSimulator``/``simulator`` whose fields are

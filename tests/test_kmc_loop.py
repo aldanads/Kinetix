@@ -224,7 +224,7 @@ def run_result(vcm_config, defects_config, vcm_act_e_dict):
 
     # Materialize rates (the first step would otherwise trigger
     # _update_rates_lazily) and verify the total rate is positive and finite.
-    crystal._update_rates_lazily({}, {})
+    crystal.event_handler._update_rates_lazily({}, {})
     total_rate = _sum_total_rate(crystal)
     assert np.isfinite(total_rate) and total_rate > 0
 
@@ -235,7 +235,7 @@ def run_result(vcm_config, defects_config, vcm_act_e_dict):
     rng.bit_generator.state = state_before  # restore
 
     expected_time_step = -np.log(u) / total_rate
-    time_step_1, event_1 = crystal._kmc_step(rng, {}, {})
+    time_step_1, event_1 = crystal.kmc_loop._kmc_step(rng, {}, {})
     if event_1 is not None:
         assert time_step_1 == pytest.approx(expected_time_step, rel=1e-9), (
             "BKL time advance does not match -ln(u)/sum(TR): "
@@ -401,7 +401,7 @@ class TestRateConsistency:
         saved_time = crystal.time
         try:
             crystal.time = crystal.last_field_solve_time + crystal.timestep_limits
-            ts, event = crystal._kmc_step(crystal.rng, {}, {})
+            ts, event = crystal.kmc_loop._kmc_step(crystal.rng, {}, {})
             assert event is None
             assert ts == pytest.approx(0.0)
         finally:

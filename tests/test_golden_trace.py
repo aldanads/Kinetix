@@ -342,7 +342,7 @@ def _run_trace(crystal):
   observation of the loop.
   """
   crystal.defect_gen()
-  crystal._update_rates_lazily({}, {})  # materialize rates before step 1
+  crystal.event_handler._update_rates_lazily({}, {})  # materialize rates before step 1
   rng = crystal.rng
   calls = []
   original_processes = crystal.processes
@@ -400,7 +400,7 @@ def _run_cross_trace(crystal):
       Defect (``clear_defect``), not with stale state.
   """
   crystal.defect_gen()
-  crystal._update_rates_lazily({}, {})  # materialize rates before step 1
+  crystal.event_handler._update_rates_lazily({}, {})  # materialize rates before step 1
   rng = crystal.rng
   calls = []
   hops = []

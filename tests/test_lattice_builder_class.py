@@ -3,15 +3,17 @@
 Behavioral spec for kinetix/lattice/lattice_builder.py (LatticeBuilder).
 
 Phase 5 of the simulator.py split: the 36 lattice-construction/initialization
-methods moved out of KMCSimulator; KMCSimulator keeps thin one-line
-delegates plus a lazy ``lattice_builder`` property, so initialization.py,
-cli.py, metadata.py and the golden trace are unchanged.
+methods moved out of KMCSimulator behind a lazy ``lattice_builder`` property.
+
+Global delegate cleanup: the 36 granular facade delegates were DELETED.
+External callers now reach the component directly
+(``system.lattice_builder.<name>``), so the builder is self-contained and
+KMCSimulator only exposes high-level facade methods.
 
 BEHAVIOR NOTES pinned below:
-  * delegates are one-liners that forward to ``self.lattice_builder.<name>``,
-    all parameters - defaults included - passed positionally
-  * delegate signatures (parameter names + defaults) are IDENTICAL to the
-    builder's; callers rely on the defaults
+  * NONE of the 36 extracted names may remain on KMCSimulator (no delegates)
+  * the real body exists on LatticeBuilder with the original signature
+    (parameter names + defaults), so direct callers keep the old defaults
   * LatticeBuilder is stateless: ``system`` is the only instance attribute;
     grid_crystal, structure, basis_vectors, coord_cache, the k-d tree and
     rank/mpi_ctx are read/written through ``self.simulator``
@@ -37,6 +39,7 @@ from __future__ import annotations
 
 import ast
 import inspect
+import re
 import json
 from pathlib import Path
 
@@ -53,8 +56,8 @@ from tests.test_golden_trace import (
     _load_vcm_config,
 )
 
-# The 36 methods extracted in Phase 5 (every one has a thin delegate).
-DELEGATES = (
+# The 36 methods extracted in Phase 5 (delegates later removed).
+EXTRACTED = (
     # structure & Materials-Project model (8)
     "_load_mp_cache",
     "_save_mp_cache",
@@ -161,30 +164,28 @@ def test_lazy_property_uses_local_import():
   assert "hasattr(self, '_lattice_builder')" in src
 
 
-def test_delegates_are_thin_and_forward_to_builder():
-  """Every extracted method survives on KMCSimulator as a delegate only,
-  and the real body exists on LatticeBuilder."""
-  assert len(DELEGATES) == 36 and len(set(DELEGATES)) == 36
-  for name in DELEGATES:
-    src = inspect.getsource(getattr(KMCSimulator, name))
-    assert "self.lattice_builder." in src, name
-    assert src.count("return") == 1, name
-    assert src.count("\n") <= 3, name
-    assert "def %s(" % name in src, name
+def test_granular_delegates_are_eliminated():
+  """Global delegate cleanup: no extracted construction method remains on the
+  facade. Callers reach the component directly (self-contained components)."""
+  assert len(EXTRACTED) == 36 and len(set(EXTRACTED)) == 36
+  for name in EXTRACTED:
+    assert not hasattr(KMCSimulator, name), name
     assert callable(getattr(LatticeBuilder, name, None)), name
 
 
-def test_delegate_signatures_match_builder():
-  """Parameter names AND defaults are identical to the builder's - external
-  callers keep relying on the defaults (annotations are exempt)."""
-  for name in DELEGATES:
-    assert _param_shape(getattr(KMCSimulator, name)) == \
-        _param_shape(getattr(LatticeBuilder, name)), name
+def test_facade_exposes_only_the_lazy_component_property():
+  """KMCSimulator keeps the high-level facade: the lazy component property,
+  not one forwarding method per extracted helper."""
+  assert isinstance(KMCSimulator.lattice_builder, property)
+  forwarding = re.findall(
+      r"return self\.(event_handler|kmc_loop|lattice_builder|solver_coordinator|"
+      r"metadata_writer)\.", inspect.getsource(KMCSimulator))
+  assert sorted(forwarding) == ["event_handler", "kmc_loop"], forwarding
 
 
-def test_delegates_forward_arguments_positionally(system, monkeypatch):
-  """Spot-check on a spy: defaults are filled by the delegate and every
-  parameter is forwarded positionally, in order."""
+def test_component_call_uses_builder_defaults(system, monkeypatch):
+  """Direct component access keeps the original defaults (the former delegate
+  filled them; the builder signature is now the single source of truth)."""
   calls = {}
 
   class _Spy:
@@ -195,14 +196,20 @@ def test_delegates_forward_arguments_positionally(system, monkeypatch):
       return _record
 
   monkeypatch.setattr(system, "_lattice_builder", _Spy())
-  assert system.find_optimal_radius() == ("sentinel", "find_optimal_radius")
-  assert calls["find_optimal_radius"] == (("interstitial", 1.5, 6.0, 0.25, 0.5), {})
-  assert system._generate_interstitial_sites() == ("sentinel", "_generate_interstitial_sites")
-  assert calls["_generate_interstitial_sites"] == ((None,), {})
-  assert system._cluster_and_average([1, 2]) == ("sentinel", "_cluster_and_average")
-  assert calls["_cluster_and_average"] == (([1, 2], 0.7), {})
-  assert system._load_mp_cache("k") == ("sentinel", "_load_mp_cache")
+  builder = system.lattice_builder
+  assert builder.find_optimal_radius() == ("sentinel", "find_optimal_radius")
+  assert calls["find_optimal_radius"] == ((), {})
+  assert builder._generate_interstitial_sites() == ("sentinel", "_generate_interstitial_sites")
+  assert calls["_generate_interstitial_sites"] == ((), {})
+  assert builder._cluster_and_average([1, 2]) == ("sentinel", "_cluster_and_average")
+  assert calls["_cluster_and_average"] == (([1, 2],), {})
+  assert builder._load_mp_cache("k") == ("sentinel", "_load_mp_cache")
   assert calls["_load_mp_cache"] == (("k",), {})
+  # defaults now live on the builder signature itself (single source of truth)
+  assert inspect.signature(LatticeBuilder.find_optimal_radius).parameters[
+      "site_type"].default == "interstitial"
+  assert inspect.signature(LatticeBuilder._generate_interstitial_sites).parameters[
+      "api_key"].default is None
 
 
 def test_bodies_live_on_builder_not_crystal():
@@ -211,11 +218,9 @@ def test_bodies_live_on_builder_not_crystal():
   assert "min_non_zero_element" in inspect.getsource(LatticeBuilder._compute_basis_vectors)
   assert "coord_cache" in inspect.getsource(LatticeBuilder.get_idx_coords)
   assert "neighbors_analysis" in inspect.getsource(LatticeBuilder._process_batch_sites_worker)
-  for name in DELEGATES:
-    src = inspect.getsource(getattr(KMCSimulator, name))
-    assert "Rodrigues" not in src, name
-    assert "min_non_zero_element" not in src, name
-    assert "coord_cache" not in src, name
+  facade_src = inspect.getsource(KMCSimulator)
+  for marker in ("Rodrigues", "min_non_zero_element", "def crystal_grid("):
+    assert marker not in facade_src, marker
 
 
 def test_builder_is_stateless(system):
@@ -283,7 +288,9 @@ def test_only_crystal_touches_lattice_builder():
       continue
     if "lattice_builder" in path.read_text(encoding="utf-8"):
       offenders.append(str(path.relative_to(package)))
-  assert offenders == []
+  # metadata.py is the one production consumer of the MP-cache helpers; every
+  # other module must go through the facade (or own the collaborator).
+  assert offenders == ["utils/metadata.py"], offenders
 
 
 # =============================================================================
@@ -295,22 +302,22 @@ def test_get_rotation_matrix_rotates_onto_target(system):
   the delegate and a fresh builder agree exactly)."""
   v1 = np.array([1.0, 0.0, 0.0])
   v2 = np.array([0.0, 1.0, 0.0])
-  rot = system._get_rotation_matrix(v1, v2)                 # delegate
+  rot = system.lattice_builder._get_rotation_matrix(v1, v2)                 # direct component access
   direct = LatticeBuilder(system)._get_rotation_matrix(v1, v2)
   assert np.allclose(rot, direct)
   assert np.allclose(rot @ v1, v2)
   assert np.allclose(rot @ rot.T, np.eye(3))                # orthogonal
   assert np.isclose(np.linalg.det(rot), 1.0)                # proper rotation
   # special cases of the formula
-  assert np.allclose(system._get_rotation_matrix(v1, v1), np.eye(3))
-  assert np.allclose(system._get_rotation_matrix(v1, -v1) @ v1, -v1)
+  assert np.allclose(system.lattice_builder._get_rotation_matrix(v1, v1), np.eye(3))
+  assert np.allclose(system.lattice_builder._get_rotation_matrix(v1, -v1) @ v1, -v1)
 
 
 def test_compute_basis_vectors_via_delegate_is_deterministic(system):
   """Re-running the delegate reproduces the same grid basis (single scalar
   rescaling of the lattice matrix, <= 1 for fractional spacing)."""
   before = np.array(system.basis_vectors, copy=True)
-  assert system._compute_basis_vectors() is None            # sets on the system
+  assert system.lattice_builder._compute_basis_vectors() is None            # sets on the system
   assert np.allclose(system.basis_vectors, before)
   lattice_matrix = np.array(system.structure_basic.lattice.matrix)
   mask = np.abs(lattice_matrix) > 1e-12
@@ -326,21 +333,21 @@ def test_get_idx_coords_round_trip_and_cache_on_system(system):
   coords = np.array(site.position)
   basis = np.array(system.basis_vectors)
 
-  idx = system.get_idx_coords(coords, basis)                # delegate
+  idx = system.lattice_builder.get_idx_coords(coords, basis)                # direct component access
   assert isinstance(idx, tuple) and len(idx) == 3
   assert all(isinstance(v, (int, np.integer)) for v in idx)
   expected = tuple(np.round(np.linalg.solve(basis.transpose(), coords)).astype(int))
   assert idx == expected
 
   assert tuple(coords) in system.coord_cache                # cached on system
-  assert system.get_idx_coords(coords, basis) is idx        # cache hit
+  assert system.lattice_builder.get_idx_coords(coords, basis) is idx        # cache hit
   assert not hasattr(system.lattice_builder, "coord_cache")
 
 
 def test_efficient_act_e_copy_isolates_inner_dicts(system):
   """Per-site energy copy: new outer+inner dicts, equal content, writes to the
   copy never leak back into the live Act_E_dict."""
-  copy = system._efficient_act_e_copy(system.Act_E_dict)    # delegate
+  copy = system.lattice_builder._efficient_act_e_copy(system.Act_E_dict)    # direct component access
   assert copy == system.Act_E_dict and copy is not system.Act_E_dict
   for name, energies in copy.items():
     assert energies is not system.Act_E_dict[name]
@@ -348,7 +355,7 @@ def test_efficient_act_e_copy_isolates_inner_dicts(system):
   key = next(iter(copy[name]))
   copy[name][key] = "MUTATED"
   assert system.Act_E_dict[name][key] != "MUTATED"
-  assert system._efficient_act_e_copy({}) == {}
+  assert system.lattice_builder._efficient_act_e_copy({}) == {}
 
 
 def test_get_applicable_defects_for_site_matches_registry(system):
@@ -357,7 +364,7 @@ def test_get_applicable_defects_for_site_matches_registry(system):
                        for st in cfg.get("allowed_sublattices", [])})
   site_types.append("no_such_sublattice")
   for site_type in site_types:
-    names = system._get_applicable_defects_for_site(site_type)   # delegate
+    names = system.lattice_builder._get_applicable_defects_for_site(site_type)   # delegate
     expected = [n for n, cfg in system.defects_config.items()
                 if site_type in cfg.get("allowed_sublattices", [])]
     assert names == expected, site_type
@@ -393,7 +400,7 @@ def test_process_batch_sites_worker_call_contract(system):
   shared = {"crystal_size": (10.0, 10.0, 10.0),
             "event_labels": {"migration_interstitial": 0},
             "radius_neighbors": 2.0}
-  assert system._process_batch_sites_worker(["a"], grid, shared) is None
+  assert system.lattice_builder._process_batch_sites_worker(["a"], grid, shared) is None
   assert len(grid["a"].calls) == 1
   grid_arg, idxs, positions, size, labels, key = grid["a"].calls[0]
   assert grid_arg is grid                          # full grid, in place
@@ -411,17 +418,17 @@ def test_validate_migration_network_is_read_only(system):
   nothing. The default ``radius=None`` crashes in ``_generate_periodic_images``
   - pre-existing latent bug, pinned so a fix is deliberate."""
   before = _lattice_digest(system)
-  assert system._validate_migration_network(system.radius_neighbors) is None
+  assert system.lattice_builder._validate_migration_network(system.radius_neighbors) is None
   assert _lattice_digest(system) == before
   with pytest.raises(TypeError):
-    system._validate_migration_network()
+    system.lattice_builder._validate_migration_network()
 
 
 def test_get_num_cores_bounds(system):
   """Core count honours its ceiling and never drops below one."""
-  cores = system.get_num_cores()                    # delegate, default 6
+  cores = system.lattice_builder.get_num_cores()                    # direct, default 6
   assert isinstance(cores, int) and 1 <= cores <= 6
-  assert system.get_num_cores(local_max_cores=1) == 1
+  assert system.lattice_builder.get_num_cores(local_max_cores=1) == 1
   assert system.lattice_builder.get_num_cores(local_max_cores=1) == 1
 
 

@@ -3,8 +3,11 @@
 Behavioral spec for kinetix/solvers/coordinator.py (SolverCoordinator).
 
 Phase 2 of the simulator.py split: solver orchestration extracted from
-KMCSimulator; KMCSimulator keeps one-line delegates (original names),
-so cli.py and the kMC loop are unchanged.
+KMCSimulator behind a lazy ``solver_coordinator`` property.
+
+Global delegate cleanup: the six granular solver delegates were DELETED.
+cli.py and the kMC loop now call ``simulator.solver_coordinator.<name>``
+directly, so the coordinator is self-contained.
 
 No dolfinx/mesh required: the coordinator only *orchestrates* — solver
 instances are plain doubles injected as ``system._poisson_solver`` /
@@ -18,6 +21,7 @@ BEHAVIOR NOTES pinned below:
     (the golden-trace contract, test_golden_trace.py:261)
   * ``from kinetix.solvers import SolverCoordinator`` must work without the
     FEM stack (subprocess test with dolfinx/petsc4py/ufl blocked)
+  * none of the six extracted names remains on KMCSimulator (no delegates)
 """
 from __future__ import annotations
 
@@ -84,15 +88,14 @@ def test_package_and_module_imports_agree():
     assert SolverCoordinator is SolverCoordinatorDirect
 
 
-def test_crystal_methods_are_one_line_delegates():
-    """Every extracted method survives on KMCSimulator as a delegate only."""
+def test_granular_delegates_are_eliminated():
+    """Global delegate cleanup: no solver method remains on the facade."""
     for name in ('save_electric_bias', 'get_evaluation_points',
                  'prepare_clusters_for_bcs', '_evaluate_fields_for_kmc',
                  'get_timestep_limit', 'should_solve_fields_now'):
-        src = inspect.getsource(getattr(KMCSimulator, name))
-        assert 'self.solver_coordinator.' in src, name
-        assert src.count('return') == 1, name
-        assert src.count('\n') <= 3, name
+        assert not hasattr(KMCSimulator, name), name
+        assert callable(getattr(SolverCoordinator, name, None)), name
+    assert isinstance(KMCSimulator.solver_coordinator, property)
 
 
 def test_private_extractors_moved_off_crystal():
@@ -102,9 +105,9 @@ def test_private_extractors_moved_off_crystal():
     assert hasattr(SolverCoordinator, '_extract_generation_site_location')
 
 
-def test_save_electric_bias_delegate_sets_state_on_system():
+def test_save_electric_bias_sets_state_on_system():
     system = _bare_system()
-    system.save_electric_bias(0.7)
+    system.solver_coordinator.save_electric_bias(0.7)
     assert system.V == 0.7  # physics reads crystal.V (scavenging, top electrode)
     assert not hasattr(system.solver_coordinator, 'V')  # coordinator stateless
 
@@ -117,15 +120,15 @@ def test_should_solve_fields_now_schedule_and_state():
     elec = SimpleNamespace(voltage_update_time=1.0e-4)
     system = _bare_system(time=0.0)
 
-    should, snap = system.should_solve_fields_now(elec)
+    should, snap = system.solver_coordinator.should_solve_fields_now(elec)
     assert should and snap
     assert system.last_field_solve_time == 0.0  # written on the SYSTEM
 
     system.time = 0.9e-4
-    assert system.should_solve_fields_now(elec) == (False, False)
+    assert system.solver_coordinator.should_solve_fields_now(elec) == (False, False)
 
     system.time = 1.0e-4
-    should, snap = system.should_solve_fields_now(elec)
+    should, snap = system.solver_coordinator.should_solve_fields_now(elec)
     assert should and snap
     assert system.last_field_solve_time == pytest.approx(1.0e-4)
     assert system.time == pytest.approx(1.0e-4)  # snapped to the schedule
@@ -136,11 +139,11 @@ def test_should_solve_fields_now_schedule_and_state():
 def test_get_timestep_limit_caps_to_field_deadline():
     system = _bare_system(time=0.4e-4, timestep_limits=1.0e-4,
                           last_field_solve_time=0.0)
-    assert system.get_timestep_limit() == pytest.approx(0.6e-4)
+    assert system.solver_coordinator.get_timestep_limit() == pytest.approx(0.6e-4)
 
     # Deadline within tolerance -> time snaps forward, nothing left
     system.time = 1.0000001e-4
-    assert system.get_timestep_limit() == 0.0
+    assert system.solver_coordinator.get_timestep_limit() == 0.0
     assert system.time == pytest.approx(1.0e-4)
 
 
@@ -151,7 +154,7 @@ def test_get_timestep_limit_caps_to_field_deadline():
 def test_evaluate_fields_without_solver_returns_empty_dicts():
     """No _poisson_solver attached -> ({}, {}) on rank 0 (golden trace)."""
     system = _bare_system()
-    E_field, T_field = system._evaluate_fields_for_kmc()
+    E_field, T_field = system.solver_coordinator._evaluate_fields_for_kmc()
     assert E_field == {}
     assert T_field == {}
 
@@ -166,7 +169,7 @@ def test_evaluate_fields_uses_faked_poisson_solver():
         generation_sites=[],
         grid_crystal=[site],
     )
-    E_field, T_field = system._evaluate_fields_for_kmc()
+    E_field, T_field = system.solver_coordinator._evaluate_fields_for_kmc()
     assert E_field == {(0.0, 0.0, 0.0): 1.0}
     assert T_field == {}  # no _heat_solver attached
     np.testing.assert_array_equal(fake.evaluation_points, [[1.0, 2.0, 3.0]])
@@ -187,7 +190,7 @@ def test_evaluate_fields_dirty_sites_branch():
         grid_crystal=sites,
         _dirty_sites={1},
     )
-    system._evaluate_fields_for_kmc()
+    system.solver_coordinator._evaluate_fields_for_kmc()
     np.testing.assert_array_equal(fake.evaluation_points, [[5.0, 5.0, 5.0]])
 
 
@@ -206,7 +209,7 @@ def test_get_evaluation_points_combines_charges_and_gen_sites():
             SimpleNamespace(position=np.array([1.0, 1.0, 1.0])),
         ],
     )
-    locations, charges, evaluation_points = system.get_evaluation_points()
+    locations, charges, evaluation_points = system.solver_coordinator.get_evaluation_points()
     # charge * elementary charge * screening factor (production formula)
     np.testing.assert_allclose(charges, [-1.0 * constants.e * 2.0])
     np.testing.assert_array_equal(locations, [[0.0, 0.0, 0.0]])
@@ -216,7 +219,7 @@ def test_get_evaluation_points_combines_charges_and_gen_sites():
 
 def test_get_evaluation_points_empty_system():
     system = _bare_system()
-    locations, charges, evaluation_points = system.get_evaluation_points()
+    locations, charges, evaluation_points = system.solver_coordinator.get_evaluation_points()
     assert locations.shape == (0, 3)
     assert charges.shape == (0,)
     assert evaluation_points.shape == (0, 3)
@@ -232,7 +235,7 @@ def test_prepare_clusters_for_bcs_delegates_to_clusters():
     cluster = _FakeCluster()
     system = _bare_system(clusters={0: cluster}, grid_crystal=['grid'],
                           crystal_size=(1, 2, 3))
-    out = system.prepare_clusters_for_bcs()
+    out = system.solver_coordinator.prepare_clusters_for_bcs()
     assert out is system.clusters  # serial rank 0 returns its own dict
     assert calls == [(['grid'], (1, 2, 3))]  # grid_crystal forwarded whole
 

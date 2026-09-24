@@ -4,23 +4,29 @@ Behavioral spec for kinetix/lattice/kmc_loop.py (KMCLoop).
 
 Phase 4 of the simulator.py split: the BKL step orchestration (step_kmc,
 _kmc_step, superbasin search/invalidation/activation policy) moved out of
-KMCSimulator; KMCSimulator keeps thin one-line delegates plus a lazy
-``kmc_loop`` property, so cli.py, tests and the golden trace's INSTANCE-level
-wrapper of ``processes`` are unchanged.
+KMCSimulator behind a lazy ``kmc_loop`` property.
+
+Global delegate cleanup: only ``step_kmc`` remains as a facade method (the
+core public API). The eight granular loop delegates were DELETED - callers
+reach ``simulator.kmc_loop.<name>`` directly.
 
 BEHAVIOR NOTES pinned below:
-  * delegates are one-liners that forward to ``self.kmc_loop.<name>``
+  * only ``step_kmc`` is a one-line facade method; the other eight names must
+    NOT exist on KMCSimulator
   * KMCLoop is stateless: ``system`` is the only instance attribute; every
     simulation field (time, rank, mpi_ctx, superbasin_dict, ...) is read and
     written through ``self.simulator``
-  * ``_kmc_step`` reaches ``processes`` through the SYSTEM delegate
-    (``self.simulator.processes``) - the golden trace wraps the *instance*
-    attribute, so bypassing the delegate would void the physics contract
+  * ``_kmc_step`` reaches ``processes`` through the retained SYSTEM facade
+    delegate (``self.simulator.processes``) - the golden trace wraps the
+    *instance* attribute, so bypassing it would void the physics contract
   * the extracted module contains no MPI logic beyond the VERBATIM pre-existing
     ``system.rank`` guard + ``system.mpi_ctx.bcast`` of ``time`` inside
     ``step_kmc`` (serial runs have mpi_ctx=None, so the bcast is skipped)
   * INTEGRATION: 5 steps through ``crystal.step_kmc(rng)`` reproduce the first
     5 golden-fixture steps (time and processes-call counts, rel=1e-9)
+  * the loop reaches its collaborators directly:
+    ``self.simulator.solver_coordinator._evaluate_fields_for_kmc`` /
+    ``get_timestep_limit`` and ``self.simulator.event_handler._update_rates_lazily``
 
 Construction reuses the golden trace's own loaders/builder
 (``tests/test_golden_trace.py``) so this run is bit-identical to the trace.
@@ -47,7 +53,7 @@ from tests.test_golden_trace import (
     _load_vcm_config,
 )
 
-# The nine methods extracted in Phase 4 (every one has a thin delegate).
+# The nine methods extracted in Phase 4 (only step_kmc stays on the facade).
 DELEGATES = (
     "step_kmc",
     "_kmc_step",
@@ -95,7 +101,7 @@ def trajectory(grid_path):
     defects = config.defects.to_dict()
     crystal = _golden_build_lattice(config, defects, _load_act_e(config, defects))
     crystal.defect_gen()
-    crystal._update_rates_lazily({}, {})  # materialize rates before step 1
+    crystal.event_handler._update_rates_lazily({}, {})  # materialize rates
 
     recorder = {"calls": []}
     original_processes = crystal.processes
@@ -136,14 +142,16 @@ def test_package_and_module_class_identity():
     assert Direct is KMCLoop
 
 
-def test_delegates_are_thin_and_forward_to_loop():
-    """Every extracted method survives on KMCSimulator as a delegate only."""
-    for name in DELEGATES:
-        src = inspect.getsource(getattr(KMCSimulator, name))
-        assert "self.kmc_loop." in src, name
-        assert src.count("return") == 1, name
-        assert src.count("\n") <= 3, name
-        assert "def %s(" % name in src, name
+def test_only_step_kmc_stays_on_the_facade():
+    """Global delegate cleanup: the eight granular loop delegates are gone;
+    ``step_kmc`` is the core public API and stays a one-line facade."""
+    assert not hasattr(KMCSimulator, "_kmc_step")
+    for name in DELEGATES[1:]:
+        assert not hasattr(KMCSimulator, name), name
+    src = inspect.getsource(KMCSimulator.step_kmc)
+    assert "self.kmc_loop." in src
+    assert src.count("return") == 1
+    assert src.count("\n") <= 3
 
 
 def test_bodies_live_on_kmc_loop_not_crystal():
@@ -153,11 +161,10 @@ def test_bodies_live_on_kmc_loop_not_crystal():
     assert "Superbasin(" in inspect.getsource(KMCLoop._search_superbasin)
     assert "nothing_happen_count" in inspect.getsource(
         KMCLoop._check_event_based_superbasin)
-    # ... and nowhere on the delegate
-    for name in DELEGATES:
-        src = inspect.getsource(getattr(KMCSimulator, name))
-        assert "TR_catalog" not in src, name
-        assert "Superbasin(" not in src, name
+    # ... and nowhere on the facade
+    facade_src = inspect.getsource(KMCSimulator)
+    assert "TR_catalog" not in facade_src
+    assert "Superbasin(" not in facade_src
 
 
 def test_loop_is_stateless(system):
@@ -205,20 +212,22 @@ def test_no_mpi_logic_in_extracted_code(system):
 # Superbasin policy delegation (no filament / empty tracker -> deterministic)
 # =============================================================================
 
-def test_superbasin_policy_delegates(system):
+def test_superbasin_policy_runs_in_the_loop(system):
     loop = system.kmc_loop
     # fresh lattice: no clusters attached across the cell, empty tracker
-    assert system.is_filament_percolating() is False
-    assert system.is_filament_percolating() == loop.is_filament_percolating()
-    assert system._slow_timesteps() is False
-    assert system._slow_timesteps() == loop._slow_timesteps()
+    assert loop.is_filament_percolating() is False
+    assert loop._slow_timesteps() is False
+    # re-running the policy is deterministic (pure reads of simulator state)
+    assert loop.is_filament_percolating() is False
+    assert loop._slow_timesteps() is False
     # not percolating => activation refused before touching the tracker
-    assert system.should_activate_superbasin(1e-30) is False
+    assert loop.should_activate_superbasin(1e-30) is False
 
 
 def test_search_superbasin_is_a_noop_without_percolating_filament(system):
     before = dict(system.superbasin_dict)
-    system._search_superbasin(1e-30)          # via delegate; must not raise
+    loop = system.kmc_loop
+    loop._search_superbasin(1e-30)          # direct component call; must not raise
     assert system.superbasin_dict == before
 
 
@@ -284,7 +293,7 @@ def test_bkl_time_advance_formula(trajectory):
     """dt == -log(u)/total_rate for an executed event, else dt == the
     timestep limit - computed through the delegate on the live catalog."""
     crystal, _ = trajectory
-    crystal._update_rates_lazily({}, {})   # current rates; clears the dirty set
+    crystal.event_handler._update_rates_lazily({}, {})   # current rates; clears the dirty set
     total_rate = sum(
         event.rate
         for idx in crystal.active_event_sites + crystal.generation_sites
@@ -298,10 +307,10 @@ def test_bkl_time_advance_formula(trajectory):
     u = rng.random()
     rng.bit_generator.state = state
 
-    dt, chosen = crystal._kmc_step(rng, {}, {})   # delegate
+    dt, chosen = crystal.kmc_loop._kmc_step(rng, {}, {})   # delegate
     if chosen is not None:
         assert dt == pytest.approx(-np.log(u) / total_rate, rel=1e-9)
     else:
         # No event within timestep_limits: the loop advanced by the limit.
-        assert dt == pytest.approx(crystal.get_timestep_limit(), rel=1e-12)
+        assert dt == pytest.approx(crystal.solver_coordinator.get_timestep_limit(), rel=1e-12)
 

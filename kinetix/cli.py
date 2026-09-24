@@ -347,7 +347,7 @@ def main(sim_id=None, config_name='PZT_ZrTi_PbO3_2.yaml'):
                          and simulator.heat_config.save_heat)
             
             V_top = Elec_controller.apply_voltage(simulator.time)
-            simulator.save_electric_bias(V_top)
+            simulator.solver_coordinator.save_electric_bias(V_top)
             
             # Dolfinx only works in Linux
             if solve_Poisson and platform.system() == 'Linux':
@@ -395,15 +395,15 @@ def main(sim_id=None, config_name='PZT_ZrTi_PbO3_2.yaml'):
             
                      
                 if solve_Poisson and platform.system() == 'Linux': 
-                  should_solve_fields_now, snapshots = simulator.should_solve_fields_now(Elec_controller)
+                  should_solve_fields_now, snapshots = simulator.solver_coordinator.should_solve_fields_now(Elec_controller)
                        
-                  particle_locations, charges, evaluation_points = simulator.get_evaluation_points()
+                  particle_locations, charges, evaluation_points = simulator.solver_coordinator.get_evaluation_points()
                     
                   if should_solve_fields_now:
                         # Every time we change the applied voltage, we should calculate Poisson
                         V_top = Elec_controller.apply_voltage(simulator.time)
-                        simulator.save_electric_bias(V_top)
-                        clusters = simulator.prepare_clusters_for_bcs()
+                        simulator.solver_coordinator.save_electric_bias(V_top)
+                        clusters = simulator.solver_coordinator.prepare_clusters_for_bcs()
                         # We need the cluster to know what is the effective gap for calculating the Schottky emission
                         V_eff, _ = Elec_controller.calculate_current(clusters) # Obtain effective voltage after voltage drop of series resistance
                           

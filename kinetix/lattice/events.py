@@ -22,14 +22,14 @@ ownership, pickles and the golden trace all observe the pre-split state.
 ``_is_active_site`` stays on the system (lattice construction uses it too) and
 is called as ``self.simulator._is_active_site(...)``.
 
-``KMCSimulator`` keeps thin delegates for the names used outside this
-module: ``processes`` (superbasin.py calls ``simulator.processes``),
-``update_sites_topology`` and ``_introduce_specie_site`` (state_loader.py and
-the deposition paths), ``_update_rates_lazily`` (the kMC loop, the golden trace
-and the kMC-loop tests) and ``_get_mobile_sites`` (lattice initialisation).
-``_kmc_step`` deliberately calls ``self.processes(...)`` - through the delegate
-- because the golden trace wraps the *instance* attribute to observe the event
-catalog.
+Global delegate cleanup: the handler is self-contained. Only ``processes``
+survives as a thin facade on ``KMCSimulator`` (superbasin.py and the golden
+trace call ``simulator.processes``); every other extracted name is reached
+directly as ``simulator.event_handler.<name>`` (state_loader.py, the
+deposition paths, the kMC loop, lattice initialisation). ``_kmc_step``
+deliberately calls ``self.simulator.processes(...)`` - through that retained
+delegate - because the golden trace wraps the *instance* attribute to observe
+the event catalog.
 """
 from __future__ import annotations
 

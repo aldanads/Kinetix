@@ -163,7 +163,7 @@ def load_state_from_dump(system_state, dump_path: str, tolerance: float = 0.1):
     ion_charge = atom.get('charge', 0)
     
     # Introduce species using Kinetix infrastructure
-    system_state._introduce_specie_site(
+    system_state.event_handler._introduce_specie_site(
       idx, support_update_sites, event_update_sites,
       chemical_specie, ion_charge
     )
@@ -177,7 +177,7 @@ def load_state_from_dump(system_state, dump_path: str, tolerance: float = 0.1):
     
   # 6. Rebuild topology at the end
   logger.info('Rebuilding topology for %d active sites...', len(event_update_sites))
-  system_state.update_sites_topology(support_update_sites, event_update_sites)
+  system_state.event_handler.update_sites_topology(support_update_sites, event_update_sites)
   
   # 7. Update time
   system_state.time = timestep

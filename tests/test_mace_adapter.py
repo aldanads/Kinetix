@@ -323,7 +323,7 @@ def oi_hop(system_state):
     cfg = system_state.defects_config["oxygen_interstitial"]
     support_update_sites = set()
     event_update_sites = set()
-    system_state._introduce_specie_site(
+    system_state.event_handler._introduce_specie_site(
         origin_idx, support_update_sites, event_update_sites,
         cfg["symbol"], cfg["charge"],
     )
@@ -358,7 +358,7 @@ def oi_hop(system_state):
         if dest_idx is None:
             pytest.skip("No neighboring empty interstitial found for the hop test")
 
-    system_state.update_sites_topology(support_update_sites,
+    system_state.event_handler.update_sites_topology(support_update_sites,
                                        event_update_sites)
     return origin_idx, dest_idx
 
@@ -840,11 +840,11 @@ class TestMACEAdapterAllPathways:
         cfg = system_state.defects_config["oxygen_interstitial"]
         support_update_sites = set()
         event_update_sites = set()
-        system_state._introduce_specie_site(
+        system_state.event_handler._introduce_specie_site(
             origin_idx, support_update_sites, event_update_sites,
             cfg["symbol"], cfg["charge"],
         )
-        system_state.update_sites_topology(support_update_sites,
+        system_state.event_handler.update_sites_topology(support_update_sites,
                                            event_update_sites)
 
         csv_path = REPO_ROOT / "test_output" / "interstitial_pathways.csv"
@@ -879,11 +879,11 @@ class TestMACEAdapterAllPathways:
         cfg = system_state.defects_config["oxygen_vacancy"]
         support_update_sites = set()
         event_update_sites = set()
-        system_state._introduce_specie_site(
+        system_state.event_handler._introduce_specie_site(
             origin_idx, support_update_sites, event_update_sites,
             cfg["symbol"], cfg["charge"],
         )
-        system_state.update_sites_topology(support_update_sites,
+        system_state.event_handler.update_sites_topology(support_update_sites,
                                            event_update_sites)
 
         csv_path = REPO_ROOT / "test_output" / "vacancy_pathways.csv"

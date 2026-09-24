@@ -69,7 +69,7 @@ class Event:
     def catalog_tuple(self, owner_idx: Hashable) -> tuple:
         """Adapter for the hot-path kMC catalog format.
 
-        KMCSimulator._kmc_step builds (rate, destination, label, owner)
+        KMCLoop._kmc_step builds (rate, destination, label, owner)
         tuples to feed the balanced tree; this keeps that representation (and
         therefore its performance characteristics) unchanged during Phase 4.
         """

@@ -34,7 +34,7 @@
 ## Architecture (Key Modules)
 | Module | Role |
 |---|---|
-| `kinetix/lattice/simulator.py` (~1.9k lines) | `KMCSimulator`/`simulator` — rate evaluation, superbasin driving; delegates events/solvers/metadata/lattice-construction/kMC loop out |
+| `kinetix/lattice/simulator.py` (~1.8k lines) | `KMCSimulator`/`simulator` — rate evaluation, superbasin driving; owns all simulation state and exposes the 4 lazy components + the 2-method facade (`step_kmc`, `processes`) |
 | `kinetix/lattice/site.py` (~1.3k lines) | `Site` — lattice site with topology + **Defect composition**; event generation (`available_pathways` :610, `available_reactions` :818) |
 | `kinetix/lattice/lattice_builder.py` (~1.7k lines) | LatticeBuilder — lattice construction/init (36 methods): MP structure + cache, grid assembly, migration pathways, k-d tree/neighbours, interstitial generation, Wulff/coords, cluster tracking |
 | `kinetix/lattice/events.py` | EventHandler — kMC event dispatch/handlers, dirty-site bookkeeping, affected-state refresh |
@@ -57,10 +57,18 @@
 
 ## simulator.py Split Progress (epic: break up the 4.5k-line god class)
 Extraction order: metadata → solvers → events → kMC loop → lattice construction.
-Each phase moves code verbatim into a class that holds **no simulation state**
-(everything goes through `self.simulator`) and leaves thin one-line delegates on
-`KMCSimulator`, so `cli.py`, `superbasin.py`, `state_loader.py` and the tests
-are unchanged.
+Each phase moved code verbatim into a class that holds **no simulation state**
+(everything goes through `self.simulator`).
+**Global delegate cleanup (done): granular delegates eliminated.** The
+extracted components are self-contained; `KMCSimulator` now exposes only the
+**two core public facade methods** — `step_kmc` (cli.py, golden trace) and
+`processes` (superbasin.py, and `_kmc_step`/the golden trace, which WRAP the
+instance attribute). Every other extracted name is reached directly as
+`simulator.<component>.<method>()` (`lattice_builder`, `event_handler`,
+`kmc_loop`, `solver_coordinator`); `simulator.py` is **1935 → 1774 lines**
+(−161). The components call their *own* helpers as `self.helper()`; the
+`self.simulator` reference is for genuine simulator state only (`time`,
+`grid_crystal`, `rank`/`mpi_ctx`, configs, caches).
 
 | Phase | Module | Status |
 |---|---|---|
@@ -70,6 +78,7 @@ are unchanged.
 | 4 | `kinetix/lattice/kmc_loop.py` — `KMCLoop` (9 methods) | ✅ Phase 4 |
 | 5 | `kinetix/lattice/lattice_builder.py` — `LatticeBuilder` (36 methods) | ✅ Phase 5 |
 | Rename | `crystal.py` → `simulator.py`, `Crystal_Lattice` → `KMCSimulator`, `System_state` → `simulator` | ✅ pure rename |
+| Cleanup | Granular delegates eliminated; facade = `step_kmc` + `processes` only | ✅ |
 
 **Rename essentials (pure rename — no logic, no physics):**
 - `Crystal_Lattice` → **`KMCSimulator`**; `kinetix/lattice/crystal.py` →
@@ -126,11 +135,13 @@ are unchanged.
   `_remove_species_at_site`, `update_sites_topology`, `_update_rates_lazily`.
   Bodies are byte-identical (verified against `git show HEAD:…`), only
   re-indented to the 4-space convention with `self.` → `self.simulator.`.
-- **Delegates kept** (external callers): `processes` (`superbasin.py:134/138/351`),
-  `_update_rates_lazily` (`_kmc_step`, golden trace, `test_kmc_loop.py`),
-  `update_sites_topology` (`defect_gen`, `state_loader.py:180`),
-  `_introduce_specie_site` (deposition paths, `state_loader.py:166`),
-  `_get_mobile_sites` (init :210).
+- **Facade after the global delegate cleanup**: only `processes` remains
+  (`superbasin.py:134/138/351`, `_kmc_step`, golden trace). The other external
+  callers now reach the component directly: `event_handler._update_rates_lazily`
+  (`_kmc_step`, golden trace, `test_kmc_loop.py`), `event_handler.update_sites_topology`
+  (`defect_gen`, `state_loader.py:180`), `event_handler._introduce_specie_site`
+  (deposition paths, `state_loader.py:166`), `event_handler._get_mobile_sites`
+  (init :210).
 - `_is_active_site` **stays on `KMCSimulator`** (lattice construction and
   `_resolve_defect_config` use it); the handler calls
   `self.simulator._is_active_site(...)`.
@@ -151,11 +162,12 @@ are unchanged.
   (no bare `self.<system-attr>` may survive — a *missing* rewrite is invisible
   to the body-diff alone; this exact silent no-op bug was caught by the golden
   trace during the phase).
-- **Delegates kept** for **all 9** names (one-liners under the "KMC logic"
-  banner): `step_kmc` (`cli.py:449`, golden trace, tests), `_kmc_step`
-  (`test_kmc_loop.py`, `test_event_handler.py`, `test_kmc_loop_class.py`),
-  the rest kept for API stability. `_evaluate_fields_for_kmc` remains the
-  SolverCoordinator delegate and is what `step_kmc`/`_kmc_step` call.
+- **Facade after the global delegate cleanup**: only `step_kmc` remains
+  (`cli.py:449`, golden trace, tests). The other eight names are reached as
+  `kmc_loop.<name>` (`_kmc_step` in `test_kmc_loop.py`,
+  `test_event_handler.py`, `test_kmc_loop_class.py`, and the superbasin policy
+  helpers). `step_kmc`/`_kmc_step` call
+  `simulator.solver_coordinator._evaluate_fields_for_kmc` directly.
 - `track_time` / `add_time` **stay on `KMCSimulator`**
   (`initialization.py:351/355`, `cli.py` call them); the loop reaches
   `track_time` through `self.simulator.track_time(...)`.
@@ -191,12 +203,14 @@ are unchanged.
   (`_parallel_neighbors_analysis`, `_sequencial_neighbors_analysis`,
   `get_num_cores`, `_process_batch_sites_worker`); `get_idx_coords`,
   `Wulff_Shape`, `create_edges`, `_initialize_cluster_tracking`.
-- **Delegates kept for all 36 names** (one-liners under the "Lattice construction"
-  banner after `__init__`), so `initialization.py`, `cli.py`, `metadata.py`,
-  `state_loader.py` and the tests are unchanged. Pinned:
-  `test_only_crystal_touches_lattice_builder` (no module outside `simulator.py`
-  references `lattice_builder`) and `test_delegate_signatures_match_builder`
-  (parameter names + defaults identical).
+- **Facade after the global delegate cleanup**: **no** lattice-construction
+  delegate remains. `initialization.py`, `cli.py`, `metadata.py`,
+  `state_loader.py` and the tests now call
+  `simulator.lattice_builder.<name>(...)` directly. Pinned by
+  `test_lattice_builder_class.py::test_only_crystal_touches_lattice_builder`
+  (no module outside `simulator.py` references `lattice_builder`) and
+  `test_delegate_signatures_match_builder` (defaults now have a single source
+  of truth — the builder signature itself).
 - Lazy `lattice_builder` property with a **local import** (same pattern as
   `solver_coordinator`/`kmc_loop`).
 - **Collaborators that stay on `KMCSimulator`** and are reached through
@@ -503,11 +517,15 @@ Measured selections (Kinetix env):
   `simulator.py` without deciding what happens to pre-rename `variables.pkl`
   artefacts (the alias and the pickle limitation are pinned by
   `tests/test_simulator_rename.py`).
-- **DO NOT** call the lattice builder from outside `simulator.py` — external code
-  uses the `KMCSimulator` delegates (the 36 one-liners are the API; pinned by
-  `test_only_crystal_touches_lattice_builder`). Changing a delegate signature
-  without the builder's drifts the defaults for `initialization.py`/`cli.py`
-  (pinned by `test_delegate_signatures_match_builder`).
+- **DO NOT** re-add granular forwarding methods to `KMCSimulator`. The
+  extracted components are self-contained; external code calls
+  `simulator.<component>.<method>()` directly (pinned by
+  `test_only_crystal_touches_lattice_builder` and the per-component
+  "delegates are eliminated" tests). Only the two core facade methods
+  (`step_kmc`, `processes`) may forward.
+- **DO NOT** call `simulator.processes` bypassing the facade, nor re-add a
+  `processes` delegate elsewhere — the golden trace wraps that instance
+  attribute.
 - **DO NOT** reset `passivation_level` on species re-introduction — it keys
   activation energies (`Act_E[str(level)]`) and gates capture/depassivation; resetting it yields invalid barrier keys (`KeyError`).
 - **DO NOT** re-add flat state accessors to `Site` — Phase 6 deleted the four

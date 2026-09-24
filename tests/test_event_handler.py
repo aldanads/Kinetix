@@ -27,7 +27,10 @@ BEHAVIOR NOTES pinned below:
   * the handler is stateless (only ``.simulator``); every read/write of lattice
     state goes through the system reference
   * ``processes`` MUST stay reachable as ``crystal.processes`` - the golden
-    trace wraps that instance attribute to observe the event catalog
+    trace wraps that instance attribute to observe the event catalog. It is
+    the ONLY extracted handler name kept on the facade; the other 16 granular
+    delegates were DELETED (global delegate cleanup) and callers reach
+    ``crystal.event_handler.<name>`` directly
   * ``_is_active_site`` stays ON KMCSimulator (lattice construction uses
     it); the handler calls ``self.simulator._is_active_site``
   * no runtime import of kinetix.lattice.simulator (TYPE_CHECKING only) - the
@@ -147,7 +150,7 @@ def system(vcm_config, registry, act_e, reactions):
   crystal.timestep_limits = float(vcm_config.superbasin.time_step_limits)
   crystal.last_field_solve_time = 0.0
   crystal.defect_gen()                       # inject O_i (uses crystal.rng)
-  crystal._update_rates_lazily({}, {})       # materialize rates
+  crystal.event_handler._update_rates_lazily({}, {})       # materialize rates
   return crystal
 
 
@@ -226,12 +229,19 @@ def test_event_handler_instantiated_lazily_via_property():
   assert not hasattr(handler, "grid_crystal")   # stateless: system is the state
 
 
-def test_delegates_are_thin_and_forward_to_handler():
+def test_only_processes_stays_on_the_facade():
+  """Global delegate cleanup: 16 of the 17 extracted names are gone from
+  KMCSimulator; ``processes`` remains the core public API (golden trace)."""
+  assert "processes" in DELEGATED
   for name in DELEGATED:
-    src = inspect.getsource(getattr(KMCSimulator, name))
-    assert "self.event_handler." in src, name
-    assert src.count("return") == 1, name
-    assert src.count("\n") <= 3, name
+    if name == "processes":
+      continue
+    assert not hasattr(KMCSimulator, name), name
+    assert callable(getattr(EventHandler, name, None)), name
+  src = inspect.getsource(KMCSimulator.processes)
+  assert "self.event_handler." in src
+  assert src.count("return") == 1
+  assert src.count("\n") <= 3
 
 
 def test_extracted_helpers_moved_off_crystal():
@@ -413,7 +423,7 @@ def test_kmc_step_dispatches_through_handler(system):
   system.processes = lambda chosen: (delegate_calls.append(chosen),
                                      real_delegate(chosen))
   try:
-    time_step, chosen = system._kmc_step(system.rng, {}, {})
+    time_step, chosen = system.kmc_loop._kmc_step(system.rng, {}, {})
   finally:
     handler.processes = real_processes
     system.processes = real_delegate
@@ -426,7 +436,7 @@ def test_kmc_step_dispatches_through_handler(system):
 
 def test_step_kmc_advances_bkl_time(system):
   """dt == -log(u)/total_rate, computed from the live event catalog."""
-  system._update_rates_lazily({}, {})  # consume dirty sites from earlier tests
+  system.event_handler._update_rates_lazily({}, {})  # consume dirty sites from earlier tests
   rng = system.rng
   state = rng.bit_generator.state
   u = rng.random()
@@ -439,7 +449,7 @@ def test_step_kmc_advances_bkl_time(system):
     for event in system.grid_crystal[idx].defect.events
   )
   assert total_rate > 0
-  time_step, chosen = system._kmc_step(rng, {}, {})
+  time_step, chosen = system.kmc_loop._kmc_step(rng, {}, {})
   assert chosen is not None
   assert time_step == pytest.approx(-np.log(u) / total_rate, rel=1e-9)
 
@@ -482,7 +492,7 @@ def test_processes_applies_migration_object_transfer(system):
 def test_update_rates_lazily_rebuilds_and_clears_dirty_set(system):
   marker = tuple(list(system.active_event_sites) + list(system.generation_sites))
   system._dirty_sites = set(marker)
-  system._update_rates_lazily({}, {})
+  system.event_handler._update_rates_lazily({}, {})
   assert system._dirty_sites == set()          # consumed
   rates = [event.rate for idx in marker
            for event in system.grid_crystal[idx].defect.events]
@@ -492,10 +502,10 @@ def test_update_rates_lazily_rebuilds_and_clears_dirty_set(system):
   # non-root ranks never rate-update (they only solve fields)
   system.rank = 1
   system._dirty_sites = set(marker)
-  system._update_rates_lazily({}, {})
+  system.event_handler._update_rates_lazily({}, {})
   assert system._dirty_sites == set(marker)
   system.rank = 0
-  system._update_rates_lazily({}, {})
+  system.event_handler._update_rates_lazily({}, {})
 
 
 def test_introduce_specie_and_topology_refresh(system):
@@ -507,19 +517,19 @@ def test_introduce_specie_and_topology_refresh(system):
                    and system._is_active_site(site.site_type))
 
   support, event_sites = set(), set()
-  system._introduce_specie_site(empty_idx, support, event_sites, "O_i")
+  system.event_handler._introduce_specie_site(empty_idx, support, event_sites, "O_i")
   assert system.grid_crystal[empty_idx].defect.chemical_specie == "O_i"
   assert empty_idx in system.active_event_sites
   assert event_sites and support
 
-  system.update_sites_topology(support, event_sites)
+  system.event_handler.update_sites_topology(support, event_sites)
   refreshed = system.grid_crystal[empty_idx]
   assert refreshed.defect.events, "no pathways re-derived for the new occupant"
 
   # the loop marks the handled sites dirty (events.py, ``processes``) and the
   # next rate refresh turns the new pathways into positive rates
   system._dirty_sites |= event_sites
-  system._update_rates_lazily({}, {})
+  system.event_handler._update_rates_lazily({}, {})
   assert system._dirty_sites == set()
   assert any(event.rate > 0 for event in refreshed.defect.events)
 

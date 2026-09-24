@@ -54,7 +54,7 @@ def _percolation_table(lattice, radii, site_type):
     """Sweep radii, returning [(radius, percolated, n_connected), ...]."""
     rows = []
     for radius in radii:
-        percolated, n_connected = lattice._check_percolation_at_radius(
+        percolated, n_connected = lattice.lattice_builder._check_percolation_at_radius(
             radius, site_type
         )
         rows.append((radius, percolated, n_connected))
@@ -109,12 +109,12 @@ class TestGridPercolation:
             # The grid must percolate at the upper bound of the search
             # (otherwise find_optimal_radius falls back to max_radius and the
             # result does not percolate).
-            if not system_state._check_percolation_at_radius(
+            if not system_state.lattice_builder._check_percolation_at_radius(
                 max_radius, site_type
             )[0]:
                 continue
 
-            optimal = system_state.find_optimal_radius(
+            optimal = system_state.lattice_builder.find_optimal_radius(
                 site_type=site_type,
                 min_radius=1.5,
                 max_radius=max_radius,
@@ -122,7 +122,7 @@ class TestGridPercolation:
                 safety_margin=0.5,
             )
 
-            percolated, n_connected = system_state._check_percolation_at_radius(
+            percolated, n_connected = system_state.lattice_builder._check_percolation_at_radius(
                 optimal, site_type
             )
             assert percolated, (
@@ -177,7 +177,7 @@ def _make_chain_lattice(z_spacing=2.0, height=30.0):
     lattice_obj.structure = structure
     lattice_obj.grid_crystal = grid
     lattice_obj.crystal_size = np.array([20.0, 20.0, height])
-    lattice_obj._build_kdtree()
+    lattice_obj.lattice_builder._build_kdtree()
     return lattice_obj
 
 
@@ -186,7 +186,7 @@ class TestPercolationSynthetic:
 
     def test_below_threshold_no_percolation(self):
         lattice = _make_chain_lattice(z_spacing=2.0)
-        percolated, n_connected = lattice._check_percolation_at_radius(
+        percolated, n_connected = lattice.lattice_builder._check_percolation_at_radius(
             1.9, "interstitial"
         )
         assert not percolated
@@ -194,7 +194,7 @@ class TestPercolationSynthetic:
 
     def test_at_threshold_percolation(self):
         lattice = _make_chain_lattice(z_spacing=2.0)
-        percolated, n_connected = lattice._check_percolation_at_radius(
+        percolated, n_connected = lattice.lattice_builder._check_percolation_at_radius(
             2.0, "interstitial"
         )
         assert percolated
@@ -202,12 +202,12 @@ class TestPercolationSynthetic:
 
     def test_vacancy_percolation_synthetic(self):
         lattice = _make_chain_lattice(z_spacing=2.0)
-        assert not lattice._check_percolation_at_radius(1.9, "O")[0]
-        assert lattice._check_percolation_at_radius(2.0, "O")[0]
+        assert not lattice.lattice_builder._check_percolation_at_radius(1.9, "O")[0]
+        assert lattice.lattice_builder._check_percolation_at_radius(2.0, "O")[0]
 
     def test_find_optimal_radius_binary_search(self):
         lattice = _make_chain_lattice(z_spacing=2.0)
-        optimal = lattice.find_optimal_radius(
+        optimal = lattice.lattice_builder.find_optimal_radius(
             site_type="interstitial",
             min_radius=1.0,
             max_radius=5.0,
@@ -216,7 +216,7 @@ class TestPercolationSynthetic:
         )
         # Threshold is 2.0 Å -> hi converges to ~2.0 -> optimal ~2.5 Å
         assert 2.4 <= optimal <= 2.6
-        percolated, _ = lattice._check_percolation_at_radius(
+        percolated, _ = lattice.lattice_builder._check_percolation_at_radius(
             optimal, "interstitial"
         )
         assert percolated
@@ -226,8 +226,8 @@ class TestPercolationSynthetic:
         # further apart than the search's max_radius, so percolation is
         # impossible and find_optimal_radius must fall back to max_radius.
         lattice = _make_chain_lattice(z_spacing=4.0)
-        assert not lattice._check_percolation_at_radius(3.0, "interstitial")[0]
-        optimal = lattice.find_optimal_radius(
+        assert not lattice.lattice_builder._check_percolation_at_radius(3.0, "interstitial")[0]
+        optimal = lattice.lattice_builder.find_optimal_radius(
             site_type="interstitial",
             min_radius=1.0,
             max_radius=3.0,

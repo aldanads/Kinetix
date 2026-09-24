@@ -180,9 +180,9 @@ class KMCSimulator():
         self.events_tracking = Counter()
         
         # --- Grid generation ---n
-        self.lattice_model(api_key, self.mode, self.affected_site, self.miller_indices)
+        self.lattice_builder.lattice_model(api_key, self.mode, self.affected_site, self.miller_indices)
         grid_crystal = kwargs.get('grid_crystal', None)
-        self.crystal_grid(grid_crystal,self.radius_neighbors,self.mode,self.affected_site,api_key)
+        self.lattice_builder.crystal_grid(grid_crystal,self.radius_neighbors,self.mode,self.affected_site,api_key)
         self.active_event_sites = [] # Sites occupy be a chemical specie
         self.generation_sites = [] # Sites availables for deposition or migration
         
@@ -192,13 +192,13 @@ class KMCSimulator():
             # self.E_min_lim_superbasin = self.Act_E_gen * 0.9 # Don't create superbasin that include the deposition process
             self.E_min_lim_superbasin = 0.25 # Don't create superbasin that include the deposition process
             # Wulff shape and edge types for this kind of material
-            self.Wulff_Shape(api_key)
-            self.create_edges(self.facets_type)
+            self.lattice_builder.Wulff_Shape(api_key)
+            self.lattice_builder.create_edges(self.facets_type)
             
         else:
             self.wulff_facets = None
             self.dir_edge_facets = None
-            self._initialize_cluster_tracking()
+            self.lattice_builder._initialize_cluster_tracking()
             
             kb = constants.physical_constants['Boltzmann constant in eV/K'][0]
             nu0=7E12;  # nu0 (s^-1) bond vibration frequency
@@ -208,7 +208,7 @@ class KMCSimulator():
         
         # Obtain all the positions in the grid that are supported by the
         # substrate or other deposited chemical species
-        support_update_sites = set(self._get_mobile_sites(self.grid_crystal.keys()))
+        support_update_sites = set(self.event_handler._get_mobile_sites(self.grid_crystal.keys()))
         
         event_update_sites = set()
         for site_idx in support_update_sites:
@@ -219,7 +219,7 @@ class KMCSimulator():
               event_update_sites.add(site_idx)
               self.active_event_sites.append(site_idx)    
 
-        self.update_sites_topology(support_update_sites,event_update_sites)
+        self.event_handler.update_sites_topology(support_update_sites,event_update_sites)
         
         all_initial_sites = (
           support_update_sites |
@@ -236,14 +236,13 @@ class KMCSimulator():
         
        
         
-    # ============ Helper methods: cache ========================
     # =========================================================================
-    # Lattice construction: delegates to LatticeBuilder (Phase 5)
+    # Lattice construction: LatticeBuilder (Phase 5)
     # All construction bodies live in kinetix/lattice/lattice_builder.py; the
     # builder holds no simulation state (everything goes through
-    # ``self.system``). `_is_active_site` and `_minimum_image_vector` STAY on
-    # this class (construction + runtime callers) - the builder reaches them
-    # through ``self.system.…``.
+    # ``self.simulator``). `_is_active_site` and `_minimum_image_vector` STAY
+    # on this class (construction + runtime callers) - the builder reaches
+    # them through ``self.simulator.…``.
     # =========================================================================
     @property
     def lattice_builder(self):
@@ -251,114 +250,6 @@ class KMCSimulator():
             from kinetix.lattice.lattice_builder import LatticeBuilder
             self._lattice_builder = LatticeBuilder(self)
         return self._lattice_builder
-
-    def _load_mp_cache(self, key):
-        return self.lattice_builder._load_mp_cache(key)
-
-    def _save_mp_cache(self, key, data):
-        return self.lattice_builder._save_mp_cache(key, data)
-
-    def lattice_model(self, api_key, mode, affected_site=None, miller_indices=(0, 0, 1)):
-        return self.lattice_builder.lattice_model(api_key, mode, affected_site, miller_indices)
-
-    def _is_inside_supercell(self, cart_pos, supercell_lattice):
-        return self.lattice_builder._is_inside_supercell(cart_pos, supercell_lattice)
-
-    def _apply_miller_orientation(self, structure, miller_indices):
-        return self.lattice_builder._apply_miller_orientation(structure, miller_indices)
-
-    def _get_rotation_matrix(self, vec1, vec2):
-        return self.lattice_builder._get_rotation_matrix(vec1, vec2)
-
-    def _create_supercell(self, unit_cell):
-        return self.lattice_builder._create_supercell(unit_cell)
-
-    def _compute_basis_vectors(self):
-        return self.lattice_builder._compute_basis_vectors()
-
-    def _initialize_migration_pathways(self, radius_neighbors, reset_energies=False):
-        return self.lattice_builder._initialize_migration_pathways(radius_neighbors, reset_energies)
-
-    def _validate_migration_network(self, radius=None):
-        return self.lattice_builder._validate_migration_network(radius)
-
-    def _build_kdtree(self):
-        return self.lattice_builder._build_kdtree()
-
-    def _get_neighbors_for_site(self, site_idx, radius):
-        return self.lattice_builder._get_neighbors_for_site(site_idx, radius)
-
-    def _generate_periodic_images(self, site_pos, radius):
-        return self.lattice_builder._generate_periodic_images(site_pos, radius)
-
-    def _check_percolation_at_radius(self, radius, site_type="interstitial"):
-        return self.lattice_builder._check_percolation_at_radius(radius, site_type)
-
-    def find_optimal_radius(self, site_type="interstitial", min_radius=1.5, max_radius=6.0, step=0.25, safety_margin=0.5):
-        return self.lattice_builder.find_optimal_radius(site_type, min_radius, max_radius, step, safety_margin)
-
-    def diagnose_steep_down(self, site_idx, radius_neighbors):
-        return self.lattice_builder.diagnose_steep_down(site_idx, radius_neighbors)
-
-    def diagnose_interstitial_presence(self, site_idx, radius_neighbors, z_window=3.0):
-        return self.lattice_builder.diagnose_interstitial_presence(site_idx, radius_neighbors, z_window)
-
-    def crystal_grid(self, grid_crystal, radius_neighbors, mode, affected_site, api_key):
-        return self.lattice_builder.crystal_grid(grid_crystal, radius_neighbors, mode, affected_site, api_key)
-
-    def _efficient_act_e_copy(self, base_dict):
-        return self.lattice_builder._efficient_act_e_copy(base_dict)
-
-    def _get_applicable_defects_for_site(self, site_type):
-        return self.lattice_builder._get_applicable_defects_for_site(site_type)
-
-    def _compute_interface_flags(self):
-        return self.lattice_builder._compute_interface_flags()
-
-    def _generate_interstitial_sites(self, api_key=None):
-        return self.lattice_builder._generate_interstitial_sites(api_key)
-
-    def _find_interstitials_voronoi(self, interstitial_species, min_distance=0.3):
-        return self.lattice_builder._find_interstitials_voronoi(interstitial_species, min_distance)
-
-    def _refine_interstitial_positions(self, voronoi_positions, interstitial_species):
-        return self.lattice_builder._refine_interstitial_positions(voronoi_positions, interstitial_species)
-
-    def _cluster_and_average(self, positions, threshold=0.7):
-        return self.lattice_builder._cluster_and_average(positions, threshold)
-
-    def _validate_interstitial_positions(self, positions, structure):
-        return self.lattice_builder._validate_interstitial_positions(positions, structure)
-
-    def create_ovito_xyz_file(self, interstitial_species, base_positions_unit_cell, filename="interstitials.xyz"):
-        return self.lattice_builder.create_ovito_xyz_file(interstitial_species, base_positions_unit_cell, filename)
-
-    def _handle_missing_neighbors(self, radius_neighbors, affected_site):
-        return self.lattice_builder._handle_missing_neighbors(radius_neighbors, affected_site)
-
-    def _parallel_neighbors_analysis(self, num_cores=4):
-        return self.lattice_builder._parallel_neighbors_analysis(num_cores)
-
-    def _sequencial_neighbors_analysis(self):
-        return self.lattice_builder._sequencial_neighbors_analysis()
-
-    def get_num_cores(self, local_max_cores=6):
-        return self.lattice_builder.get_num_cores(local_max_cores)
-
-    def _process_batch_sites_worker(self, batch_keys, grid_crystal, shared_data):
-        return self.lattice_builder._process_batch_sites_worker(batch_keys, grid_crystal, shared_data)
-
-    def get_idx_coords(self, coords, basis_vectors):
-        return self.lattice_builder.get_idx_coords(coords, basis_vectors)
-
-    def Wulff_Shape(self, api_key):
-        return self.lattice_builder.Wulff_Shape(api_key)
-
-    def create_edges(self, facets_type):
-        return self.lattice_builder.create_edges(facets_type)
-
-    def _initialize_cluster_tracking(self):
-        return self.lattice_builder._initialize_cluster_tracking()
 
     def _minimum_image_vector(self, vec):
       """
@@ -385,22 +276,7 @@ class KMCSimulator():
             self._solver_coordinator = SolverCoordinator(self)
         return self._solver_coordinator
 
-    def save_electric_bias(self, V):
-        return self.solver_coordinator.save_electric_bias(V)
-
-    def get_evaluation_points(self):
-        return self.solver_coordinator.get_evaluation_points()
-
-    def prepare_clusters_for_bcs(self):
-        return self.solver_coordinator.prepare_clusters_for_bcs()
-      
     
-    # -------------------------------------------------------------------------
-    # get_idx_coords / Wulff_Shape / create_edges moved to
-    # kinetix/lattice/lattice_builder.py (Phase 5); delegates live under the
-    # "Lattice construction" banner after __init__.
-    # -------------------------------------------------------------------------
-
     def available_generation_sites(self, support_update_sites = set(), defect_name=None, defect=None):
         
         update_gen_sites = set()
@@ -596,10 +472,10 @@ class KMCSimulator():
                 if self.rng.random() < probability:
                   chemical_specie = defect['symbol']
                   ion_charge = defect['charge'] 
-                  self._introduce_specie_site(idx,sites_needing_support_update, sites_needing_event_update,chemical_specie,ion_charge)
+                  self.event_handler._introduce_specie_site(idx,sites_needing_support_update, sites_needing_event_update,chemical_specie,ion_charge)
 
           # Update sites availables, the support to each site and available migrations
-          self.update_sites_topology(sites_needing_support_update, sites_needing_event_update)
+          self.event_handler.update_sites_topology(sites_needing_support_update, sites_needing_event_update)
           
           all_affected_sites = (
             sites_needing_support_update |
@@ -650,7 +526,7 @@ class KMCSimulator():
             defect = 'hydrogen_interstitial'
             migrating_charge = self.defects_config[defect]['charge']
             chemical_specie = self.defects_config[defect]['symbol']
-            self._introduce_specie_site(central_idx, support_update_sites, event_update_sites, chemical_specie, migrating_charge)
+            self.event_handler._introduce_specie_site(central_idx, support_update_sites, event_update_sites, chemical_specie, migrating_charge)
             # Update sites availables, the support to each site and available migrations
             self.update_sites(update_specie_events,support_update_sites)
                 
@@ -677,7 +553,7 @@ class KMCSimulator():
                 break
             
             # Introduce specie in the site
-            self._introduce_specie_site(idx, support_update_sites, event_update_sites, chemical_specie, migrating_charge)
+            self.event_handler._introduce_specie_site(idx, support_update_sites, event_update_sites, chemical_specie, migrating_charge)
 
             # Update sites availables, the support to each site and available migrations
             self.update_sites(support_update_sites, event_update_sites)
@@ -692,7 +568,7 @@ class KMCSimulator():
             migrating_charge = self.defects_config[defect]['charge']
             chemical_specie = self.defects_config[defect]['symbol']  
             # Introduce specie in the neighbor site
-            self._introduce_specie_site(target_idx, support_update_sites, event_update_sites, chemical_specie, migrating_charge)
+            self.event_handler._introduce_specie_site(target_idx, support_update_sites, event_update_sites, chemical_specie, migrating_charge)
             # Update sites availables, the support to each site and available migrations
             self.update_sites(support_update_sites, event_update_sites)
             
@@ -722,7 +598,7 @@ class KMCSimulator():
                      
             # 2. Introduce specie in the site
             central_config = self.defects_config['oxygen_vacancy']
-            self._introduce_specie_site(
+            self.event_handler._introduce_specie_site(
               central_idx,
               support_update_sites,
               event_update_sites,
@@ -747,7 +623,7 @@ class KMCSimulator():
               if n_placed >= N_HYDROGENS:
                 break
               
-              self._introduce_specie_site(
+              self.event_handler._introduce_specie_site(
                 neigh_idx,
                 support_update_sites,
                 event_update_sites,
@@ -963,11 +839,13 @@ class KMCSimulator():
     # KMC logic: algorithm and execution of processes  
     # ================================================
     # =========================================================================
-    # kMC loop: delegates to KMCLoop (Phase 4)
+    # kMC loop: KMCLoop (Phase 4)
     # All loop bodies live in kinetix/lattice/kmc_loop.py; the loop holds no
-    # simulation state and every read/write goes through ``self.system``.
-    # ``_kmc_step`` calls ``self.system.processes(...)`` - this delegate - so
-    # the golden trace's instance-level wrapper still observes the catalog.
+    # simulation state and every read/write goes through ``self.simulator``.
+    # ``step_kmc`` is the only facade method below (core public API);
+    # ``_kmc_step`` calls ``self.simulator.processes(...)`` - the retained
+    # EventHandler delegate - so the golden trace's instance-level wrapper
+    # still observes the catalog.
     # =========================================================================
     @property
     def kmc_loop(self):
@@ -979,40 +857,13 @@ class KMCSimulator():
     def step_kmc(self, rng):
         return self.kmc_loop.step_kmc(rng)
 
-    def _kmc_step(self, rng, E_field_dict, T_field_dict):
-        return self.kmc_loop._kmc_step(rng, E_field_dict, T_field_dict)
-
-    def _search_superbasin(self, kmc_time_step):
-        return self.kmc_loop._search_superbasin(kmc_time_step)
-
-    def update_superbasin(self, chosen_event):
-        return self.kmc_loop.update_superbasin(chosen_event)
-
-    def should_activate_superbasin(self, kmc_time_step):
-        return self.kmc_loop.should_activate_superbasin(kmc_time_step)
-
-    def is_filament_percolating(self):
-        return self.kmc_loop.is_filament_percolating()
-
-    def _check_event_based_superbasin(self):
-        return self.kmc_loop._check_event_based_superbasin()
-
-    def _check_time_based_superbasin(self, kmc_time_step):
-        return self.kmc_loop._check_time_based_superbasin(kmc_time_step)
-
-    def _slow_timesteps(self):
-        return self.kmc_loop._slow_timesteps()
-
     # Field solving stays with the SolverCoordinator (Phase 2); ``step_kmc``
-    # and ``_kmc_step`` reach it through this delegate.
-    def _evaluate_fields_for_kmc(self):
-        return self.solver_coordinator._evaluate_fields_for_kmc()
-
+    # and ``_kmc_step`` reach it as ``self.simulator.solver_coordinator.<name>``.
 
     # =========================================================================
-    # kMC event execution: delegates to EventHandler (Phase 3)
+    # kMC event execution: EventHandler (Phase 3)
     # All handler bodies live in kinetix/lattice/events.py; the handler is
-    # stateless and every read/write goes through ``self`` (this system).
+    # stateless and every read/write goes through ``self.simulator``.
     # =========================================================================
     @property
     def event_handler(self):
@@ -1021,32 +872,21 @@ class KMCSimulator():
         return self._event_handler
 
     # -------------------------------------------------------------------------
-    # Delegates kept for callers outside this module: superbasin.py calls
-    # ``simulator.processes``; state_loader.py calls ``_introduce_specie_site``
-    # / ``update_sites_topology``; the golden trace and the kMC-loop tests wrap
-    # or call ``processes`` / ``_update_rates_lazily``; lattice construction
-    # calls ``_get_mobile_sites``. ``_kmc_step`` calls ``self.processes(...)`` -
-    # through this delegate - so instance-level wrappers (golden trace) work.
+    # Global delegate cleanup: only the CORE public API remains on this facade -
+    # ``step_kmc`` (above) and ``processes``. superbasin.py and the kMC loop
+    # call ``simulator.processes``; the golden trace WRAPS that instance
+    # attribute, and ``_kmc_step`` routes through it, so this delegate is part
+    # of the physics contract. All other extracted names are reached directly
+    # (``simulator.event_handler.<name>`` etc.).
     # -------------------------------------------------------------------------
 
     def processes(self, chosen_event):
         return self.event_handler.processes(chosen_event)
 
-    def update_sites_topology(self, support_update_sites, event_update_sites):
-        return self.event_handler.update_sites_topology(support_update_sites, event_update_sites)
-
-    def _update_rates_lazily(self, E_field_dict, T_field_dict):
-        return self.event_handler._update_rates_lazily(E_field_dict, T_field_dict)
-
-    def _introduce_specie_site(self, idx, support_update_sites, event_update_sites, chemical_specie, ion_charge=None):
-        return self.event_handler._introduce_specie_site(idx, support_update_sites, event_update_sites, chemical_specie, ion_charge)
-
-    def _get_mobile_sites(self, site_indices):
-        return self.event_handler._get_mobile_sites(site_indices)
-
     # -------------------------------------------------------------------------
     # Not moved: lattice construction (crystal_grid) also calls this predicate,
-    # so it stays here (EventHandler calls it as ``self.system._is_active_site``)
+    # so it stays here (EventHandler/LatticeBuilder call it as
+    # ``self.simulator._is_active_site``).
     # -------------------------------------------------------------------------
 
     def _is_active_site(self, site_type: str) -> bool:
@@ -1064,9 +904,6 @@ class KMCSimulator():
         self.list_time.append(self.time)
         
         
-    def get_timestep_limit(self):
-        return self.solver_coordinator.get_timestep_limit()
-
     def should_continue_simulation(self,total_simulation_time):
       """
       Check if simulation should continue based on time criterion.
@@ -1083,9 +920,6 @@ class KMCSimulator():
       """
       return self.time < total_simulation_time
 
-    def should_solve_fields_now(self, elec_controller, tol=1e-12):
-        return self.solver_coordinator.should_solve_fields_now(elec_controller, tol)
-      
     
 
 # =============================================================================
@@ -1466,7 +1300,7 @@ class KMCSimulator():
     # ----------------------------------------------------
     
     # _initialize_cluster_tracking moved to kinetix/lattice/lattice_builder.py
-    # (Phase 5); its delegate lives under the "Lattice construction" banner.
+    # (Phase 5).
 
     def _add_metal_atom_to_clusters(self,site_id):
       """
@@ -1843,7 +1677,7 @@ class KMCSimulator():
         # We calculate the cartesian coordinates of the site using the basis vectors
         cart_site = self.idx_to_cart(idx_site)
         # cart_site[2] >= -1e-3 to avoid that some sites in the zero layer get outside
-        if idx_site not in visited and self._is_inside_supercell(cart_site, self.structure.lattice):
+        if idx_site not in visited and self.lattice_builder._is_inside_supercell(cart_site, self.structure.lattice):
             # We track the created sites
             visited.add(idx_site)
             # We create the site with the cartesian coordinates
@@ -1867,7 +1701,7 @@ class KMCSimulator():
             cart_site = self.idx_to_cart(current_idx_site)
    
             
-            if self._is_inside_supercell(cart_site, self.structure.lattice):
+            if self.lattice_builder._is_inside_supercell(cart_site, self.structure.lattice):
                 # Track the created site
                 visited.add(current_idx_site)
                 # Create the site with the cartesian coordinates

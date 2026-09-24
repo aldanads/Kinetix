@@ -73,10 +73,11 @@ logger = logging.getLogger(__name__)
 class LatticeBuilder:
     """Lattice construction and initialization for KMCSimulator.
 
-    KMCSimulator keeps thin delegates with the original method names so
-    external callers (initialization.py, cli.py, tests, metadata.py) are
-    unchanged. The builder runs during initialization: the grid fast-path
-    (pickled grid) and the from-scratch build path both live here.
+    The builder is self-contained: no extracted method survives on
+    ``KMCSimulator``. Callers reach it directly as
+    ``simulator.lattice_builder.<name>`` (initialization.py, cli.py, tests,
+    metadata.py). It runs during initialization: the grid fast-path (pickled
+    grid) and the from-scratch build path both live here.
 
     Args:
         simulator: The ``KMCSimulator``/``simulator`` whose lattice is
