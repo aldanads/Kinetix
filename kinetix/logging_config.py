@@ -20,7 +20,7 @@ def setup_logging(level=logging.INFO, log_file=None):
     root = logging.getLogger("kinetix")
     root.setLevel(level)
 
-    # Prevent duplicate output: child loggers (kinetix.lattice.crystal, ...)
+    # Prevent duplicate output: child loggers (kinetix.lattice.simulator, ...)
     # propagate up to 'kinetix' where our handler emits once. Without stopping
     # propagation here, records would keep climbing to the real root logger ""
     # and, if a third-party library installed a handler there (e.g. via

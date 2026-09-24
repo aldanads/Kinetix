@@ -106,21 +106,21 @@ for sub in folder_subs:
                    myvar = pickle.load(file)
               
         
-            System_state = myvar['System_state']
+            simulator = myvar['simulator']
 
-            System_state.affected_site = "Empty"
-            System_state.mode = "regular"
+            simulator.affected_site = "Empty"
+            simulator.mode = "regular"
 
-            System_state.islands_analysis()
+            simulator.islands_analysis()
             
             atoms_deposited = []
             
             mass = 0
 
             new_islands_list = []
-            for island in System_state.islands_list:
+            for island in simulator.islands_list:
 
-                island._attached_to_substrate(System_state)
+                island._attached_to_substrate(simulator)
                 # Remove islands that have been detached from the substrate
                 if island.attached_substrate:
                     # islands_terraces.append(np.mean(np.array(island.terraces)[np.array(island.terraces) != 0]))
@@ -129,41 +129,41 @@ for sub in folder_subs:
                         atoms_deposited.append(site)
                     new_islands_list.append(island)  # keep it
             
-            System_state.islands_list = new_islands_list
+            simulator.islands_list = new_islands_list
                     
             
 
             # Remove atoms separated from the substrate from the system
             count = 0
-            for site in System_state.sites_occupied.copy(): # Need to copy, otherwise it modifies the same list it is reading
+            for site in simulator.sites_occupied.copy(): # Need to copy, otherwise it modifies the same list it is reading
                 if site not in atoms_deposited:
                     count += 1
                     update_supp_av = set()
                     update_specie_events = {site}
                     
-                    update_specie_events,update_supp_av = System_state.remove_specie_site(site,update_specie_events,update_supp_av)
-                    System_state.update_sites(update_specie_events,update_supp_av)
+                    update_specie_events,update_supp_av = simulator.remove_specie_site(site,update_specie_events,update_supp_av)
+                    simulator.update_sites(update_specie_events,update_supp_av)
                     
             
-            for island in System_state.islands_list:
-                island.analyze_island(System_state)
+            for island in simulator.islands_list:
+                island.analyze_island(simulator)
                 
 
             """
             Peak detection calculated only with atoms_deposited -> Removed the rest
             """
-            System_state.peak_detection()
-            System_state.sites_occupied = set(System_state.sites_occupied)
-            System_state.neighbors_calculation()
-            System_state.measurements_crystal()
+            simulator.peak_detection()
+            simulator.sites_occupied = set(simulator.sites_occupied)
+            simulator.neighbors_calculation()
+            simulator.measurements_crystal()
 
-            #System_state.RMS_roughness()
+            #simulator.RMS_roughness()
         
             # Create files with the particles
             
             # if 'Pt' in root:
             #     print(root)
-            #     System_state.plot_crystal(45,45,'',i_count)
+            #     simulator.plot_crystal(45,45,'',i_count)
             #     i_count += 1
 
             #     if i_count == 8: exit()
@@ -172,10 +172,10 @@ for sub in folder_subs:
             """
             Calculate area per site
             """
-            z_step = next((vec[2] * 2 for vec in System_state.basis_vectors if vec[2] > 0), None)
-            z_steps = round(System_state.crystal_size[2]/z_step + 1)
-            sites_per_layer = len(System_state.grid_crystal)/z_steps
-            area_per_site = System_state.crystal_size[0] * System_state.crystal_size[1] / sites_per_layer
+            z_step = next((vec[2] * 2 for vec in simulator.basis_vectors if vec[2] > 0), None)
+            z_steps = round(simulator.crystal_size[2]/z_step + 1)
+            sites_per_layer = len(simulator.grid_crystal)/z_steps
+            area_per_site = simulator.crystal_size[0] * simulator.crystal_size[1] / sites_per_layer
             
     
             peak_size = []
@@ -184,7 +184,7 @@ for sub in folder_subs:
             aspect_ratio_island = []
             seen_clusters = set()
 
-            for island in System_state.islands_list:
+            for island in simulator.islands_list:
                 
 
                 for i in reversed(range(len(island.cluster_list))):
@@ -207,7 +207,7 @@ for sub in folder_subs:
                         peak_base_area.append(cluster_layer[first_non_zero] * area_per_site)
                        
                 if island.merge_layer_index > 0 and island.cluster_terraces:
-                    terraces = np.array(System_state.terraces[1:island.merge_layer_index])
+                    terraces = np.array(simulator.terraces[1:island.merge_layer_index])
                     all_terraces.extend(terraces[terraces > 0])
                     
                 for terraces in island.cluster_terraces:
@@ -217,8 +217,8 @@ for sub in folder_subs:
                 aspect_ratio_island.extend(island.cluster_aspect_ratio)
 
                     
-            total_area = System_state.crystal_size[0] * System_state.crystal_size[1]
-            substrate_exposure = (System_state.crystal_size[0] * System_state.crystal_size[1] - max(System_state.layers[0]) * area_per_site) / total_area
+            total_area = simulator.crystal_size[0] * simulator.crystal_size[1]
+            substrate_exposure = (simulator.crystal_size[0] * simulator.crystal_size[1] - max(simulator.layers[0]) * area_per_site) / total_area
 
             peak_mean_size = np.mean(peak_size)
             peak_std_size = np.std(peak_size)
@@ -228,14 +228,14 @@ for sub in folder_subs:
             if all_terraces:
                 max_terraces = max(all_terraces) / total_area
             else:
-                max_terraces = max(System_state.terraces) / total_area
+                max_terraces = max(simulator.terraces) / total_area
             
             peak_base_area = np.array(peak_base_area) / total_area
 
             
 # =============================================================================
-#             for peak in System_state.peak_list:
-#                 peak.analyze_island(System_state)
+#             for peak in simulator.peak_list:
+#                 peak.analyze_island(simulator)
 #                 if len(peak.island_sites) > 0:
 #                     peak_size.append(len(peak.island_sites))
 #                     index_peak_layers = np.where(np.array(peak.layers) != 0)
@@ -247,7 +247,7 @@ for sub in folder_subs:
 # =============================================================================
             
             
-            # System_state.terrace_area()
+            # simulator.terrace_area()
         
 # =============================================================================
 #             if islands_terraces:
@@ -263,7 +263,7 @@ for sub in folder_subs:
             # Results: thickness, roughness, islands, terraces
             peak_size_max = max(peak_size) if peak_size else 0
             
-            for i,island in enumerate(System_state.islands_list):
+            for i,island in enumerate(simulator.islands_list):
                 print("Island: ",i, "merge_Layer: ", island.merge_layer_index)
                 for j,slice_layer in enumerate(island.slice_list):
                     print("Layer: ", j, "n slices: ",len(slice_layer))
@@ -274,10 +274,10 @@ for sub in folder_subs:
             # if ("Ag" in root and 'homoepitaxial' in root and "E_min_limit_025" in root): exit()
                 
             Results.measurements_crystal(key,
-                                         System_state.thickness,
-                                         System_state.Ra_roughness,
-                                         System_state.z_mean,
-                                         System_state.surf_roughness_RMS,
+                                         simulator.thickness,
+                                         simulator.Ra_roughness,
+                                         simulator.z_mean,
+                                         simulator.surf_roughness_RMS,
                                          len(peak_size),
                                          np.mean(peak_size),
                                          np.std(peak_size),
@@ -286,9 +286,9 @@ for sub in folder_subs:
                                          mean_terraces,
                                          std_terraces,
                                          max_terraces,
-                                         np.mean(np.array(System_state.terraces)[np.array(System_state.terraces) > 0]),
-                                         np.std(np.array(System_state.terraces)[np.array(System_state.terraces) > 0]),
-                                         max(System_state.terraces)
+                                         np.mean(np.array(simulator.terraces)[np.array(simulator.terraces) > 0]),
+                                         np.std(np.array(simulator.terraces)[np.array(simulator.terraces) > 0]),
+                                         max(simulator.terraces)
                                          )
             
             # Size of terrace per layer
@@ -296,11 +296,11 @@ for sub in folder_subs:
             dfs_histogram_terraces.append(df_histogram_terraces)
             
             # Histogram of neighbors
-            df_histogram_neighbors = pd.DataFrame({key+"_neighbors": System_state.histogram_neighbors})   
+            df_histogram_neighbors = pd.DataFrame({key+"_neighbors": simulator.histogram_neighbors})   
             dfs_histogram_neighbors.append(df_histogram_neighbors)
             
             # Ocuppation rate per layer
-            df_occ_rate = pd.DataFrame({key+"_occupation_rate": System_state.layers[1]})   
+            df_occ_rate = pd.DataFrame({key+"_occupation_rate": simulator.layers[1]})   
             dfs_occ_rate.append(df_occ_rate)
             
             # Island size

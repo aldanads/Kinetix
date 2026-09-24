@@ -2,9 +2,9 @@
 """
 Behavioral spec for kinetix/lattice/kmc_loop.py (KMCLoop).
 
-Phase 4 of the crystal.py split: the BKL step orchestration (step_kmc,
+Phase 4 of the simulator.py split: the BKL step orchestration (step_kmc,
 _kmc_step, superbasin search/invalidation/activation policy) moved out of
-Crystal_Lattice; Crystal_Lattice keeps thin one-line delegates plus a lazy
+KMCSimulator; KMCSimulator keeps thin one-line delegates plus a lazy
 ``kmc_loop`` property, so cli.py, tests and the golden trace's INSTANCE-level
 wrapper of ``processes`` are unchanged.
 
@@ -12,9 +12,9 @@ BEHAVIOR NOTES pinned below:
   * delegates are one-liners that forward to ``self.kmc_loop.<name>``
   * KMCLoop is stateless: ``system`` is the only instance attribute; every
     simulation field (time, rank, mpi_ctx, superbasin_dict, ...) is read and
-    written through ``self.system``
+    written through ``self.simulator``
   * ``_kmc_step`` reaches ``processes`` through the SYSTEM delegate
-    (``self.system.processes``) - the golden trace wraps the *instance*
+    (``self.simulator.processes``) - the golden trace wraps the *instance*
     attribute, so bypassing the delegate would void the physics contract
   * the extracted module contains no MPI logic beyond the VERBATIM pre-existing
     ``system.rank`` guard + ``system.mpi_ctx.bcast`` of ``time`` inside
@@ -35,7 +35,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from kinetix.lattice.crystal import Crystal_Lattice
+from kinetix.lattice.simulator import KMCSimulator
 from kinetix.lattice.kmc_loop import KMCLoop
 from tests.test_golden_trace import (
     FIXTURE_PATH,
@@ -115,10 +115,10 @@ def trajectory(grid_path):
 # =============================================================================
 
 def test_kmc_loop_instantiated_lazily_via_property(system):
-    """``Crystal_Lattice.kmc_loop`` builds and caches one loop per system."""
+    """``KMCSimulator.kmc_loop`` builds and caches one loop per system."""
     loop = system.kmc_loop
     assert isinstance(loop, KMCLoop)
-    assert loop.system is system
+    assert loop.simulator is system
     assert system.kmc_loop is loop            # cached on the instance
     assert system._kmc_loop is loop
 
@@ -126,7 +126,7 @@ def test_kmc_loop_instantiated_lazily_via_property(system):
 def test_lazy_property_uses_local_import():
     """The property must import KMCLoop lazily (no top-level cycle, Phase 4
     pattern shared with ``solver_coordinator``)."""
-    src = inspect.getsource(Crystal_Lattice.kmc_loop.fget)
+    src = inspect.getsource(KMCSimulator.kmc_loop.fget)
     assert "from kinetix.lattice.kmc_loop import KMCLoop" in src
     assert "hasattr(self, '_kmc_loop')" in src
 
@@ -137,9 +137,9 @@ def test_package_and_module_class_identity():
 
 
 def test_delegates_are_thin_and_forward_to_loop():
-    """Every extracted method survives on Crystal_Lattice as a delegate only."""
+    """Every extracted method survives on KMCSimulator as a delegate only."""
     for name in DELEGATES:
-        src = inspect.getsource(getattr(Crystal_Lattice, name))
+        src = inspect.getsource(getattr(KMCSimulator, name))
         assert "self.kmc_loop." in src, name
         assert src.count("return") == 1, name
         assert src.count("\n") <= 3, name
@@ -155,15 +155,15 @@ def test_bodies_live_on_kmc_loop_not_crystal():
         KMCLoop._check_event_based_superbasin)
     # ... and nowhere on the delegate
     for name in DELEGATES:
-        src = inspect.getsource(getattr(Crystal_Lattice, name))
+        src = inspect.getsource(getattr(KMCSimulator, name))
         assert "TR_catalog" not in src, name
         assert "Superbasin(" not in src, name
 
 
 def test_loop_is_stateless(system):
-    """The loop holds ONLY the system reference (all state stays on the system)."""
+    """The loop holds ONLY the simulator reference (all state stays on it)."""
     loop = KMCLoop(system)
-    assert set(vars(loop)) == {"system"}
+    assert set(vars(loop)) == {"simulator"}
     for attr in ("time", "rank", "mpi_ctx", "superbasin_dict", "grid_crystal",
                  "events_tracking", "active_event_sites"):
         assert not hasattr(loop, attr), attr
@@ -183,7 +183,7 @@ def test_loop_module_has_no_runtime_crystal_import():
                                "numpy", "kinetix"}, runtime_imports
     guard = next(n for n in tree.body if isinstance(n, ast.If))
     assert "TYPE_CHECKING" in ast.unparse(guard.test)
-    assert "Crystal_Lattice" in ast.unparse(guard)
+    assert "KMCSimulator" in ast.unparse(guard)
 
 
 def test_no_mpi_logic_in_extracted_code(system):
@@ -193,8 +193,8 @@ def test_no_mpi_logic_in_extracted_code(system):
     src = inspect.getsource(mod)
     assert "mpi4py" not in src
     assert "self.rank" not in src and "self.mpi_ctx" not in src  # routed
-    assert "self.system.rank" in src          # guard moved verbatim
-    assert "self.system.mpi_ctx.bcast" in src # bcast moved verbatim
+    assert "self.simulator.rank" in src          # guard moved verbatim
+    assert "self.simulator.mpi_ctx.bcast" in src # bcast moved verbatim
     assert "gather" not in src and "scatter" not in src
     # serial construction is the documented default (initialization.py):
     # mpi_ctx=None => the bcast branch is skipped and rank is 0
@@ -238,9 +238,9 @@ def test_step_kmc_matches_golden_fixture_through_delegate(trajectory,
                                                           golden_fixture):
     """5 steps through ``crystal.step_kmc`` reproduce the first 5 fixture steps.
 
-    This exercises the WHOLE Phase-4 chain: ``Crystal_Lattice.step_kmc``
+    This exercises the WHOLE Phase-4 chain: ``KMCSimulator.step_kmc``
     (delegate) -> ``KMCLoop.step_kmc`` -> ``_kmc_step`` -> balanced-tree BKL ->
-    ``self.system.processes`` (EventHandler delegate) -> time bookkeeping.
+    ``self.simulator.processes`` (EventHandler delegate) -> time bookkeeping.
     """
     crystal, recorder = trajectory
     expected = golden_fixture["steps"][:INTEGRATION_STEPS]
@@ -262,7 +262,7 @@ def test_step_kmc_matches_golden_fixture_through_delegate(trajectory,
 
 def test_kmc_loop_reaches_processes_via_instance_delegate(trajectory,
                                                           golden_fixture):
-    """``_kmc_step`` must call ``self.system.processes(...)`` - the SYSTEM
+    """``_kmc_step`` must call ``self.simulator.processes(...)`` - the SYSTEM
     delegate - so an INSTANCE-level wrapper (what the golden trace wraps) sees
     every executed event. Routing directly to ``event_handler.processes``
     would silently bypass the wrapper."""

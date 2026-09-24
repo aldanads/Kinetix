@@ -174,7 +174,7 @@ def main(sim_id=None, config_name='PZT_ZrTi_PbO3_2.yaml'):
                 atexit.register(lambda: profiler.dump_stats('kmc_profile.prof'))
 
                 try:
-                    System_state = main(sim_id)
+                    simulator = main(sim_id)
                 finally:
                     profiler.disable()
 
@@ -184,24 +184,24 @@ def main(sim_id=None, config_name='PZT_ZrTi_PbO3_2.yaml'):
                 stats.print_stats(15)
                 logger.info("Full profile saved to 'kmc_profile.prof'")
             else:
-                System_state = main(sim_id, config_name)
+                simulator = main(sim_id, config_name)
 
             # Entry-point wrappers invoke this function as sys.exit(main());
-            # a returned Crystal_Lattice object would be read as a truthy
+            # a returned KMCSimulator object would be read as a truthy
             # non-int status, so end CLI mode explicitly with code 0.
             sys.exit(0)
         
         # Configure logging with defaults before config is loaded
         setup_logging()
         params = get_parameters_from_sim_id(sim_id)
-        System_state,rng,paths,Results,simulation_parameters,Elec_controller = initialization(sim_id, params, config_name)
+        simulator,rng,paths,Results,simulation_parameters,Elec_controller = initialization(sim_id, params, config_name)
         
-        if System_state.rank == 0:
-          logger.info('System size: %s', System_state.crystal_size)
+        if simulator.rank == 0:
+          logger.info('System size: %s', simulator.crystal_size)
           total_start_time = time.time()
-          System_state.plot_crystal(45,45,paths['data'],0)    
+          simulator.plot_crystal(45,45,paths['data'],0)    
           
-        System_state.add_time()
+        simulator.add_time()
             
         
         j = 0
@@ -215,98 +215,98 @@ def main(sim_id=None, config_name='PZT_ZrTi_PbO3_2.yaml'):
     #     Deposition
     # 
     # =============================================================================
-        if System_state.simulation_type == 'deposition':   
+        if simulator.simulation_type == 'deposition':   
     
             nothing_happen = 0
             # list_time_step = []
             list_sites_occu = []
             thickness_limit = 10 # (1 nm)
-            System_state.measurements_crystal()
+            simulator.measurements_crystal()
             i = 0
-            while System_state.thickness < thickness_limit:
+            while simulator.thickness < thickness_limit:
                 i+=1
           
-                System_state,KMC_time_step, _ = KMC(System_state,rng)
+                simulator,KMC_time_step, _ = KMC(simulator,rng)
                                 
-                list_sites_occu.append(len(System_state.sites_occupied))
+                list_sites_occu.append(len(simulator.sites_occupied))
                 
-                if np.mean(list_sites_occu[-System_state.n_search_superbasin:]) == len(System_state.sites_occupied):
-                # if np.mean(list_time_step[-System_state.n_search_superbasin:]) <= System_state.time_step_limits:
+                if np.mean(list_sites_occu[-simulator.n_search_superbasin:]) == len(simulator.sites_occupied):
+                # if np.mean(list_time_step[-simulator.n_search_superbasin:]) <= simulator.time_step_limits:
                     nothing_happen +=1    
                 else:
                     nothing_happen = 0
-                    if System_state.E_min - System_state.energy_step > 0:
-                        System_state.E_min -= System_state.energy_step
+                    if simulator.E_min - simulator.energy_step > 0:
+                        simulator.E_min -= simulator.energy_step
                     else:
-                        System_state.E_min = 0
+                        simulator.E_min = 0
                 
-                if System_state.n_search_superbasin == nothing_happen:
-                    search_superbasin(System_state)
-                elif nothing_happen> 0 and nothing_happen % System_state.n_search_superbasin == 0:
-                    if System_state.E_min_lim_superbasin >= System_state.E_min + System_state.energy_step:
-                        System_state.E_min += System_state.energy_step
+                if simulator.n_search_superbasin == nothing_happen:
+                    search_superbasin(simulator)
+                elif nothing_happen> 0 and nothing_happen % simulator.n_search_superbasin == 0:
+                    if simulator.E_min_lim_superbasin >= simulator.E_min + simulator.energy_step:
+                        simulator.E_min += simulator.energy_step
                     else:
-                        System_state.E_min = System_state.E_min_lim_superbasin
-                    search_superbasin(System_state)
+                        simulator.E_min = simulator.E_min_lim_superbasin
+                    search_superbasin(simulator)
                     
     
                     
-                # print('Superbasin E_min: ',System_state.E_min)
+                # print('Superbasin E_min: ',simulator.E_min)
             
                 if i%snapshots_steps== 0:
-                    System_state.add_time()
+                    simulator.add_time()
                     
                     j+=1
-                    System_state.measurements_crystal()
-                    logger.info('%s %% | Thickness: %s | Total time: %s', str(System_state.thickness/thickness_limit * 100), System_state.thickness, System_state.list_time[-1])
+                    simulator.measurements_crystal()
+                    logger.info('%s %% | Thickness: %s | Total time: %s', str(simulator.thickness/thickness_limit * 100), simulator.thickness, simulator.list_time[-1])
                     end_time = time.time()
                     if save_data:
-                        Results.measurements_crystal(System_state.list_time[-1],System_state.mass_gained,System_state.fraction_sites_occupied,
-                                                      System_state.thickness,np.mean(np.array(System_state.terraces)[np.array(System_state.terraces) > 0]),np.std(np.array(System_state.terraces)[np.array(System_state.terraces) > 0]),max(System_state.terraces),
-                                                      System_state.surf_roughness_RMS,end_time-starting_time)
+                        Results.measurements_crystal(simulator.list_time[-1],simulator.mass_gained,simulator.fraction_sites_occupied,
+                                                      simulator.thickness,np.mean(np.array(simulator.terraces)[np.array(simulator.terraces) > 0]),np.std(np.array(simulator.terraces)[np.array(simulator.terraces) > 0]),max(simulator.terraces),
+                                                      simulator.surf_roughness_RMS,end_time-starting_time)
         
-                    System_state.plot_crystal(45,45,paths['data'],j)
+                    simulator.plot_crystal(45,45,paths['data'],j)
                     
     
     # =============================================================================
     #     Annealing  
     #            
     # =============================================================================
-        elif System_state.simulation_type == 'annealing':
+        elif simulator.simulation_type == 'annealing':
             i = 0
             
             nothing_happen = 0
 
-            System_state.measurements_crystal()
+            simulator.measurements_crystal()
             list_time_step = []
     
             while j*snapshots_steps < total_steps:
     
                 i+=1
-                System_state,KMC_time_step, _ = KMC(System_state,rng)
+                simulator,KMC_time_step, _ = KMC(simulator,rng)
                 list_time_step.append(KMC_time_step)
                 
     # =============================================================================
     #                 Search of superbasin
     # =============================================================================
-                if np.mean(list_time_step[-System_state.n_search_superbasin:]) <= System_state.time_step_limits:
-                # if np.mean(list_time_step[-4:]) <= System_state.time_step_limits:
+                if np.mean(list_time_step[-simulator.n_search_superbasin:]) <= simulator.time_step_limits:
+                # if np.mean(list_time_step[-4:]) <= simulator.time_step_limits:
                     nothing_happen +=1    
                 else:
                     nothing_happen = 0
-                    if System_state.E_min - System_state.energy_step > 0:
-                        System_state.E_min -= System_state.energy_step
+                    if simulator.E_min - simulator.energy_step > 0:
+                        simulator.E_min -= simulator.energy_step
                     else:
-                        System_state.E_min = 0
+                        simulator.E_min = 0
                         
-                if System_state.n_search_superbasin == nothing_happen:
-                    search_superbasin(System_state)
-                elif nothing_happen > 0 and nothing_happen % System_state.n_search_superbasin == 0:
-                    if System_state.E_min_lim_superbasin >= System_state.E_min + System_state.energy_step:
-                        System_state.E_min += System_state.energy_step
+                if simulator.n_search_superbasin == nothing_happen:
+                    search_superbasin(simulator)
+                elif nothing_happen > 0 and nothing_happen % simulator.n_search_superbasin == 0:
+                    if simulator.E_min_lim_superbasin >= simulator.E_min + simulator.energy_step:
+                        simulator.E_min += simulator.energy_step
                     else:
-                        System_state.E_min = System_state.E_min_lim_superbasin
-                    search_superbasin(System_state)
+                        simulator.E_min = simulator.E_min_lim_superbasin
+                    search_superbasin(simulator)
                     
     # =============================================================================
     #                     Finish search superbasin
@@ -314,40 +314,40 @@ def main(sim_id=None, config_name='PZT_ZrTi_PbO3_2.yaml'):
                 
                 if i%snapshots_steps== 0:
                     
-                    System_state.sites_occupied = list(set(System_state.sites_occupied))
+                    simulator.sites_occupied = list(set(simulator.sites_occupied))
                                         
-                    System_state.add_time()
+                    simulator.add_time()
                     j+=1
-                    System_state.measurements_crystal()
-                    logger.info('%s/%s | Total time: %s', str(j), str(int(total_steps/snapshots_steps)), System_state.list_time[-1])
+                    simulator.measurements_crystal()
+                    logger.info('%s/%s | Total time: %s', str(j), str(int(total_steps/snapshots_steps)), simulator.list_time[-1])
                     end_time = time.time()
                     if save_data:
-                        Results.measurements_crystal(System_state.list_time[-1],System_state.mass_gained,System_state.fraction_sites_occupied,
-                                                      System_state.thickness,np.mean(np.array(System_state.terraces)[np.array(System_state.terraces) > 0]),np.std(np.array(System_state.terraces)[np.array(System_state.terraces) > 0]),max(System_state.terraces),
-                                                      System_state.surf_roughness_RMS,end_time-starting_time)
+                        Results.measurements_crystal(simulator.list_time[-1],simulator.mass_gained,simulator.fraction_sites_occupied,
+                                                      simulator.thickness,np.mean(np.array(simulator.terraces)[np.array(simulator.terraces) > 0]),np.std(np.array(simulator.terraces)[np.array(simulator.terraces) > 0]),max(simulator.terraces),
+                                                      simulator.surf_roughness_RMS,end_time-starting_time)
                         
-                    System_state.plot_crystal(45,45,paths['data'],j)
+                    simulator.plot_crystal(45,45,paths['data'],j)
                     
     # =============================================================================
     #     Devices: PZT, memristors  
     #            
     # =============================================================================
                     
-        elif System_state.simulation_type == 'electronic_device':
+        elif simulator.simulation_type == 'electronic_device':
             
             from collections import Counter
-            solve_Poisson = (System_state.poisson_config is not None
-                             and System_state.poisson_config.solve_Poisson)
-            save_Poisson = (System_state.poisson_config is not None
-                            and System_state.poisson_config.save_Poisson)
+            solve_Poisson = (simulator.poisson_config is not None
+                             and simulator.poisson_config.solve_Poisson)
+            save_Poisson = (simulator.poisson_config is not None
+                            and simulator.poisson_config.save_Poisson)
 
-            solve_heat = (System_state.heat_config is not None
-                          and System_state.heat_config.solve_heat)
-            save_heat = (System_state.heat_config is not None
-                         and System_state.heat_config.save_heat)
+            solve_heat = (simulator.heat_config is not None
+                          and simulator.heat_config.solve_heat)
+            save_heat = (simulator.heat_config is not None
+                         and simulator.heat_config.save_heat)
             
-            V_top = Elec_controller.apply_voltage(System_state.time)
-            System_state.save_electric_bias(V_top)
+            V_top = Elec_controller.apply_voltage(simulator.time)
+            simulator.save_electric_bias(V_top)
             
             # Dolfinx only works in Linux
             if solve_Poisson and platform.system() == 'Linux':
@@ -357,32 +357,32 @@ def main(sim_id=None, config_name='PZT_ZrTi_PbO3_2.yaml'):
                 
                 # Initialize Poisson solver on all MPI ranks
                 poisson_solver = PoissonSolver(
-                  mesh_file=System_state.solver_mesh_file,
-                  mesh_config=System_state.mesh_config,
-                  poisson_config=System_state.poisson_config,
-                  material_config=System_state.material_config,
-                  defects_config=System_state.defects_config,
-                  grid_crystal=System_state.grid_crystal,
+                  mesh_file=simulator.solver_mesh_file,
+                  mesh_config=simulator.mesh_config,
+                  poisson_config=simulator.poisson_config,
+                  material_config=simulator.material_config,
+                  defects_config=simulator.defects_config,
+                  grid_crystal=simulator.grid_crystal,
                   path_results = paths["results"],
-                  mpi_ctx = System_state.mpi_ctx
+                  mpi_ctx = simulator.mpi_ctx
                 )
-                System_state._poisson_solver = poisson_solver
+                simulator._poisson_solver = poisson_solver
                 
                 poisson_solver.set_boundary_conditions(top_value=V_top, bottom_value=0.0)  # Set appropriate BCs
                 
                 if solve_heat:
                   heat_solver = HeatSolver(
-                    mesh_file=System_state.solver_mesh_file,
-                    mesh_config=System_state.mesh_config,
-                    heat_config=System_state.heat_config,
-                    ambient_temperature=System_state.temperature,
-                    characteristic_length=System_state.characteristic_length,
-                    defects_config=System_state.defects_config,
-                    grid_crystal=System_state.grid_crystal,
+                    mesh_file=simulator.solver_mesh_file,
+                    mesh_config=simulator.mesh_config,
+                    heat_config=simulator.heat_config,
+                    ambient_temperature=simulator.temperature,
+                    characteristic_length=simulator.characteristic_length,
+                    defects_config=simulator.defects_config,
+                    grid_crystal=simulator.grid_crystal,
                     path_results = paths["results"],
-                    mpi_ctx=System_state.mpi_ctx
+                    mpi_ctx=simulator.mpi_ctx
                   )
-                  System_state._heat_solver = heat_solver
+                  simulator._heat_solver = heat_solver
             
                   heat_solver.set_boundary_conditions(
                     top_value=heat_solver.T_ambient,
@@ -391,19 +391,19 @@ def main(sim_id=None, config_name='PZT_ZrTi_PbO3_2.yaml'):
                   
             
             
-            while System_state.should_continue_simulation(Elec_controller.total_simulation_time):
+            while simulator.should_continue_simulation(Elec_controller.total_simulation_time):
             
                      
                 if solve_Poisson and platform.system() == 'Linux': 
-                  should_solve_fields_now, snapshots = System_state.should_solve_fields_now(Elec_controller)
+                  should_solve_fields_now, snapshots = simulator.should_solve_fields_now(Elec_controller)
                        
-                  particle_locations, charges, evaluation_points = System_state.get_evaluation_points()
+                  particle_locations, charges, evaluation_points = simulator.get_evaluation_points()
                     
                   if should_solve_fields_now:
                         # Every time we change the applied voltage, we should calculate Poisson
-                        V_top = Elec_controller.apply_voltage(System_state.time)
-                        System_state.save_electric_bias(V_top)
-                        clusters = System_state.prepare_clusters_for_bcs()
+                        V_top = Elec_controller.apply_voltage(simulator.time)
+                        simulator.save_electric_bias(V_top)
+                        clusters = simulator.prepare_clusters_for_bcs()
                         # We need the cluster to know what is the effective gap for calculating the Schottky emission
                         V_eff, _ = Elec_controller.calculate_current(clusters) # Obtain effective voltage after voltage drop of series resistance
                           
@@ -414,10 +414,10 @@ def main(sim_id=None, config_name='PZT_ZrTi_PbO3_2.yaml'):
                         uh = poisson_solver.solve(particle_locations,charges) 
                         run_time = MPI.Wtime() - run_start_time
                         
-                        if System_state.rank == 0: logger.info('Run time to solve Poisson: %s', run_time)
+                        if simulator.rank == 0: logger.info('Run time to solve Poisson: %s', run_time)
 
                         if save_Poisson:
-                          poisson_solver.save_potential(System_state.time,j+1)
+                          poisson_solver.save_potential(simulator.time,j+1)
                           
                         if solve_heat:
                          heat_start_time = MPI.Wtime()
@@ -435,38 +435,38 @@ def main(sim_id=None, config_name='PZT_ZrTi_PbO3_2.yaml'):
                          heat_run_time = MPI.Wtime() - heat_start_time
                          
                          Avg_T = heat_solver.get_average_temperature()
-                         if System_state.rank == 0: 
+                         if simulator.rank == 0: 
                            logger.info('Run time to solve Heat: %s', heat_run_time)
                            logger.info('Avg temperature: %.10f K', Avg_T)
                          
                          # Save temperature
                          if save_heat:
-                           heat_solver.save_temperature(System_state.time, j+1)
+                           heat_solver.save_temperature(simulator.time, j+1)
                            
                         run_time = 0     
-                        System_state._fields_changed = True
+                        simulator._fields_changed = True
                               
-                System_state.step_kmc(rng)
+                simulator.step_kmc(rng)
                 
                 if snapshots:
                 
                     j+=1
                     # Continue with serial processing on rank 0
-                    if System_state.rank == 0:
-                        System_state.add_time()
+                    if simulator.rank == 0:
+                        simulator.add_time()
     
-                        # System_state.measurements_crystal()
-                        logger.info('%s/%s | Total time: %s | Voltage: %s', str(j), str(int(Elec_controller.total_simulation_time/Elec_controller.voltage_update_time)), System_state.list_time[-1], V_top)
-                        logger.info('Events at step %s: %s', j, System_state.events_tracking)
-                        logger.info('Scavenged ions: %s', System_state.scavenged_ions)
+                        # simulator.measurements_crystal()
+                        logger.info('%s/%s | Total time: %s | Voltage: %s', str(j), str(int(Elec_controller.total_simulation_time/Elec_controller.voltage_update_time)), simulator.list_time[-1], V_top)
+                        logger.info('Events at step %s: %s', j, simulator.events_tracking)
+                        logger.info('Scavenged ions: %s', simulator.scavenged_ions)
                         if Elec_controller.current_enabled:
                           logger.info("Current: %s", Elec_controller.measurements['current'][-1])
     
                         end_time = time.time()
-                        System_state.plot_crystal(45,45,paths['data'],j)        
+                        simulator.plot_crystal(45,45,paths['data'],j)        
                         
     
-        if System_state.rank == 0:
+        if simulator.rank == 0:
           
           total_end_time = time.time()
           logger.info("SUCCESS: Simulation %s completed in %.2f seconds.", sim_id, total_end_time - total_start_time)
@@ -475,12 +475,12 @@ def main(sim_id=None, config_name='PZT_ZrTi_PbO3_2.yaml'):
           
           if save_data: 
           
-            if hasattr(System_state, '_poisson_solver'):
-              del System_state._poisson_solver
-            if hasattr(System_state, '_heat_solver'):
-              del System_state._heat_solver
+            if hasattr(simulator, '_poisson_solver'):
+              del simulator._poisson_solver
+            if hasattr(simulator, '_heat_solver'):
+              del simulator._heat_solver
               
-            variables = {'System_state' : System_state}
+            variables = {'simulator' : simulator}
             filename = 'variables'
             save_variables(paths['program'],variables,filename)
           
@@ -489,7 +489,7 @@ def main(sim_id=None, config_name='PZT_ZrTi_PbO3_2.yaml'):
         Elec_controller.plot_V_I(paths['results'])
 
     
-        return System_state
+        return simulator
 
 
 if __name__ == '__main__':

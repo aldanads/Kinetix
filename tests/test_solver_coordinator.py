@@ -2,8 +2,8 @@
 """
 Behavioral spec for kinetix/solvers/coordinator.py (SolverCoordinator).
 
-Phase 2 of the crystal.py split: solver orchestration extracted from
-Crystal_Lattice; Crystal_Lattice keeps one-line delegates (original names),
+Phase 2 of the simulator.py split: solver orchestration extracted from
+KMCSimulator; KMCSimulator keeps one-line delegates (original names),
 so cli.py and the kMC loop are unchanged.
 
 No dolfinx/mesh required: the coordinator only *orchestrates* — solver
@@ -31,16 +31,16 @@ import numpy as np
 import pytest
 from scipy import constants
 
-from kinetix.lattice.crystal import Crystal_Lattice
+from kinetix.lattice.simulator import KMCSimulator
 from kinetix.solvers import SolverCoordinator
 from kinetix.solvers.coordinator import SolverCoordinator as SolverCoordinatorDirect
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
-def _bare_system(**overrides) -> Crystal_Lattice:
-    """Uninitialized Crystal_Lattice carrying only the orchestration state."""
-    system = Crystal_Lattice.__new__(Crystal_Lattice)  # skip __init__/physics
+def _bare_system(**overrides) -> KMCSimulator:
+    """Uninitialized KMCSimulator carrying only the orchestration state."""
+    system = KMCSimulator.__new__(KMCSimulator)  # skip __init__/physics
     system.rank = 0
     system.mpi_ctx = None
     system.time = 0.0
@@ -75,7 +75,7 @@ def test_solver_coordinator_instantiated_lazily_via_delegate():
     system = _bare_system()
     coordinator = system.solver_coordinator
     assert isinstance(coordinator, SolverCoordinator)
-    assert coordinator.system is system
+    assert coordinator.simulator is system
     assert system.solver_coordinator is coordinator  # cached on the instance
     assert system._solver_coordinator is coordinator
 
@@ -85,19 +85,19 @@ def test_package_and_module_imports_agree():
 
 
 def test_crystal_methods_are_one_line_delegates():
-    """Every extracted method survives on Crystal_Lattice as a delegate only."""
+    """Every extracted method survives on KMCSimulator as a delegate only."""
     for name in ('save_electric_bias', 'get_evaluation_points',
                  'prepare_clusters_for_bcs', '_evaluate_fields_for_kmc',
                  'get_timestep_limit', 'should_solve_fields_now'):
-        src = inspect.getsource(getattr(Crystal_Lattice, name))
+        src = inspect.getsource(getattr(KMCSimulator, name))
         assert 'self.solver_coordinator.' in src, name
         assert src.count('return') == 1, name
         assert src.count('\n') <= 3, name
 
 
 def test_private_extractors_moved_off_crystal():
-    assert not hasattr(Crystal_Lattice, '_extract_particles_charges')
-    assert not hasattr(Crystal_Lattice, '_extract_generation_site_location')
+    assert not hasattr(KMCSimulator, '_extract_particles_charges')
+    assert not hasattr(KMCSimulator, '_extract_generation_site_location')
     assert hasattr(SolverCoordinator, '_extract_particles_charges')
     assert hasattr(SolverCoordinator, '_extract_generation_site_location')
 

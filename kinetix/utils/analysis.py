@@ -27,11 +27,11 @@ class Island:
         self.z_starting_pos_cart = z_starting_pos_cart
         self.island_sites = island_sites
         
-    def layers_calculation(self,System_state):
+    def layers_calculation(self,simulator):
         
-        grid_crystal = System_state.grid_crystal
-        z_step = System_state.basis_vectors[0][2]
-        z_steps = int(System_state.crystal_size[2]/z_step + 1)
+        grid_crystal = simulator.grid_crystal
+        z_step = simulator.basis_vectors[0][2]
+        z_steps = int(simulator.crystal_size[2]/z_step + 1)
         layers = [0] * z_steps  # Initialize each layer separately
         
         for idx in self.island_sites:
@@ -41,16 +41,16 @@ class Island:
         
         self.layers = layers
         
-        self.island_terrace(System_state)
+        self.island_terrace(simulator)
     
-    def island_terrace(self,System_state):
+    def island_terrace(self,simulator):
         
-        grid_crystal = System_state.grid_crystal
-        z_step = System_state.basis_vectors[0][2]
-        z_steps = int(System_state.crystal_size[2]/z_step + 1)
+        grid_crystal = simulator.grid_crystal
+        z_step = simulator.basis_vectors[0][2]
+        z_steps = int(simulator.crystal_size[2]/z_step + 1)
         sites_per_layer = len(grid_crystal)/z_steps
 
-        area_per_site = System_state.crystal_size[0] * System_state.crystal_size[1] / sites_per_layer
+        area_per_site = simulator.crystal_size[0] * simulator.crystal_size[1] / sites_per_layer
         
         terraces = [(self.layers[i-1] - self.layers[i]) * area_per_site for i in range(1,len(self.layers))
                     if (self.layers[i-1] - self.layers[i]) * area_per_site > 0]
@@ -59,10 +59,10 @@ class Island:
         self.terraces = terraces  
     
 
-def calculate_mass(System_state):
-    n_particles = len(System_state.sites_occupied)
+def calculate_mass(simulator):
+    n_particles = len(simulator.sites_occupied)
     mass_specie = 63.546 # (mass of Copper in u) 
-    x_size, y_size = System_state.crystal_size[:2]
+    x_size, y_size = simulator.crystal_size[:2]
     density = n_particles * mass_specie / (x_size * y_size)
     g_to_ng = 1e9
     nm_to_cm = 1e7
@@ -74,11 +74,11 @@ def calculate_mass(System_state):
 # We calculate % occupy per layer
 # Average the contribution of each layer to the thickness acording to the z step
 # =============================================================================
-def average_thickness(System_state):
+def average_thickness(simulator):
     
-    grid_crystal = System_state.grid_crystal
-    z_step = System_state.basis_vectors[0][2]
-    z_steps = int(System_state.crystal_size[2]/z_step + 1)
+    grid_crystal = simulator.grid_crystal
+    z_step = simulator.basis_vectors[0][2]
+    z_steps = int(simulator.crystal_size[2]/z_step + 1)
     layers = [0] * z_steps  # Initialize each layer separately
     
     for site in grid_crystal.values():
@@ -92,14 +92,14 @@ def average_thickness(System_state):
         
     return thickness, normalized_layers,layers
 
-def terrace_area(System_state,layers):
+def terrace_area(simulator,layers):
     
-    grid_crystal = System_state.grid_crystal
-    z_step = System_state.basis_vectors[0][2]
-    z_steps = int(System_state.crystal_size[2]/z_step + 1)
+    grid_crystal = simulator.grid_crystal
+    z_step = simulator.basis_vectors[0][2]
+    z_steps = int(simulator.crystal_size[2]/z_step + 1)
     sites_per_layer = len(grid_crystal)/z_steps
 
-    area_per_site = System_state.crystal_size[0] * System_state.crystal_size[1] / sites_per_layer
+    area_per_site = simulator.crystal_size[0] * simulator.crystal_size[1] / sites_per_layer
     
     terraces = [(sites_per_layer - layers[0])* area_per_site]
     terraces.extend((layers[i-1] - layers[i]) * area_per_site for i in range(1,len(layers)))
@@ -112,10 +112,10 @@ def RMS_roughness(z):
     z_mean = np.mean(z)
     return np.sqrt(np.mean((np.array(z)-z_mean)**2))
 
-def plot_crystal_surface(System_state,i):
+def plot_crystal_surface(simulator,i):
     
-    grid_crystal = System_state.grid_crystal
-    z_step = System_state.basis_vectors[0][2]
+    grid_crystal = simulator.grid_crystal
+    z_step = simulator.basis_vectors[0][2]
 
     
     x = []
@@ -149,7 +149,7 @@ def plot_crystal_surface(System_state,i):
     ax.set_xlabel('X Axis')
     ax.set_ylabel('Y Axis')
     ax.set_zlabel('Z Axis')
-    ax.set_zlim([0, System_state.crystal_size[2]])
+    ax.set_zlim([0, simulator.crystal_size[2]])
     
     ax.view_init(azim=45, elev = 45)
     
@@ -163,18 +163,18 @@ def plot_crystal_surface(System_state,i):
 
     return z
 
-def island_calculations(System_state):   
-    grid_crystal = System_state.grid_crystal
-    normalized_layers = System_state.layers[1]
-    chemical_specie = System_state.chemical_specie
+def island_calculations(simulator):   
+    grid_crystal = simulator.grid_crystal
+    normalized_layers = simulator.layers[1]
+    chemical_specie = simulator.chemical_specie
     island_visited = set()
     total_visited = set()
-    sites_occupied = System_state.sites_occupied
+    sites_occupied = simulator.sites_occupied
 
     count_islands = [0] * len(normalized_layers)
     layers_no_complete = np.where(np.array(normalized_layers) != 1.0)
     count_islands[normalized_layers == 1] = 1
-    z_step = System_state.basis_vectors[0][2]
+    z_step = simulator.basis_vectors[0][2]
 
     islands_list = []
 
@@ -238,9 +238,9 @@ def build_island(grid_crystal,visited,island_sites,idx,chemical_specie):
     return visited,island_sites
     
     
-def crystallographic_planes(center,System_state,plane_selection,azim=45, elev = 45,plane_normal = []):
+def crystallographic_planes(center,simulator,plane_selection,azim=45, elev = 45,plane_normal = []):
     
-    grid_crystal = System_state.grid_crystal
+    grid_crystal = simulator.grid_crystal
     
     x = [grid_crystal[center].position[0]]
     y = [grid_crystal[center].position[1]]
@@ -249,7 +249,7 @@ def crystallographic_planes(center,System_state,plane_selection,azim=45, elev = 
     y_in_plane = []
     z_in_plane = []        
 
-    basis_vectors = System_state.basis_vectors
+    basis_vectors = simulator.basis_vectors
     selected_positions = []
     if plane_selection == 'ab_111':
         plane = np.cross(basis_vectors[0],basis_vectors[1])
@@ -260,42 +260,42 @@ def crystallographic_planes(center,System_state,plane_selection,azim=45, elev = 
     elif plane_selection == 'a_100':
         v1 = basis_vectors[0]
         # for neighbor in grid_crystal[center].migration_paths['Down']:
-        #     in_plane = np.cross(plane_aux,np.array(System_state.idx_to_cart(neighbor[0])) - np.array(grid_crystal[center].position))
+        #     in_plane = np.cross(plane_aux,np.array(simulator.idx_to_cart(neighbor[0])) - np.array(grid_crystal[center].position))
         #     if np.linalg.norm(in_plane) < 1e-4:
-        #         v1 =  np.array(System_state.idx_to_cart(neighbor[0])) - np.array(grid_crystal[center].position)
+        #         v1 =  np.array(simulator.idx_to_cart(neighbor[0])) - np.array(grid_crystal[center].position)
                 
         for neighbor in grid_crystal[center].migration_paths['Plane']:
-            v_aux = np.array(System_state.idx_to_cart(neighbor[0])) - np.array(grid_crystal[center].position)
+            v_aux = np.array(simulator.idx_to_cart(neighbor[0])) - np.array(grid_crystal[center].position)
             if round(angle_between(basis_vectors[0],v_aux) - np.pi /2,2) == 0.0:
-                v2 = np.array(System_state.idx_to_cart(neighbor[0])) - np.array(grid_crystal[center].position)
+                v2 = np.array(simulator.idx_to_cart(neighbor[0])) - np.array(grid_crystal[center].position)
 
         plane = np.cross(v1,v2)
 
     elif plane_selection == 'b_100':
         plane_aux = basis_vectors[1]
         for neighbor in grid_crystal[center].migration_paths['Down']:
-            in_plane = np.cross(plane_aux,np.array(System_state.idx_to_cart(neighbor[0])) - np.array(grid_crystal[center].position))
+            in_plane = np.cross(plane_aux,np.array(simulator.idx_to_cart(neighbor[0])) - np.array(grid_crystal[center].position))
             if np.linalg.norm(in_plane) < 1e-4:
-                v1 =  np.array(System_state.idx_to_cart(neighbor[0])) - np.array(grid_crystal[center].position)
+                v1 =  np.array(simulator.idx_to_cart(neighbor[0])) - np.array(grid_crystal[center].position)
                 
         for neighbor in grid_crystal[center].migration_paths['Plane']:
-            v_aux = np.array(System_state.idx_to_cart(neighbor[0])) - np.array(grid_crystal[center].position)
+            v_aux = np.array(simulator.idx_to_cart(neighbor[0])) - np.array(grid_crystal[center].position)
             if round(angle_between(basis_vectors[1],v_aux) - np.pi /2,2) == 0.0:
-                v2 = np.array(System_state.idx_to_cart(neighbor[0])) - np.array(grid_crystal[center].position)
+                v2 = np.array(simulator.idx_to_cart(neighbor[0])) - np.array(grid_crystal[center].position)
         
         plane = np.cross(v1,v2)
 
     elif plane_selection == 'c_100':
         plane_aux = basis_vectors[2]
         for neighbor in grid_crystal[center].migration_paths['Down']:
-            in_plane = np.cross(plane_aux,np.array(System_state.idx_to_cart(neighbor[0])) - np.array(grid_crystal[center].position))
+            in_plane = np.cross(plane_aux,np.array(simulator.idx_to_cart(neighbor[0])) - np.array(grid_crystal[center].position))
             if np.linalg.norm(in_plane) < 1e-3:
-                v1 =  np.array(System_state.idx_to_cart(neighbor[0])) - np.array(grid_crystal[center].position)
+                v1 =  np.array(simulator.idx_to_cart(neighbor[0])) - np.array(grid_crystal[center].position)
                 
         for neighbor in grid_crystal[center].migration_paths['Plane']:
-            v_aux = np.array(System_state.idx_to_cart(neighbor[0])) - np.array(grid_crystal[center].position)
+            v_aux = np.array(simulator.idx_to_cart(neighbor[0])) - np.array(grid_crystal[center].position)
             if round(angle_between(basis_vectors[2],v_aux) - np.pi /2,2) == 0.0:
-                v2 = np.array(System_state.idx_to_cart(neighbor[0])) - np.array(grid_crystal[center].position)
+                v2 = np.array(simulator.idx_to_cart(neighbor[0])) - np.array(grid_crystal[center].position)
         
         plane = np.cross(v1,v2)
         
@@ -325,7 +325,7 @@ def crystallographic_planes(center,System_state,plane_selection,azim=45, elev = 
     ax.scatter3D(x_in_plane, y_in_plane,z_in_plane, c='red', marker='o')
     if len(plane_normal) > 0:
         # Plot the normal vectors
-        origin = np.array(System_state.idx_to_cart(center))
+        origin = np.array(simulator.idx_to_cart(center))
         ax.quiver(*origin, *plane, color='r', label='Normal Vector 1')
         ax.quiver(*origin, *plane_normal, color='b', label='Normal Vector 2')
         # Set labels and legend
@@ -366,8 +366,8 @@ def angle_between(v1, v2):
     v2_u = unit_vector(v2)
     return np.arccos(np.clip(np.dot(v1_u, v2_u), -1.0, 1.0))
 
-def detect_planes(supp_by,System_state):
-    atom_coordinates = np.array([System_state.idx_to_cart(idx) for idx in supp_by if idx != 'Substrate'])
+def detect_planes(supp_by,simulator):
+    atom_coordinates = np.array([simulator.idx_to_cart(idx) for idx in supp_by if idx != 'Substrate'])
     
     # Perform PCA
     pca = PCA(n_components=3)
@@ -523,30 +523,30 @@ for i in range(1):
             # Call load method to deserialze
             myvar = pickle.load(file)
             
-        System_state = myvar['System_state']
+        simulator = myvar['simulator']
     
     
-    mass_gained = calculate_mass(System_state)
-    thickness, normalized_layers,layers = average_thickness(System_state)
+    mass_gained = calculate_mass(simulator)
+    thickness, normalized_layers,layers = average_thickness(simulator)
     
-    terraces = terrace_area(System_state,layers)
+    terraces = terrace_area(simulator,layers)
     
-    fraction_sites_occupied = len(System_state.sites_occupied) / len(System_state.grid_crystal) 
-    z = plot_crystal_surface(System_state,i)
+    fraction_sites_occupied = len(simulator.sites_occupied) / len(simulator.grid_crystal) 
+    z = plot_crystal_surface(simulator,i)
     surf_roughness_RMS = RMS_roughness(z)
     
     
-    islands_list = island_calculations(System_state)
+    islands_list = island_calculations(simulator)
 
                 
 #particles_in_plane = grid_crystal[sites_occupied[-5]].supp_by
 # particles_in_plane = [idx[0] for idx in grid_crystal[sites_occupied[-5]].migration_paths['Plane']]
-# plane_normal = detect_planes(particles_in_plane,System_state)
+# plane_normal = detect_planes(particles_in_plane,simulator)
 
 # center = (5,5,-8)
-# center = System_state.adsorption_sites[round(len(System_state.adsorption_sites)/2)]
+# center = simulator.adsorption_sites[round(len(simulator.adsorption_sites)/2)]
 # plane = ['ab_111','ac_111','bc_111','a_100','b_100','c_100']
-# selected_positions,n_plane = crystallographic_planes(center,System_state,plane[5],60,30, -plane_normal)
+# selected_positions,n_plane = crystallographic_planes(center,simulator,plane[5],60,30, -plane_normal)
 
 # cross_product = np.cross(plane_normal,n_plane)
 
@@ -567,7 +567,7 @@ for i in range(1):
 
 
 # for event in grid_crystal[sites_occupied[-5]].defect.events:
-#     v1 = np.array(System_state.idx_to_cart(event[1])) - np.array(grid_crystal[sites_occupied[-5]].position)
+#     v1 = np.array(simulator.idx_to_cart(event[1])) - np.array(grid_crystal[sites_occupied[-5]].position)
 #     print(np.dot(v1,n_plane),event[1],sites_occupied[-5])
 # =============================================================================
 # # point1 = np.array((1.645, 0.95, 0.413))

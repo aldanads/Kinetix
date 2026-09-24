@@ -1,6 +1,6 @@
 """Behavioral spec for :class:`kinetix.lattice.grain_boundary.GrainBoundary`.
 
-Regression net for the ``crystal.py`` split.  Covers:
+Regression net for the ``simulator.py`` split.  Covers:
 
 * **Distance functions** - ``_distance_to_planar_gb`` and
   ``_distance_to_cylindrical_gb``.
@@ -364,7 +364,7 @@ def make_mod_site(defect_name, position, base_mig=0.5):
 
 
 def mig_pathways(direction, distance):
-  """Migration pathway dict in the format built by crystal.py."""
+  """Migration pathway dict in the format built by simulator.py."""
   return {'Plane': {'direction': direction, 'distance': distance}}
 
 

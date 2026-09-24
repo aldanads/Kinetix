@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Lattice construction and initialization for Kinetix.
 
-Phase 5 of the ``crystal.py`` split: everything that BUILDS or LOADS the
+Phase 5 of the ``simulator.py`` split: everything that BUILDS or LOADS the
 lattice grid during initialization:
 
   * the structure/MP model (``lattice_model`` + pymatgen helpers + MP cache),
@@ -16,24 +16,24 @@ lattice grid during initialization:
   * coordinates, Wulff shape/edges, and cluster-tracking init.
 
 The builder holds NO simulation state: every read/write goes through
-``self.system`` (``grid_crystal``, ``structure``, ``Act_E_dict``,
+``self.simulator`` (``grid_crystal``, ``structure``, ``Act_E_dict``,
 ``coord_cache``, ``rank``/``mpi_ctx``, ...), so pickles, MPI rank ownership
 and the golden trace observe the pre-split state. The lazy
-``Crystal_Lattice.lattice_builder`` property (local import, same pattern as
+``KMCSimulator.lattice_builder`` property (local import, same pattern as
 ``solver_coordinator``/``kmc_loop``) instantiates one builder per system.
 
-Construction-time collaborators that STAY on ``Crystal_Lattice``:
+Construction-time collaborators that STAY on ``KMCSimulator``:
 ``_is_active_site`` (Phase 3 rule - lattice construction uses it, so the
-builder calls ``self.system._is_active_site``) and ``_minimum_image_vector``
+builder calls ``self.simulator._is_active_site``) and ``_minimum_image_vector``
 (runtime callers in the MACE NEB calculator and active learning, so the
-builder calls ``self.system._minimum_image_vector``).
+builder calls ``self.simulator._minimum_image_vector``).
 
 MPI NOTE (moved verbatim): construction is NOT entirely rank-free -
 ``_save_mp_cache`` and ``lattice_model`` guard writes with ``rank == 0``,
 ``lattice_model`` broadcasts the fetched structure with
 ``mpi_ctx.bcast(..., root=0)``, and ``_initialize_migration_pathways`` /
 ``_generate_interstitial_sites`` carry their own ``rank == 0`` guards. All
-are now read as ``self.system.rank`` / ``self.system.mpi_ctx``: no MPI logic
+are now read as ``self.simulator.rank`` / ``self.simulator.mpi_ctx``: no MPI logic
 was added or removed, and the builder holds no rank/mpi state. Serial runs
 pass ``mpi_ctx=None`` (``initialization.py``), so every guard is trivially
 rank 0 and the broadcast is skipped.
@@ -65,27 +65,27 @@ from kinetix.lattice.grain_boundary import GrainBoundary
 from kinetix.lattice.site import Site
 
 if TYPE_CHECKING:
-    from kinetix.lattice.crystal import Crystal_Lattice
+    from kinetix.lattice.simulator import KMCSimulator
 
 logger = logging.getLogger(__name__)
 
 
 class LatticeBuilder:
-    """Lattice construction and initialization for Crystal_Lattice.
+    """Lattice construction and initialization for KMCSimulator.
 
-    Crystal_Lattice keeps thin delegates with the original method names so
+    KMCSimulator keeps thin delegates with the original method names so
     external callers (initialization.py, cli.py, tests, metadata.py) are
     unchanged. The builder runs during initialization: the grid fast-path
     (pickled grid) and the from-scratch build path both live here.
 
     Args:
-        system: The ``Crystal_Lattice``/``System_state`` whose lattice is
+        simulator: The ``KMCSimulator``/``simulator`` whose lattice is
             built. All reads/writes of simulation state go through this
             reference; the builder itself holds no simulation state.
     """
 
-    def __init__(self, system: Crystal_Lattice) -> None:
-        self.system = system
+    def __init__(self, simulator: KMCSimulator) -> None:
+        self.simulator = simulator
 
     # =========================================================================
     # Structure & Materials-Project model
@@ -93,8 +93,8 @@ class LatticeBuilder:
 
     def _load_mp_cache(self, key:str) -> Dict[str, Any]:
         """Load material data from local cache file."""
-        if self.system.cache_dir:
-          cache_path = self.system.cache_dir / f'{key}.json'
+        if self.simulator.cache_dir:
+          cache_path = self.simulator.cache_dir / f'{key}.json'
           if cache_path.exists():
             with open(cache_path, 'r') as f:
               return json.load(f)
@@ -102,9 +102,9 @@ class LatticeBuilder:
 
     def _save_mp_cache(self, key:str, data: Dict[str,Any]):
         """Save material data to local cache file (rank 0 only)."""
-        if self.system.rank == 0 and self.system.cache_dir:
-          self.system.cache_dir.mkdir(parents=True, exist_ok=True)
-          cache_path = self.system.cache_dir / f'{key}.json'
+        if self.simulator.rank == 0 and self.simulator.cache_dir:
+          self.simulator.cache_dir.mkdir(parents=True, exist_ok=True)
+          cache_path = self.simulator.cache_dir / f'{key}.json'
           with open(cache_path,'w') as f:
             json.dump(data,f,indent=2)
 
@@ -114,15 +114,15 @@ class LatticeBuilder:
         """
 
         # === Try cache firtst ===
-        cache_key = f'structure_{self.system.id_material}'
+        cache_key = f'structure_{self.simulator.id_material}'
         structure_dict = self._load_mp_cache(cache_key)
 
         if structure_dict is None:
           # === Cache miss: fetch from API (rank 0)
-          if self.system.rank == 0:
+          if self.simulator.rank == 0:
             try:
               with MPRester(api_key) as mpr:
-                structure = mpr.get_structure_by_material_id(self.system.id_material)
+                structure = mpr.get_structure_by_material_id(self.simulator.id_material)
               structure_dict = structure.as_dict()
               self._save_mp_cache(cache_key, structure_dict)
             except Exception as e:
@@ -132,8 +132,8 @@ class LatticeBuilder:
             structure_dict = None
 
           # Broadcast (skipped when mpi_ctx is None -> truly serial run)
-          if self.system.mpi_ctx is not None:
-            structure_dict = self.system.mpi_ctx.bcast(structure_dict, root=0)
+          if self.simulator.mpi_ctx is not None:
+            structure_dict = self.simulator.mpi_ctx.bcast(structure_dict, root=0)
 
           if 'error' in structure_dict:
             raise RuntimeError(f"Failed to fetch structure: {structure_dict['error']}")
@@ -144,28 +144,28 @@ class LatticeBuilder:
         sga = SpacegroupAnalyzer(structure)
         structure_conv = sga.get_conventional_standard_structure()
 
-        self.system.miller_indices = miller_indices
+        self.simulator.miller_indices = miller_indices
         structure_oriented = self._apply_miller_orientation(structure_conv, miller_indices)
 
-        self.system.structure_basic = structure_oriented
-        self.system.lattice_constants = tuple(np.array(structure_oriented.lattice.abc) / 10) # nm
+        self.simulator.structure_basic = structure_oriented
+        self.simulator.lattice_constants = tuple(np.array(structure_oriented.lattice.abc) / 10) # nm
 
         # Set chemical specie notation
         if mode == 'vacancy' and affected_site:
-          self.system.chemical_specie = f"V_{affected_site}"
+          self.simulator.chemical_specie = f"V_{affected_site}"
         elif mode == 'interstitial':
           # Use first interstitial symbol for naming
           interstitials = [
-            cfg["symbol"] for cfg in self.system.defects_config.values()
+            cfg["symbol"] for cfg in self.simulator.defects_config.values()
             if cfg["site_type"] == "interstitial"
           ]
-          self.system.chemical_specie = interstitials[0] if interstitials else "interstitial"
+          self.simulator.chemical_specie = interstitials[0] if interstitials else "interstitial"
         else:
-          self.system.chemical_specie = structure_oriented.composition.reduced_formula
+          self.simulator.chemical_specie = structure_oriented.composition.reduced_formula
 
         # Create full supercell
-        self.system.structure = self._create_supercell(structure_oriented)
-        self.system.crystal_size = self.system.structure.lattice.abc
+        self.simulator.structure = self._create_supercell(structure_oriented)
+        self.simulator.crystal_size = self.simulator.structure.lattice.abc
 
         self._compute_basis_vectors()
 
@@ -287,10 +287,10 @@ class LatticeBuilder:
             unit_cell (Structure): Oriented unit cell from Materials Project
 
         Returns:
-            Structure: Supercell matching target dimensions in self.system.crystal_size
+            Structure: Supercell matching target dimensions in self.simulator.crystal_size
         """
         lattice_params = np.array(unit_cell.lattice.abc)
-        target_dims = np.array(self.system.crystal_size)
+        target_dims = np.array(self.simulator.crystal_size)
         repetitions = np.ceil(target_dims / lattice_params).astype(int)
         repetitions = np.maximum(repetitions, 1)
 
@@ -301,11 +301,11 @@ class LatticeBuilder:
         """
         Compute basis vectors for KMC grid based on minimum fractional coordinate spacing.
 
-        Sets self.system.basis_vectors to lattice vectors scaled by minimum atomic spacing.
+        Sets self.simulator.basis_vectors to lattice vectors scaled by minimum atomic spacing.
         This creates a grid where integer multiples correspond to atomic positions.
         """
         # Find minimum non-zero fractional coordinate spacing
-        frac_coords = np.array([site.frac_coords for site in self.system.structure_basic])
+        frac_coords = np.array([site.frac_coords for site in self.simulator.structure_basic])
 
         # Get unique sorted fractional coordinates for each direction
         min_spacing = []
@@ -330,7 +330,7 @@ class LatticeBuilder:
 
         # Scale lattice vectors by minimum spacing
         # This gives basis vectors where integer steps land on atomic sites
-        self.system.basis_vectors = np.array(self.system.structure_basic.lattice.matrix) * min_non_zero_element
+        self.simulator.basis_vectors = np.array(self.simulator.structure_basic.lattice.matrix) * min_non_zero_element
 
 
     # =========================================================================
@@ -339,13 +339,13 @@ class LatticeBuilder:
 
     def _initialize_migration_pathways(self, radius_neighbors, reset_energies=False):
         """Initialize migration pathways from the COMPLETE grid_crystal."""
-        self.system.event_labels = {}
-        self.system.migration_pathways = {}
+        self.simulator.event_labels = {}
+        self.simulator.migration_pathways = {}
         i = 0
 
         # Brute-force neighbor search (O(N2)), but only done during initialization
-        for site_idx in self.system.grid_crystal.keys():
-          site_pos = self.system.grid_crystal[site_idx].position
+        for site_idx in self.simulator.grid_crystal.keys():
+          site_pos = self.simulator.grid_crystal[site_idx].position
 
           # Get neighbors using k-d tree
           neighbor_site_indices = self._get_neighbors_for_site(site_idx, radius_neighbors)
@@ -355,26 +355,26 @@ class LatticeBuilder:
             if neighbor_idx == site_idx:
               continue
 
-            neighbor_pos = self.system.grid_crystal[neighbor_idx].position
+            neighbor_pos = self.simulator.grid_crystal[neighbor_idx].position
 
-            vector = self.system._minimum_image_vector(np.array(neighbor_pos) - np.array(site_pos))
+            vector = self.simulator._minimum_image_vector(np.array(neighbor_pos) - np.array(site_pos))
             dist = np.linalg.norm(vector)
             if dist < 1e-10:
               continue
             # Create migration key
             migration_vector_key = tuple(np.round(vector, decimals=6))
 
-            if migration_vector_key not in self.system.event_labels:
-              self.system.event_labels[migration_vector_key] = i
-              self.system.migration_pathways[i] = {
+            if migration_vector_key not in self.simulator.event_labels:
+              self.simulator.event_labels[migration_vector_key] = i
+              self.simulator.migration_pathways[i] = {
                 'direction': vector / np.linalg.norm(vector),
                 'distance': dist
               }
               i += 1
 
-        self.system.num_event = len(self.system.event_labels) + 2
+        self.simulator.num_event = len(self.simulator.event_labels) + 2
 
-        if self.system.rank == 0:
+        if self.simulator.rank == 0:
           self._validate_migration_network(radius_neighbors)
 
           # NEW: Percolation sanity check
@@ -392,29 +392,29 @@ class LatticeBuilder:
             )
 
         # Electric field-dependent barriers
-        if (self.system.poisson_config is not None and
-            self.system.poisson_config.solve_Poisson):
+        if (self.simulator.poisson_config is not None and
+            self.simulator.poisson_config.solve_Poisson):
 
-            for name in self.system.defects_config.keys():
+            for name in self.simulator.defects_config.keys():
               Act_E_mig = {}
-              for key, migration_vector in self.system.migration_pathways.items():
+              for key, migration_vector in self.simulator.migration_pathways.items():
                 z_component = migration_vector['direction'][2]
                 if np.isclose(z_component, 0.0, atol=1e-9):
-                  Act_E_mig[key] = self.system.Act_E_dict[name].get('E_mig_plane')
+                  Act_E_mig[key] = self.simulator.Act_E_dict[name].get('E_mig_plane')
                 elif z_component > 0:
-                  Act_E_mig[key] = self.system.Act_E_dict[name].get('E_mig_upward')
+                  Act_E_mig[key] = self.simulator.Act_E_dict[name].get('E_mig_upward')
                 else:
-                  Act_E_mig[key] = self.system.Act_E_dict[name].get('E_mig_downward')
-              self.system.Act_E_dict[name]['E_mig'] = Act_E_mig
+                  Act_E_mig[key] = self.simulator.Act_E_dict[name].get('E_mig_downward')
+              self.simulator.Act_E_dict[name]['E_mig'] = Act_E_mig
 
-            for site in self.system.grid_crystal.values():
-              if self.system._is_active_site(site.site_type):
-                site.Act_E_dict = self._efficient_act_e_copy(self.system.Act_E_dict)
+            for site in self.simulator.grid_crystal.values():
+              if self.simulator._is_active_site(site.site_type):
+                site.Act_E_dict = self._efficient_act_e_copy(self.simulator.Act_E_dict)
               else:
                 site.Act_E_dict = {}
 
             if reset_energies:
-              for site in self.system.grid_crystal.values():
+              for site in self.simulator.grid_crystal.values():
                 site.defect.events = [] # Clear old events
 
     def _validate_migration_network(self, radius=None):
@@ -429,7 +429,7 @@ class LatticeBuilder:
         neighbor_counts = []
         interstitial_positions = []
 
-        for site_idx, site in self.system.grid_crystal.items():
+        for site_idx, site in self.simulator.grid_crystal.items():
           if site.site_type == 'interstitial':
             interstitial_neighbors = 0
             interstitial_positions.append(site.position)
@@ -437,12 +437,12 @@ class LatticeBuilder:
 
             for neighbor_idx in neighbor_site_indices:
             #for neighbor_idx in site.nearest_neighbors_idx:
-              neighbor = self.system.grid_crystal[neighbor_idx]
+              neighbor = self.simulator.grid_crystal[neighbor_idx]
               if neighbor.site_type == "interstitial":
                 dist = np.linalg.norm(
                   np.array(site.position) - np.array(neighbor.position)
                 )
-                if dist < max(self.system.crystal_size) * 0.8:
+                if dist < max(self.simulator.crystal_size) * 0.8:
                   migration_distances.append(dist)
 
                 interstitial_neighbors += 1
@@ -510,14 +510,14 @@ class LatticeBuilder:
     def _build_kdtree(self):
         """Build and store k-d tree for reuse."""
         from scipy.spatial import cKDTree
-        positions = np.array([site.position for site in self.system.grid_crystal.values()])
-        self.system._kdtree_positions = positions
-        self.system._kdtree_indices = list(self.system.grid_crystal.keys())
-        self.system._kdtree = cKDTree(positions)
+        positions = np.array([site.position for site in self.simulator.grid_crystal.values()])
+        self.simulator._kdtree_positions = positions
+        self.simulator._kdtree_indices = list(self.simulator.grid_crystal.keys())
+        self.simulator._kdtree = cKDTree(positions)
 
     def _get_neighbors_for_site(self,site_idx,radius):
         """Get neighbors for a specific site using stored k-d tree."""
-        site_pos = self.system.grid_crystal[site_idx].position
+        site_pos = self.simulator.grid_crystal[site_idx].position
         all_neighbor_indices = set() # Use set to automatically deduplicate
 
         # 1. Generate all periodic image positions to query
@@ -525,10 +525,10 @@ class LatticeBuilder:
 
         # 2. Query k-d tree for each image position
         for query_pos in query_positions:
-          neighbor_array_indices = self.system._kdtree.query_ball_point(query_pos,radius)
+          neighbor_array_indices = self.simulator._kdtree.query_ball_point(query_pos,radius)
           #Convert to site indices
           for i in neighbor_array_indices:
-            neighbor_idx = self.system._kdtree_indices[i]
+            neighbor_idx = self.simulator._kdtree_indices[i]
             if neighbor_idx != site_idx:
               all_neighbor_indices.add(neighbor_idx)
 
@@ -547,7 +547,7 @@ class LatticeBuilder:
             List of positions to query (original + lateral periodic images).
         """
         site_pos = np.array(site_pos, dtype=float)
-        lattice = self.system.structure.lattice
+        lattice = self.simulator.structure.lattice
 
         # Lateral lattice vectors (a, b). The c-direction is open (electrodes).
         a_vec = lattice.matrix[0]  # First lattice vector
@@ -618,14 +618,14 @@ class LatticeBuilder:
         """
         # Lazily build the k-d tree if it is not already available (e.g. when
         # these helpers are called directly on a loaded grid).
-        if getattr(self.system, "_kdtree", None) is None:
+        if getattr(self.simulator, "_kdtree", None) is None:
           self._build_kdtree()
 
-        lattice = self.system.structure.lattice
+        lattice = self.simulator.structure.lattice
 
         # Fractional z of every site of the requested type
         frac_z = {}
-        for idx, site in self.system.grid_crystal.items():
+        for idx, site in self.simulator.grid_crystal.items():
           if site.site_type != site_type:
             continue
           frac_z[idx] = lattice.get_fractional_coords(site.position)[2]
@@ -668,7 +668,7 @@ class LatticeBuilder:
           for neighbor_idx in neighbor_indices:
             if neighbor_idx in visited:
               continue
-            neighbor = self.system.grid_crystal[neighbor_idx]
+            neighbor = self.simulator.grid_crystal[neighbor_idx]
             if neighbor.site_type != site_type:
               continue
             stack.append(neighbor_idx)
@@ -733,7 +733,7 @@ class LatticeBuilder:
         return optimal_radius
 
     def diagnose_steep_down(self, site_idx, radius_neighbors):
-        site = self.system.grid_crystal[site_idx]
+        site = self.simulator.grid_crystal[site_idx]
         pos = np.array(site.position)
         logger.debug("=== Site %s at %s ===", site_idx, site.position)
 
@@ -744,11 +744,11 @@ class LatticeBuilder:
         for n_idx in neighbor_indices:
             if n_idx == site_idx:
                 continue
-            npos = np.array(self.system.grid_crystal[n_idx].position)
+            npos = np.array(self.simulator.grid_crystal[n_idx].position)
             vec = npos - pos
             # Apply minimum-image on x,y
             for d in range(2):
-                L = self.system.crystal_size[d]
+                L = self.simulator.crystal_size[d]
                 if vec[d] >  L/2: vec[d] -= L
                 if vec[d] < -L/2: vec[d] += L
             dist = np.linalg.norm(vec)
@@ -761,35 +761,35 @@ class LatticeBuilder:
             else: shallow.append((n_idx, unit, dist))
 
         logger.debug("Steep UP neighbors   (z>+0.5): %d", len(steep_up))
-        for idx,u,d in steep_up:   logger.debug("   idx=%s dir=%s dist=%.3f specie=%s", idx, np.round(u,3), d, self.system.grid_crystal[idx].defect.chemical_specie)
+        for idx,u,d in steep_up:   logger.debug("   idx=%s dir=%s dist=%.3f specie=%s", idx, np.round(u,3), d, self.simulator.grid_crystal[idx].defect.chemical_specie)
         logger.debug("Steep DOWN neighbors (z<-0.5): %d", len(steep_down))
-        for idx,u,d in steep_down: logger.debug("   idx=%s dir=%s dist=%.3f specie=%s", idx, np.round(u,3), d, self.system.grid_crystal[idx].defect.chemical_specie)
+        for idx,u,d in steep_down: logger.debug("   idx=%s dir=%s dist=%.3f specie=%s", idx, np.round(u,3), d, self.simulator.grid_crystal[idx].defect.chemical_specie)
         logger.debug("Shallow neighbors: %d", len(shallow))
 
     def diagnose_interstitial_presence(self, site_idx, radius_neighbors, z_window=3.0):
         """Check whether interstitial sites exist above/below the corner site,
         using the KDTree for efficient spatial filtering."""
-        site = self.system.grid_crystal[site_idx]
+        site = self.simulator.grid_crystal[site_idx]
         pos = np.array(site.position)
         logger.debug("=== Interstitial inventory near %s at %s ===", site_idx, np.round(pos,3))
         logger.debug("radius_neighbors = %s", radius_neighbors)
 
         # Use KDTree to get candidates within radius (efficient)
-        candidate_indices = self.system._kdtree.query_ball_point(pos, radius_neighbors)
+        candidate_indices = self.simulator._kdtree.query_ball_point(pos, radius_neighbors)
 
         above, below = [], []
         for i in candidate_indices:
-            idx = self.system._kdtree_indices[i]
+            idx = self.simulator._kdtree_indices[i]
             if idx == site_idx:
                 continue
-            s = self.system.grid_crystal[idx]
+            s = self.simulator.grid_crystal[idx]
             if s.site_type != 'interstitial':
                 continue
 
             vec = np.array(s.position) - pos
             # Minimum-image wrap on x,y
             for d in range(2):
-                L = self.system.crystal_size[d]
+                L = self.simulator.crystal_size[d]
                 if vec[d] >  L/2: vec[d] -= L
                 if vec[d] < -L/2: vec[d] += L
 
@@ -815,14 +815,14 @@ class LatticeBuilder:
 
     def crystal_grid(self,grid_crystal,radius_neighbors,mode,affected_site,api_key):
 
-        self.system.coord_cache = {}
+        self.simulator.coord_cache = {}
 
         # Loading existing grid
         if grid_crystal is not None:
-          self.system.grid_crystal = grid_crystal
+          self.simulator.grid_crystal = grid_crystal
           # Legacy grids were pickled before Site.idx existed; backfill the
           # index key onto every loaded site that does not carry one yet.
-          for idx, site in self.system.grid_crystal.items():
+          for idx, site in self.simulator.grid_crystal.items():
             if getattr(site, 'idx', None) is None:
               site.idx = idx
           # Live-config binding (Phase 6).  Loaded sites otherwise run on the
@@ -832,9 +832,9 @@ class LatticeBuilder:
           # Binding one shared reference keeps a single source of truth for the
           # site-level lookups too (allowed_sublattices, valid_target_species,
           # CN_matters, symbols) at the cost of one pointer store per site.
-          if self.system.defects_config:
-            for site in self.system.grid_crystal.values():
-              site.defects_config = self.system.defects_config
+          if self.simulator.defects_config:
+            for site in self.simulator.grid_crystal.values():
+              site.defects_config = self.simulator.defects_config
           self._compute_interface_flags()
           # Initialize pathways for loaded grids too
           self._build_kdtree()
@@ -857,24 +857,24 @@ class LatticeBuilder:
 
 
 
-          logger.info('Initializing grid_crystal with %d host sites', len(self.system.structure))
+          logger.info('Initializing grid_crystal with %d host sites', len(self.simulator.structure))
           total_start_time = time.perf_counter()
 
           # --- STEP 1: Build host lattice with REAL chemical species ---
           start_time = time.perf_counter()
-          self.system.grid_crystal = {}
-          for site in self.system.structure:
-            idx = self.get_idx_coords(site.coords, self.system.basis_vectors)
+          self.simulator.grid_crystal = {}
+          for site in self.simulator.structure:
+            idx = self.get_idx_coords(site.coords, self.simulator.basis_vectors)
             site_type = site.specie.symbol
-            is_active = self.system._is_active_site(site_type)
+            is_active = self.simulator._is_active_site(site_type)
 
-            self.system.grid_crystal[idx] = Site(
+            self.simulator.grid_crystal[idx] = Site(
               chemical_specie=site_type,
               position=tuple(site.coords),
               site_type=site_type,
-              Act_E_dict=self._efficient_act_e_copy(self.system.Act_E_dict) if is_active else {}, # Its own copy
-              defects_config = self.system.defects_config,
-              reactions_config = self.system.reactions_config,
+              Act_E_dict=self._efficient_act_e_copy(self.simulator.Act_E_dict) if is_active else {}, # Its own copy
+              defects_config = self.simulator.defects_config,
+              reactions_config = self.simulator.reactions_config,
               is_active_site=is_active,
               idx=idx
             )
@@ -892,15 +892,15 @@ class LatticeBuilder:
           interstitial_count = 0
           if mode == "interstitial":
             for pos in self._generate_interstitial_sites(api_key=None):
-              idx = self.get_idx_coords(pos, self.system.basis_vectors)
-              if idx not in self.system.grid_crystal:
-                self.system.grid_crystal[idx] = Site(
+              idx = self.get_idx_coords(pos, self.simulator.basis_vectors)
+              if idx not in self.simulator.grid_crystal:
+                self.simulator.grid_crystal[idx] = Site(
                   chemical_specie=affected_site,
                   position=tuple(pos),
                   site_type="interstitial",
-                  Act_E_dict=self._efficient_act_e_copy(self.system.Act_E_dict),
-                  defects_config = self.system.defects_config,
-                  reactions_config = self.system.reactions_config,
+                  Act_E_dict=self._efficient_act_e_copy(self.simulator.Act_E_dict),
+                  defects_config = self.simulator.defects_config,
+                  reactions_config = self.simulator.reactions_config,
                   is_active_site=True, # Interstitials are always active
                   idx=idx,
                 )
@@ -908,7 +908,7 @@ class LatticeBuilder:
 
           logger.info("Step 3 (Interstitial sites): %.4f seconds", time.perf_counter() - start_time)
           logger.info("Total sites created: %d (%d host + %d interstitial)",
-                      len(self.system.grid_crystal), len(self.system.structure), interstitial_count)
+                      len(self.simulator.grid_crystal), len(self.simulator.structure), interstitial_count)
 
           # === STEP 3.5: Set interface flags ===
           self._compute_interface_flags()
@@ -945,17 +945,17 @@ class LatticeBuilder:
 
         # --- STEP 6: Grain Boundaries (if applicable) ---
         start_time = time.perf_counter()
-        if hasattr(self.system, 'gb_configurations'):
-          self.system.gb_model = GrainBoundary(self.system.crystal_size,self.system.gb_configurations)
+        if hasattr(self.simulator, 'gb_configurations'):
+          self.simulator.gb_model = GrainBoundary(self.simulator.crystal_size,self.simulator.gb_configurations)
 
-          mig_paths = self.system.migration_pathways
-          defects_cfg = self.system.defects_config
-          reactions_cfg = self.system.reactions_config
+          mig_paths = self.simulator.migration_pathways
+          defects_cfg = self.simulator.defects_config
+          reactions_cfg = self.simulator.reactions_config
 
-          sites_list = list(self.system.grid_crystal.values())
+          sites_list = list(self.simulator.grid_crystal.values())
 
           for i, site in enumerate(sites_list):
-            self.system.gb_model.modify_act_energy_GB(site, mig_paths, defects_cfg, reactions_cfg)
+            self.simulator.gb_model.modify_act_energy_GB(site, mig_paths, defects_cfg, reactions_cfg)
 
           logger.info("Step 6 (Grain boundaries): %.4f seconds", time.perf_counter() - start_time)
 
@@ -993,7 +993,7 @@ class LatticeBuilder:
         """
         applicable_defects = []
         # Check all defect configurations
-        for defect_name, cfg in self.system.defects_config.items():
+        for defect_name, cfg in self.simulator.defects_config.items():
           allowed_sublattices = cfg.get("allowed_sublattices",[])
           if site_type in allowed_sublattices:
             applicable_defects.append(defect_name)
@@ -1005,9 +1005,9 @@ class LatticeBuilder:
         Compute interface flags for all sites based on per-site_type z-ranges
         Called after grid is built of loaded
         """
-        for defect_name, defect_cfg in self.system.defects_config.items():
+        for defect_name, defect_cfg in self.simulator.defects_config.items():
           site_type_defect = defect_cfg['site_type']
-          type_sites = [s for s in self.system.grid_crystal.values() if s.site_type == site_type_defect]
+          type_sites = [s for s in self.simulator.grid_crystal.values() if s.site_type == site_type_defect]
 
           z_positions = sorted(set(round(s.position[2], 4) for s in type_sites))
           bottom_z = z_positions[0]
@@ -1023,7 +1023,7 @@ class LatticeBuilder:
 
         # Get the interstitial species from defect_config
         interstitial_species = None
-        for name, cfg in self.system.defects_config.items():
+        for name, cfg in self.simulator.defects_config.items():
           if cfg.get('site_type') == 'interstitial':
             interstitial_species = cfg.get("base_element", cfg["symbol"].split("_")[0])
             break
@@ -1033,7 +1033,7 @@ class LatticeBuilder:
 
 
         # Default minimum distance from atoms, adjust if you find sites too close/far from atoms
-        MIN_DISTANCE_FROM_ATOMS = self.system.interstitial_generation['min_distance']  # Angstroms
+        MIN_DISTANCE_FROM_ATOMS = self.simulator.interstitial_generation['min_distance']  # Angstroms
 
 
         # =========================================================================
@@ -1044,7 +1044,7 @@ class LatticeBuilder:
         if api_key:
           try:
             with MPRester(api_key) as mpr:
-              chgcar = mpr.get_charge_density_from_material_id(self.system.id_material)
+              chgcar = mpr.get_charge_density_from_material_id(self.simulator.id_material)
 
               if chgcar is not None:
                 logger.info("Charge density retrieved (grid: %s)", chgcar.data.shape)
@@ -1074,23 +1074,23 @@ class LatticeBuilder:
             min_distance=MIN_DISTANCE_FROM_ATOMS
           )
 
-        if self.system.calculator_config and self.system.calculator_config.interstitial_refinement.enabled:
+        if self.simulator.calculator_config and self.simulator.calculator_config.interstitial_refinement.enabled:
           base_positions_unit_cell = self._refine_interstitial_positions(base_positions_unit_cell, interstitial_species)
 
         # Validate interstitial spacing in the unit cell
-        if self.system.rank == 0:
-          self._validate_interstitial_positions(base_positions_unit_cell, self.system.structure_basic)
+        if self.simulator.rank == 0:
+          self._validate_interstitial_positions(base_positions_unit_cell, self.simulator.structure_basic)
 
-          if self.system.interstitial_generation['create_interstitial_xyz_file']:
+          if self.simulator.interstitial_generation['create_interstitial_xyz_file']:
             self.create_ovito_xyz_file(interstitial_species, base_positions_unit_cell)
 
 
         # =========================================================================
         # Replicate in supercell
         # =========================================================================
-        unit_cell_lattice = self.system.structure_basic.lattice
+        unit_cell_lattice = self.simulator.structure_basic.lattice
         supercell_interstitials = []
-        repetitions = np.ceil(np.array(self.system.crystal_size) / np.array(unit_cell_lattice.abc)).astype(int)
+        repetitions = np.ceil(np.array(self.simulator.crystal_size) / np.array(unit_cell_lattice.abc)).astype(int)
 
         for cart_pos in base_positions_unit_cell:
           for i in range(repetitions[0]):
@@ -1101,7 +1101,7 @@ class LatticeBuilder:
                           k * unit_cell_lattice.matrix[2])
                 new_pos = cart_pos + offset
 
-                if self._is_inside_supercell(new_pos, self.system.structure.lattice):
+                if self._is_inside_supercell(new_pos, self.simulator.structure.lattice):
                     supercell_interstitials.append(new_pos)
 
         # Remove duplicates
@@ -1128,11 +1128,11 @@ class LatticeBuilder:
           List of cartesian coordinates for interstitial sites
         """
 
-        structure = self.system.structure_basic
+        structure = self.simulator.structure_basic
         interstitial_positions = []
         # Use InterstitialGenerator
 
-        gen = VoronoiInterstitialGenerator(min_dist=min_distance, clustering_tol=self.system.interstitial_generation['clustering_tol'] )
+        gen = VoronoiInterstitialGenerator(min_dist=min_distance, clustering_tol=self.simulator.interstitial_generation['clustering_tol'] )
 
         sga = SpacegroupAnalyzer(structure, symprec=0.01, angle_tolerance=5)
         symm_ops = sga.get_symmetry_operations()
@@ -1169,10 +1169,10 @@ class LatticeBuilder:
         full supercell. The refined positions are then replicated normally.
         """
         from kinetix.calculators.mace_neb import KinetixMACEAdapter
-        cfg = self.system.calculator_config
+        cfg = self.simulator.calculator_config
         adapter = KinetixMACEAdapter(
           model_source=cfg.model,
-          kx=self.system,
+          kx=self.simulator,
           cache_dir=cfg.cache_dir,
           model_filename=cfg.model_filename,
           device=cfg.device,
@@ -1184,8 +1184,8 @@ class LatticeBuilder:
           )
 
         refined_positions = []
-        unit_cell_lattice = self.system.structure_basic.lattice
-        supercell_lattice = self.system.structure.lattice
+        unit_cell_lattice = self.simulator.structure_basic.lattice
+        supercell_lattice = self.simulator.structure.lattice
 
         # Get the Cartesian center of the unit cell and the supercell
         unit_center_cart = unit_cell_lattice.get_cartesian_coords([0.5, 0.5, 0.5])
@@ -1199,7 +1199,7 @@ class LatticeBuilder:
 
           # Build a small temporary structure around this Voronoi site
           # Place O_i at pos, relax, get the true position
-          refined_pos, disp, energy = adapter.refine_interstitial_site(self.system.grid_crystal,
+          refined_pos, disp, energy = adapter.refine_interstitial_site(self.simulator.grid_crystal,
             supercell_pos, element=interstitial_species
           )
 
@@ -1330,7 +1330,7 @@ class LatticeBuilder:
         """Create XYZ file for OVITO visualization."""
         # Get host atom positions
         host_atoms = []
-        for site in self.system.structure_basic:
+        for site in self.simulator.structure_basic:
             host_atoms.append({
                 'element': site.specie.symbol,
                 'x': site.coords[0],
@@ -1376,18 +1376,18 @@ class LatticeBuilder:
         """
         tol = 1e-6
         domain_height = tol
-        lattice = self.system.structure.lattice
+        lattice = self.simulator.structure.lattice
 
-        for site in self.system.structure:
+        for site in self.simulator.structure:
             # Neighbors for each idx in grid_crystal
-            neighbors = self.system.structure.get_neighbors(site,radius_neighbors)
+            neighbors = self.simulator.structure.get_neighbors(site,radius_neighbors)
 
             # Some sites are not created with the dictionary comprenhension
             # If the sites have neighbors that are within the crystal dimension range
             # but not included, we included
             for neigh in neighbors:
               pos = neigh.coords
-              idx = self.get_idx_coords(pos,self.system.basis_vectors)
+              idx = self.get_idx_coords(pos,self.simulator.basis_vectors)
 
               frac = lattice.get_fractional_coords(pos)
               # (1) Vertical membership: within the home cell along the film-normal
@@ -1398,7 +1398,7 @@ class LatticeBuilder:
               if pos[2] > domain_height:
                 domain_height = pos[2]
 
-              if idx not in self.system.grid_crystal:
+              if idx not in self.simulator.grid_crystal:
                 # (2) Home-cell test in the periodic xy plane: fractional x,y in
                 #     [0,1) means this is NOT a wrapped periodic image.
                 is_home_xy = ((-tol <= frac[0] <= 1 + tol) and
@@ -1407,20 +1407,20 @@ class LatticeBuilder:
                 # If not in the boundary region, where we should apply periodic boundary conditions
                 if is_home_xy:
                   site_type = neigh.specie.symbol
-                  is_active = self.system._is_active_site(site_type)
+                  is_active = self.simulator._is_active_site(site_type)
 
-                  self.system.grid_crystal[idx] = Site(
+                  self.simulator.grid_crystal[idx] = Site(
                     chemical_specie = site_type,
                     position = tuple(pos),
                     site_type = site_type,
-                    Act_E_dict = self._efficient_act_e_copy(self.system.Act_E_dict) if is_active else {},
-                    defects_config = self.system.defects_config,
-                    reactions_config = self.system.reactions_config,
+                    Act_E_dict = self._efficient_act_e_copy(self.simulator.Act_E_dict) if is_active else {},
+                    defects_config = self.simulator.defects_config,
+                    reactions_config = self.simulator.reactions_config,
                     is_active_site=is_active,
                     idx=idx
                   )
 
-        self.system.domain_height = domain_height
+        self.simulator.domain_height = domain_height
 
 
     # =========================================================================
@@ -1444,15 +1444,15 @@ class LatticeBuilder:
                 break
               yield batch
 
-        grid_keys = list(self.system.grid_crystal.keys())
+        grid_keys = list(self.simulator.grid_crystal.keys())
         batch_size = math.ceil(len(grid_keys) / num_cores)
         batches = list(batched(grid_keys, batch_size))
 
         # Shared data (immutable)
         shared_data = {
-          'crystal_size': self.system.crystal_size,
-          'event_labels': self.system.event_labels,
-          'radius_neighbors': self.system.radius_neighbors
+          'crystal_size': self.simulator.crystal_size,
+          'event_labels': self.simulator.event_labels,
+          'radius_neighbors': self.simulator.radius_neighbors
         }
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=num_cores) as executor:
@@ -1460,7 +1460,7 @@ class LatticeBuilder:
             executor.submit(
               self._process_batch_sites_worker,
               batch,
-              self.system.grid_crystal,
+              self.simulator.grid_crystal,
               shared_data
             )
             for batch in batches
@@ -1470,20 +1470,20 @@ class LatticeBuilder:
     def _sequencial_neighbors_analysis(self):
         """Sequential neighbor analysis using FULL grid_crystal."""
 
-        for site_idx in self.system.grid_crystal.keys():
-          site = self.system.grid_crystal[site_idx]
+        for site_idx in self.simulator.grid_crystal.keys():
+          site = self.simulator.grid_crystal[site_idx]
 
           # Get neighbors using k-d tree
-          neighbor_site_indices = self._get_neighbors_for_site(site_idx, self.system.radius_neighbors)
+          neighbor_site_indices = self._get_neighbors_for_site(site_idx, self.simulator.radius_neighbors)
 
           if site_idx in neighbor_site_indices:
             neighbor_site_indices.remove(site_idx)
 
           site.neighbors_analysis(
-            self.system.grid_crystal,
+            self.simulator.grid_crystal,
             neighbor_site_indices,
-            self.system.crystal_size,
-            self.system.event_labels,
+            self.simulator.crystal_size,
+            self.simulator.event_labels,
             site_idx
           )
 
@@ -1577,13 +1577,13 @@ class LatticeBuilder:
     def get_idx_coords(self, coords,basis_vectors):
         # Check if the coordinates are already in the cache
         coords_tuple = tuple(coords)
-        if coords_tuple not in self.system.coord_cache:
+        if coords_tuple not in self.simulator.coord_cache:
             # Calculate and cache the rounded coordinates
             # np.linalg.solve --> To obtain the linear combination of the basis vector for the site coordinate
             idx_coords = np.linalg.solve(basis_vectors.transpose(), coords)
             idx_coords = tuple(np.round(idx_coords).astype(int))
-            self.system.coord_cache[coords_tuple] = idx_coords
-        return self.system.coord_cache[coords_tuple]
+            self.simulator.coord_cache[coords_tuple] = idx_coords
+        return self.simulator.coord_cache[coords_tuple]
 
     def Wulff_Shape(self,api_key):
 
@@ -1592,10 +1592,10 @@ class LatticeBuilder:
             # Check what attributes are available in mpr
             # available_attributes = [attr for attr in dir(mpr) if not attr.startswith('_')]
             # print(f"Available attributes in MPRester: {available_attributes}")
-            # surface_properties_doc = mpr.surface_properties.search(material_ids=[self.system.id_material])
+            # surface_properties_doc = mpr.surface_properties.search(material_ids=[self.simulator.id_material])
 
             surface_properties_doc = mpr.materials.surface_properties.search(
-                material_ids=self.system.id_material
+                material_ids=self.simulator.id_material
                 )
 
         miller_indices = []
@@ -1604,17 +1604,17 @@ class LatticeBuilder:
             miller_indices.append(tuple(surface.miller_index))
             surface_energies.append(surface.surface_energy)
 
-        self.system.wulff_shape = WulffShape(self.system.structure_basic.lattice, miller_indices,surface_energies)
+        self.simulator.wulff_shape = WulffShape(self.simulator.structure_basic.lattice, miller_indices,surface_energies)
 
         # We can show the Wulff Shape with the following:
-        #self.system.wulff_shape.show()
+        #self.simulator.wulff_shape.show()
 
-        self.system.wulff_facets = [] # Miller index and normal vector
-        for facet in self.system.wulff_shape.facets:
-            self.system.wulff_facets.append([facet.miller,facet.normal])
+        self.simulator.wulff_facets = [] # Miller index and normal vector
+        for facet in self.simulator.wulff_shape.facets:
+            self.simulator.wulff_facets.append([facet.miller,facet.normal])
 
         # I can still eliminate the parallel normal vectors
-        self.system.wulff_facets = sorted(self.system.wulff_facets,key = lambda x:x[0][0])
+        self.simulator.wulff_facets = sorted(self.simulator.wulff_facets,key = lambda x:x[0][0])
 
     def create_edges(self,facets_type):
 
@@ -1633,8 +1633,8 @@ class LatticeBuilder:
                     aux_edge_facet[0][1] = (1,0,0) facets
 
         """
-        lattice = self.system.structure.lattice
-        for idx,site in self.system.grid_crystal.items():
+        lattice = self.simulator.structure.lattice
+        for idx,site in self.simulator.grid_crystal.items():
           frac = lattice.get_fractional_coords(site.position)
           if ((0.45 < frac[0] < 0.55)
               and (0.45 < frac[1] < 0.55)
@@ -1643,9 +1643,9 @@ class LatticeBuilder:
 
         # Obtain the different edge in the plane
         # Neighbors only in plane
-        neighbors = [[self.system.grid_crystal[neigh[0]].position,neigh[1]] for neigh in self.system.grid_crystal[idx].migration_paths['Plane']]
+        neighbors = [[self.simulator.grid_crystal[neigh[0]].position,neigh[1]] for neigh in self.simulator.grid_crystal[idx].migration_paths['Plane']]
         # Minimum distance between neighbors
-        min_dist = np.linalg.norm(np.array(self.system.grid_crystal[idx].position) - np.array(np.array(neighbors[4][0])))
+        min_dist = np.linalg.norm(np.array(self.simulator.grid_crystal[idx].position) - np.array(np.array(neighbors[4][0])))
         edges = {}
 
         for neighbor in neighbors:
@@ -1655,12 +1655,12 @@ class LatticeBuilder:
                     edges[(neighbor[1],neighbors[j][1])] = np.array(neighbor[0]) - np.array(np.array(neighbors[j][0]))
 
         # Calculate the facets that are parallel to each migration
-        mig_directions = {neigh[1]:np.array(self.system.grid_crystal[neigh[0]].position) - np.array(self.system.grid_crystal[idx].position) for neigh in self.system.grid_crystal[idx].migration_paths['Plane']}
+        mig_directions = {neigh[1]:np.array(self.simulator.grid_crystal[neigh[0]].position) - np.array(self.simulator.grid_crystal[idx].position) for neigh in self.simulator.grid_crystal[idx].migration_paths['Plane']}
         mig_parallel_facets = {}
         #Search for the facets that are parallel to the migration direction
         for mig_direct,vector in mig_directions.items():
             facet_list = []
-            for facet in self.system.wulff_facets:
+            for facet in self.simulator.wulff_facets:
                 if (facet[1][2] > 0 and facet[1][2] != 1 and # Screen facets that are looking downward or parallel to the x-y plane
                     abs(np.dot(facet[1][:2],vector[:2])) < 1e-12): # Perpendicular between facet normal vector (x-y) and migration direction
                         facet_list.append(facet)
@@ -1682,7 +1682,7 @@ class LatticeBuilder:
 
         # Associate edge with facets
         # Edge is defined by two migrations: we sum those vectors to obtain a vector that should be parallel to the facet normal vector
-        self.system.dir_edge_facets = {}
+        self.simulator.dir_edge_facets = {}
         for mig,edges_2 in parallel_mig_direction_edges.items():
             aux_edge_facet = []
             for edge in edges_2:
@@ -1692,11 +1692,11 @@ class LatticeBuilder:
                     if np.dot(v1,facet[1]) > 0: # Pointing in the same direction
                        aux_edge_facet.append([edge,facet[0]])
 
-            self.system.dir_edge_facets[mig] = aux_edge_facet
+            self.simulator.dir_edge_facets[mig] = aux_edge_facet
 
-        self.system.dir_edge_facets = {
+        self.simulator.dir_edge_facets = {
             key: [sublist for sublist in value if sublist[1] in facets_type]
-            for key, value in self.system.dir_edge_facets.items()
+            for key, value in self.simulator.dir_edge_facets.items()
         }
 
 
@@ -1706,6 +1706,6 @@ class LatticeBuilder:
 
     def _initialize_cluster_tracking(self):
         """ Call once at simulation start """
-        self.system.atom_to_cluster = {} # Mapping from site_id to cluster_id
-        self.system.clusters = {}
-        self.system.next_cluster_id = 0
+        self.simulator.atom_to_cluster = {} # Mapping from site_id to cluster_id
+        self.simulator.clusters = {}
+        self.simulator.next_cluster_id = 0

@@ -3,7 +3,7 @@
 
 This module introduces the target data model for the site/defect decoupling
 refactor (Phase 1). The classes defined here are NOT yet wired into the
-simulation: Site, Crystal_Lattice and the kMC loop still operate on the
+simulation: Site, KMCSimulator and the kMC loop still operate on the
 existing defects_config dict flow. These objects are introduced alongside the
 old code so later phases can migrate to them incrementally.
 
@@ -69,7 +69,7 @@ class Event:
     def catalog_tuple(self, owner_idx: Hashable) -> tuple:
         """Adapter for the hot-path kMC catalog format.
 
-        Crystal_Lattice._kmc_step builds (rate, destination, label, owner)
+        KMCSimulator._kmc_step builds (rate, destination, label, owner)
         tuples to feed the balanced tree; this keeps that representation (and
         therefore its performance characteristics) unchanged during Phase 4.
         """

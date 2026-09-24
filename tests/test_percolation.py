@@ -1,8 +1,8 @@
 # tests/test_percolation.py
 """Tests for automated radius_neighbors selection and percolation validation.
 
-Validates the percolation features added to Crystal_Lattice grid
-initialization (kinetix/lattice/crystal.py):
+Validates the percolation features added to KMCSimulator grid
+initialization (kinetix/lattice/simulator.py):
 
 - ``_check_percolation_at_radius`` - KD-tree based DFS from the bottom
   electrode to the top electrode for a given site type.
@@ -29,7 +29,7 @@ import pytest
 from pymatgen.core import Lattice, Structure
 
 from kinetix.initialization import initialization
-from kinetix.lattice.crystal import Crystal_Lattice
+from kinetix.lattice.simulator import KMCSimulator
 
 CONFIG_NAME = "VCM_mock.yaml"
 
@@ -39,15 +39,15 @@ RADII = [1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 5.0]
 
 @pytest.fixture(scope="module")
 def system_state():
-    """KMC System_state built from the VCM mock preset (once per module)."""
+    """KMC simulator built from the VCM mock preset (once per module)."""
     sim_id = 0
     params = {
         "vo_initial_concentration": 1.0e-2,
         "temperature": 293.0,
         "h_generation": 0.45,
     }
-    System_state, *_ = initialization(sim_id, params, CONFIG_NAME)
-    return System_state
+    simulator, *_ = initialization(sim_id, params, CONFIG_NAME)
+    return simulator
 
 
 def _percolation_table(lattice, radii, site_type):
@@ -149,7 +149,7 @@ class TestGridPercolation:
 
 def _make_chain_lattice(z_spacing=2.0, height=30.0):
     """
-    Build a minimal Crystal_Lattice whose 'interstitial' and 'O' sites form
+    Build a minimal KMCSimulator whose 'interstitial' and 'O' sites form
     1-D vertical chains that cross the whole sublattice z-extent: the first
     row is the bottom electrode row and the last row is the top electrode
     row (percolation bands always include the outermost rows).
@@ -173,7 +173,7 @@ def _make_chain_lattice(z_spacing=2.0, height=30.0):
             position=(5.0, 5.0, float(z)), site_type="O"
         )
 
-    lattice_obj = Crystal_Lattice.__new__(Crystal_Lattice)
+    lattice_obj = KMCSimulator.__new__(KMCSimulator)
     lattice_obj.structure = structure
     lattice_obj.grid_crystal = grid
     lattice_obj.crystal_size = np.array([20.0, 20.0, height])

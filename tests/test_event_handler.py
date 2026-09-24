@@ -2,8 +2,8 @@
 """
 Behavioral spec for kinetix/lattice/events.py (EventHandler).
 
-Phase 3 of the crystal.py split: kMC event execution extracted from
-Crystal_Lattice. Crystal_Lattice keeps thin delegates for the names that
+Phase 3 of the simulator.py split: kMC event execution extracted from
+KMCSimulator. KMCSimulator keeps thin delegates for the names that
 production code calls from outside the module, so the golden trace (which
 wraps the *instance* attribute ``crystal.processes``), superbasin.py,
 state_loader.py and the deposition paths are unchanged.
@@ -24,13 +24,13 @@ Test-side overrides (documented, mirroring test_kmc_loop.py):
      (normally provided post-init by the ElectricalController loop).
 
 BEHAVIOR NOTES pinned below:
-  * the handler is stateless (only ``.system``); every read/write of lattice
+  * the handler is stateless (only ``.simulator``); every read/write of lattice
     state goes through the system reference
   * ``processes`` MUST stay reachable as ``crystal.processes`` - the golden
     trace wraps that instance attribute to observe the event catalog
-  * ``_is_active_site`` stays ON Crystal_Lattice (lattice construction uses
-    it); the handler calls ``self.system._is_active_site``
-  * no runtime import of kinetix.lattice.crystal (TYPE_CHECKING only) - the
+  * ``_is_active_site`` stays ON KMCSimulator (lattice construction uses
+    it); the handler calls ``self.simulator._is_active_site``
+  * no runtime import of kinetix.lattice.simulator (TYPE_CHECKING only) - the
     module must load stand-alone
 """
 from __future__ import annotations
@@ -52,7 +52,7 @@ from kinetix.initialization import (
   _process_activation_energies,
   initialize_grid_crystal,
 )
-from kinetix.lattice.crystal import Crystal_Lattice
+from kinetix.lattice.simulator import KMCSimulator
 from kinetix.lattice.events import EventHandler
 from kinetix.lattice.site import Site
 
@@ -67,7 +67,7 @@ O_I_BULK_CONCENTRATION = 0.05        # production sweep override (real file: 0.0
 EVENTS_MODULE = Path(__file__).resolve().parent.parent / "kinetix" / "lattice" / "events.py"
 
 # Names production code (cli.py, state_loader.py, superbasin.py, deposition,
-# tests) uses through Crystal_Lattice -> keep one-line delegates.
+# tests) uses through KMCSimulator -> keep one-line delegates.
 DELEGATED = ("processes", "update_sites_topology", "_introduce_specie_site",
              "_update_rates_lazily", "_get_mobile_sites")
 
@@ -156,8 +156,8 @@ def system(vcm_config, registry, act_e, reactions):
 # =============================================================================
 
 def _bare_system(registry, act_e, reactions=None, **overrides):
-  """Uninitialized Crystal_Lattice carrying only the state the handler reads."""
-  crystal = Crystal_Lattice.__new__(Crystal_Lattice)  # skip __init__
+  """Uninitialized KMCSimulator carrying only the state the handler reads."""
+  crystal = KMCSimulator.__new__(KMCSimulator)  # skip __init__
   crystal.rank = 0
   crystal.rng = np.random.default_rng(SEED)
   crystal.grid_crystal = {}
@@ -166,7 +166,7 @@ def _bare_system(registry, act_e, reactions=None, **overrides):
   crystal._dirty_sites = set()
   crystal._fields_changed = False
   crystal.defects_config = registry
-  # Same derivation as Crystal_Lattice.__init__ (registry-driven, no literals)
+  # Same derivation as KMCSimulator.__init__ (registry-driven, no literals)
   crystal._active_site_types = {
     stype for cfg in registry.values()
     for stype in cfg.get("allowed_sublattices", [])
@@ -216,11 +216,11 @@ def _install(crystal, *sites):
 # =============================================================================
 
 def test_event_handler_instantiated_lazily_via_property():
-  """Crystal_Lattice.event_handler builds and caches one handler per system."""
+  """KMCSimulator.event_handler builds and caches one handler per system."""
   crystal = _bare_system({}, {})
   handler = crystal.event_handler
   assert isinstance(handler, EventHandler)
-  assert handler.system is crystal
+  assert handler.simulator is crystal
   assert crystal.event_handler is handler       # cached on the instance
   assert crystal._event_handler is handler
   assert not hasattr(handler, "grid_crystal")   # stateless: system is the state
@@ -228,7 +228,7 @@ def test_event_handler_instantiated_lazily_via_property():
 
 def test_delegates_are_thin_and_forward_to_handler():
   for name in DELEGATED:
-    src = inspect.getsource(getattr(Crystal_Lattice, name))
+    src = inspect.getsource(getattr(KMCSimulator, name))
     assert "self.event_handler." in src, name
     assert src.count("return") == 1, name
     assert src.count("\n") <= 3, name
@@ -236,16 +236,16 @@ def test_delegates_are_thin_and_forward_to_handler():
 
 def test_extracted_helpers_moved_off_crystal():
   for name in MOVED_ONLY:
-    assert not hasattr(Crystal_Lattice, name), name
+    assert not hasattr(KMCSimulator, name), name
     assert hasattr(EventHandler, name), name
 
 
 def test_is_active_site_stays_on_crystal():
-  """Lattice construction calls it too (crystal.py), so it must not move."""
-  assert hasattr(Crystal_Lattice, "_is_active_site")
+  """Lattice construction calls it too (simulator.py), so it must not move."""
+  assert hasattr(KMCSimulator, "_is_active_site")
   assert not hasattr(EventHandler, "_is_active_site")
   src = inspect.getsource(EventHandler._get_mobile_sites)
-  assert "self.system._is_active_site(" in src
+  assert "self.simulator._is_active_site(" in src
 
 
 def test_delegate_reaches_handler_instance_method():
@@ -271,7 +271,7 @@ def test_events_module_has_no_runtime_crystal_import():
   # ... and the annotation-only import is present, guarded by TYPE_CHECKING
   guard = next(n for n in tree.body if isinstance(n, ast.If))
   assert "TYPE_CHECKING" in ast.unparse(guard.test)
-  assert "Crystal_Lattice" in ast.unparse(guard)
+  assert "KMCSimulator" in ast.unparse(guard)
 
 
 # =============================================================================
@@ -526,7 +526,7 @@ def test_introduce_specie_and_topology_refresh(system):
 
 def test_is_at_top_electrode_reads_interface_flag(registry, act_e):
   """Pins the CURRENT (pre-existing, odd) behavior: the method returns the
-  site's ``is_at_bottom_interface`` flag. Byte-identical to crystal.py
+  site's ``is_at_bottom_interface`` flag. Byte-identical to simulator.py
   :2814-2816 before the Phase-3 move; it has no callers anywhere."""
   crystal = _bare_system(registry, act_e)
   handler = crystal.event_handler

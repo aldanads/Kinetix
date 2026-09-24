@@ -5,9 +5,9 @@ __version__ = "0.1.0"
 
 # ---------------------------------------------------------------------------
 # Public API re-exports. These make the primary simulation objects importable
-# directly from the top-level package, e.g. `from kinetix import Crystal_Lattice`.
+# directly from the top-level package, e.g. `from kinetix import KMCSimulator`.
 # ---------------------------------------------------------------------------
-from kinetix.lattice.crystal import Crystal_Lattice
+from kinetix.lattice.simulator import KMCSimulator
 from kinetix.lattice.site import Site
 from kinetix.lattice.cluster import Cluster
 from kinetix.lattice.grain_boundary import GrainBoundary
@@ -23,7 +23,7 @@ from kinetix.utils.superbasin import Superbasin
 from kinetix.utils.mpi_context import MPIContext
 
 __all__ = [
-    "Crystal_Lattice",
+    "KMCSimulator",
     "Site",
     "Cluster",
     "GrainBoundary",

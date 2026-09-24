@@ -1,6 +1,6 @@
-"""Behavioral spec for :class:`kinetix.lattice.site.Site` (crystal.py split prep).
+"""Behavioral spec for :class:`kinetix.lattice.site.Site` (simulator.py split prep).
 
-These tests are the regression net for the upcoming ``crystal.py`` split.  They
+These tests are the regression net for the upcoming ``simulator.py`` split.  They
 cover the three responsibilities of ``Site`` that the split touches:
 
 * **Initialization** - species / position / sublattice plus the defect
@@ -69,7 +69,7 @@ NU0 = 7e12  # Site.NU0 - bond vibration frequency used by the Arrhenius law
 PARAMS_DIR = Path(__file__).resolve().parent.parent / "data" / "parameters"
 
 # Migration event labels are assigned by
-# ``Crystal_Lattice._initialize_migration_pathways`` (one integer per unique
+# ``KMCSimulator._initialize_migration_pathways`` (one integer per unique
 # minimum-image displacement vector).  These are code constants of the kMC
 # event-label scheme, not parameter-file values.
 PLANE_EVENT, UP_EVENT, DOWN_EVENT = 0, 1, 2
@@ -83,7 +83,7 @@ CERIA_PRESET_NAME = "ECM_CeO2_cylindrical_gb.yaml"
 
 
 def _inject_migration_labels(act_e_dict: dict[str, dict]) -> dict[str, dict]:
-  """Mirror ``Crystal_Lattice._initialize_migration_pathways``.
+  """Mirror ``KMCSimulator._initialize_migration_pathways``.
 
   When Poisson is solved, the lattice injects an int-keyed ``E_mig`` dict built
   from the directional barriers (``E_mig_plane`` / ``E_mig_upward`` /

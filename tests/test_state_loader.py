@@ -7,7 +7,7 @@ Real artifacts, no hardcoded config literals:
   - data/parameters/defects/PZT_ZrPbO3_defects_config.yaml (DefectsConfig.from_yaml)
   - data/parameters/defects/VCM_HfO2_defects_config.yaml   (DefectsConfig.from_yaml)
   - the species-id maps are produced by the REAL production
-    Crystal_Lattice._species_id_gen (on an uninitialized instance), so dump
+    KMCSimulator._species_id_gen (on an uninitialized instance), so dump
     type ids used here always follow the shipped configs.
 
 Synthetic LAMMPS dumps are written into tmp_path by ``write_dump``.
@@ -34,7 +34,7 @@ from pathlib import Path
 import pytest
 
 from kinetix.configs.defect_config import DefectsConfig
-from kinetix.lattice.crystal import Crystal_Lattice
+from kinetix.lattice.simulator import KMCSimulator
 from kinetix.lattice.defect import make_empty_defect
 from kinetix.utils.state_loader import (
     decode_species_key_passivation,
@@ -71,10 +71,10 @@ def vcm_defects_dict() -> dict:
 
 def build_species_maps(defects_config: dict) -> tuple[dict, dict]:
     """Build (SPECIES_TYPE_MAP, SPECIES_ID_TO_TYPE) with the REAL production
-    Crystal_Lattice._species_id_gen so ids follow production ordering."""
-    lattice = Crystal_Lattice.__new__(Crystal_Lattice)  # skip __init__/physics
+    KMCSimulator._species_id_gen so ids follow production ordering."""
+    lattice = KMCSimulator.__new__(KMCSimulator)  # skip __init__/physics
     lattice.defects_config = defects_config
-    Crystal_Lattice._species_id_gen(lattice)
+    KMCSimulator._species_id_gen(lattice)
     return lattice.SPECIES_TYPE_MAP, lattice.SPECIES_ID_TO_TYPE
 
 
@@ -139,7 +139,7 @@ def make_grid():
 
 
 class MockSystemState:
-    """Duck-typed Crystal_Lattice stand-in for load_state_from_dump.
+    """Duck-typed KMCSimulator stand-in for load_state_from_dump.
 
     Records every injected species and topology rebuild so the tests can assert
     the mapping/selection behavior without a real lattice.
@@ -292,7 +292,7 @@ class TestParseLammpsDump:
 
 
 # =============================================================================
-# Species-id maps (produced by the real Crystal_Lattice._species_id_gen)
+# Species-id maps (produced by the real KMCSimulator._species_id_gen)
 # =============================================================================
 
 class TestSpeciesIdMaps:

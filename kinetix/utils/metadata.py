@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """Simulation metadata output.
 
-Phase 1 of the ``crystal.py`` split: metadata/provenance writing is fully
-decoupled from the physics and extracted from ``Crystal_Lattice``.
+Phase 1 of the ``simulator.py`` split: metadata/provenance writing is fully
+decoupled from the physics and extracted from ``KMCSimulator``.
 
 Current format: JSON (``metadata.json`` consumed by the kMC analysis tools).
 Planned formats: H5MD (NOMAD compatibility) and a direct NOMAD repository push.
@@ -21,7 +21,7 @@ from pymatgen.ext.matproj import MPRester
 
 if TYPE_CHECKING:
     from kinetix.configs.simulation_config import SimulationConfig
-    from kinetix.lattice.crystal import Crystal_Lattice
+    from kinetix.lattice.simulator import KMCSimulator
 
 logger = logging.getLogger(__name__)
 
@@ -36,9 +36,9 @@ class MetadataWriter:
         output_dir: Directory the metadata file is written into.
         simulation_config: Configuration of the run. Stored for the future
             H5MD/NOMAD formats; the JSON payload is currently sourced
-            entirely from the ``Crystal_Lattice`` passed to ``write_json``
+            entirely from the ``KMCSimulator`` passed to ``write_json``
             so the output stays byte-compatible with the pre-split
-            ``Crystal_Lattice.write_metadata``.
+            ``KMCSimulator.write_metadata``.
     """
 
     def __init__(self, output_dir: Path, simulation_config: SimulationConfig) -> None:
@@ -46,10 +46,10 @@ class MetadataWriter:
         self.config = simulation_config
         self._git_provenance: dict[str, Any] | None = None
 
-    def write_json(self, crystal: Crystal_Lattice, filename: str = "metadata.json") -> None:
+    def write_json(self, crystal: KMCSimulator, filename: str = "metadata.json") -> None:
         """Write metadata as JSON.
 
-        Extracted from ``Crystal_Lattice.write_metadata``; the payload layout
+        Extracted from ``KMCSimulator.write_metadata``; the payload layout
         must not change (backward compatibility with existing analyses).
 
         Args:
@@ -176,7 +176,7 @@ class MetadataWriter:
         with open(metadata_path, 'w') as f:
             json.dump(metadata, f, indent=2, default=str)
 
-    def write_h5md(self, crystal: Crystal_Lattice, filename: str = "trajectory.h5") -> None:
+    def write_h5md(self, crystal: KMCSimulator, filename: str = "trajectory.h5") -> None:
         """Write metadata as H5MD (future - for NOMAD compatibility)."""
         raise NotImplementedError("H5MD support planned for future phase")
 
@@ -191,7 +191,7 @@ class MetadataWriter:
         return self._git_provenance
 
     def _compute_git_provenance(self) -> dict:
-        """Compute git provenance (moved from ``Crystal_Lattice._get_git_provenance``).
+        """Compute git provenance (moved from ``KMCSimulator._get_git_provenance``).
 
         Returns:
             dict: ``{"commit": ..., "branch": ..., "is_clean": ...}``. If git is

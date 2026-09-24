@@ -99,7 +99,7 @@ def load_state_from_dump(system_state, dump_path: str, tolerance: float = 0.1):
     
   Parameters:
   -----------
-  system_state : Crystal_Lattice
+  system_state : KMCSimulator
     The initialized system with a pristine grid_crystal.
   dump_path : str
     Path to the LAMMPS dump file.

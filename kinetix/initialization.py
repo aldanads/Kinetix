@@ -12,7 +12,7 @@ import platform
 import shutil
 import logging
 
-from kinetix.lattice.crystal import Crystal_Lattice
+from kinetix.lattice.simulator import KMCSimulator
 from kinetix.solvers.electrical import ElectricalController
 from kinetix.utils.mpi_context import MPIContext
 from kinetix.utils.metadata import MetadataWriter
@@ -305,29 +305,29 @@ def initialization(n_sim,params, config_name='PZT_ZrTi_PbO3_2.yaml'):
 
         # TODO(config-objects): deposition branch is legacy/broken. It passes
         # list-shaped configs (experimental_conditions, superbasin_parameters)
-        # that cannot satisfy Crystal_Lattice's typed-object contract (would
-        # raise AttributeError in crystal.py), and its crystal_features dict
+        # that cannot satisfy KMCSimulator's typed-object contract (would
+        # raise AttributeError in simulator.py), and its crystal_features dict
         # lacks keys read there with hard [] access ('miller_indices',
         # 'gb_configurations' -> KeyError). It also does not pass the new
         # simulation_type argument. A restore-or-remove decision is required
         # before this path can use typed config objects; the electronic_device
         # path is the actively maintained one.
-        System_state = initialize_grid_crystal(filename, mpi_ctx, crystal_features, experimental_conditions, Act_E_list, 
+        simulator = initialize_grid_crystal(filename, mpi_ctx, crystal_features, experimental_conditions, Act_E_list, 
               lammps_file, superbasin_parameters, save_data)  
 
         # The minimum energy to select transition pathways to create a superbasin should be smaller
         # than the adsorption energy
         logger.info("Minimum energy for superbasin %s and activation energy for adsorption %s",
-              superbasin_parameters[2], System_state.Act_E_gen)
-        if superbasin_parameters[2] > System_state.Act_E_gen:
-            raise ValueError(f"Minimum energy for superbasin {superbasin_parameters[2]} is greater than activation energy for adsorption {System_state.Act_E_ad}")
+              superbasin_parameters[2], simulator.Act_E_gen)
+        if superbasin_parameters[2] > simulator.Act_E_gen:
+            raise ValueError(f"Minimum energy for superbasin {superbasin_parameters[2]} is greater than activation energy for adsorption {simulator.Act_E_ad}")
             import sys
             sys.exit(1)
             
         # Maximum probability per site for deposition to establish a timestep limits
         # The maximum timestep is that one that occupy X% of the site during the deposition process
         P_limits = 0.05
-        System_state.limit_kmc_timestep(P_limits)
+        simulator.limit_kmc_timestep(P_limits)
 
 # =============================================================================
 #     - test[0] - Normal deposition
@@ -346,14 +346,14 @@ def initialization(n_sim,params, config_name='PZT_ZrTi_PbO3_2.yaml'):
         test = [0,1,2,3,4,5,6,7,8,9]
 
         # Deposition process of chemical species
-        if System_state.timestep_limits < float('inf'):
-            System_state.deposition_specie(System_state.timestep_limits,rng,test[test_selected])
-            System_state.track_time(System_state.timestep_limits) 
-            System_state.add_time()
+        if simulator.timestep_limits < float('inf'):
+            simulator.deposition_specie(simulator.timestep_limits,rng,test[test_selected])
+            simulator.track_time(simulator.timestep_limits) 
+            simulator.add_time()
         else:
-            System_state.deposition_specie(0,rng,test[test_selected])
-            System_state.track_time(0) 
-            System_state.add_time()
+            simulator.deposition_specie(0,rng,test[test_selected])
+            simulator.track_time(0) 
+            simulator.add_time()
         
 
         
@@ -437,7 +437,7 @@ def initialization(n_sim,params, config_name='PZT_ZrTi_PbO3_2.yaml'):
         # 8. Initialize crystal lattice
         filename = f'grid_{formula}_{int(max(crystal_size) / 10)}nm'
         
-        System_state = initialize_grid_crystal(
+        simulator = initialize_grid_crystal(
           filename,
           mpi_ctx,
           config.material,
@@ -466,24 +466,24 @@ def initialization(n_sim,params, config_name='PZT_ZrTi_PbO3_2.yaml'):
           dump_path = load_state_config['dump_path']
           reset_time = load_state_config.get('reset_time', True)
           
-          load_state_from_dump(System_state, dump_path)
+          load_state_from_dump(simulator, dump_path)
         
           if reset_time:
-            System_state.time = 0.0
-            System_state.list_time = [0.0]
+            simulator.time = 0.0
+            simulator.list_time = [0.0]
           
         else:
           # Initialize defects
-          System_state.defect_gen()
+          simulator.defect_gen()
 
         # 9. Post initialization steps
         # Write metadata
-        MetadataWriter(paths['data'], config).write_json(System_state) 
+        MetadataWriter(paths['data'], config).write_json(simulator) 
 
-        Elec_controller.crystal_size = System_state.crystal_size #  The crystal_size after the generation of the lattice may differ from the parameter provided in a NN points separation
-        System_state.timestep_limits = Elec_controller.voltage_update_time  
+        Elec_controller.crystal_size = simulator.crystal_size #  The crystal_size after the generation of the lattice may differ from the parameter provided in a NN points separation
+        simulator.timestep_limits = Elec_controller.voltage_update_time  
 
-    return System_state,rng,paths,Results, simulation_parameters,Elec_controller
+    return simulator,rng,paths,Results, simulation_parameters,Elec_controller
     
 @contextmanager
 def _file_lock(lock_path: Path, timeout: float = 7200.0):
@@ -562,7 +562,7 @@ def initialize_grid_crystal(
 
         Phase 1 (Rank 0 only): Rank 0 tries to load the grid. If it does not
           exist, Rank 0 acquires the file lock, creates the grid and saves it
-          to disk. Crystal_Lattice is called with mpi_ctx=None so it runs
+          to disk. KMCSimulator is called with mpi_ctx=None so it runs
           TRULY serial (no internal barriers/broadcasts) - any internal
           collective against the live communicator would deadlock against
           ranks 1..N waiting at the Phase-2 barrier.
@@ -570,7 +570,7 @@ def initialize_grid_crystal(
           to finish saving the file.
         Phase 3 (All ranks): every rank without a grid loads it from disk.
           RuntimeError if the grid is still missing.
-        Phase 4 (All ranks): every rank instantiates Crystal_Lattice passing
+        Phase 4 (All ranks): every rank instantiates KMCSimulator passing
           the loaded grid_crystal (fast loading path) and the real mpi_ctx.
 
         Parameters
@@ -583,12 +583,12 @@ def initialize_grid_crystal(
         
         Returns
         -------
-        Crystal_Lattice
+        KMCSimulator
         """
         grid_directory = get_grids_root()
         lock_path = grid_directory / f"{filename}.lock"
 
-        # Common Crystal_Lattice arguments: typed config objects plus the
+        # Common KMCSimulator arguments: typed config objects plus the
         # derived (non-config) values resolved by the caller.
         lattice_kwargs = {
           'material_config': material_config,
@@ -619,13 +619,13 @@ def initialize_grid_crystal(
 
               if grid_crystal is None:
                 # We're the first: create the grid. mpi_ctx=None makes
-                # Crystal_Lattice fully serial - CRITICAL to avoid internal
+                # KMCSimulator fully serial - CRITICAL to avoid internal
                 # barriers while Rank 0 is working alone.
                 logger.info('Creating grid %s... this may take several minutes for large systems.', filename)
 
                 creator_kwargs = dict(lattice_kwargs)
 
-                creator = Crystal_Lattice(
+                creator = KMCSimulator(
                   experimental_config=experimental_config,
                   Act_E_dict=Act_E_dict,
                   lammps_file=lammps_file,
@@ -654,11 +654,11 @@ def initialize_grid_crystal(
             f"during Phase 1 (check save_data and the grids directory)."
           )
 
-        # === Phase 4: All ranks instantiate Crystal_Lattice (fast path) ======
+        # === Phase 4: All ranks instantiate KMCSimulator (fast path) ======
         crystal_kwargs = dict(lattice_kwargs)
         crystal_kwargs['grid_crystal'] = grid_crystal
 
-        System_state = Crystal_Lattice(
+        simulator = KMCSimulator(
             experimental_config=experimental_config,
             Act_E_dict=Act_E_dict,
             lammps_file=lammps_file,
@@ -668,7 +668,7 @@ def initialize_grid_crystal(
             **crystal_kwargs
         )
 
-        return System_state
+        return simulator
           
 
            

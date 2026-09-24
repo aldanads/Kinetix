@@ -8,34 +8,34 @@ class Island:
         self.z_starting_pos_cart = z_starting_pos_cart
         self.island_sites = island_sites
         
-    def analyze_island(self, System_state):
+    def analyze_island(self, simulator):
         "Perform full analysis on the island"
 
-        # self._attached_to_substrate(System_state)
-        layers = self._layers_calculation(System_state)
-        self.terraces_general = self._island_terrace(System_state,layers)
-        self._slice_detection(System_state)
-        self._build_cluster_with_slices(System_state)
+        # self._attached_to_substrate(simulator)
+        layers = self._layers_calculation(simulator)
+        self.terraces_general = self._island_terrace(simulator,layers)
+        self._slice_detection(simulator)
+        self._build_cluster_with_slices(simulator)
         
         self.cluster_layers = []
         self.cluster_terraces = []
         
         for cluster in self.cluster_list:
-            layers = self._layers_calculation(System_state,cluster)
+            layers = self._layers_calculation(simulator,cluster)
             self.cluster_layers.append(layers)
-            terraces = self._island_terrace(System_state,layers)
+            terraces = self._island_terrace(simulator,layers)
             self.cluster_terraces.append(terraces)
             
-        self._aspect_ratio_clusters(System_state)
+        self._aspect_ratio_clusters(simulator)
         
-    def _layers_calculation(self,System_state,cluster_sites = None):
+    def _layers_calculation(self,simulator,cluster_sites = None):
         
         if cluster_sites is None:
             cluster_sites = self.island_sites
         
-        grid_crystal = System_state.grid_crystal
-        z_step = next((vec[2] * 2 for vec in System_state.basis_vectors if vec[2] > 0), None)
-        z_steps = int(System_state.crystal_size[2]/z_step + 1)
+        grid_crystal = simulator.grid_crystal
+        z_step = next((vec[2] * 2 for vec in simulator.basis_vectors if vec[2] > 0), None)
+        z_steps = int(simulator.crystal_size[2]/z_step + 1)
         layers = [0] * z_steps  # Initialize each layer separately
 
         for idx in cluster_sites:
@@ -45,14 +45,14 @@ class Island:
         
         return layers
     
-    def _island_terrace(self,System_state,layers):
+    def _island_terrace(self,simulator,layers):
         
-        grid_crystal = System_state.grid_crystal
-        z_step = next((vec[2] * 2 for vec in System_state.basis_vectors if vec[2] > 0), None)
-        z_steps = int(System_state.crystal_size[2]/z_step + 1)
+        grid_crystal = simulator.grid_crystal
+        z_step = next((vec[2] * 2 for vec in simulator.basis_vectors if vec[2] > 0), None)
+        z_steps = int(simulator.crystal_size[2]/z_step + 1)
         sites_per_layer = len(grid_crystal)/z_steps
 
-        area_per_site = System_state.crystal_size[0] * System_state.crystal_size[1] / sites_per_layer
+        area_per_site = simulator.crystal_size[0] * simulator.crystal_size[1] / sites_per_layer
         
         terraces = [(sites_per_layer - layers[0])* area_per_site]
         terraces.extend([(layers[i-1] - layers[i]) * area_per_site 
@@ -64,28 +64,28 @@ class Island:
         return terraces  
 
     # Check if the island is attached to the substrate
-    def _attached_to_substrate(self,System_state):
+    def _attached_to_substrate(self,simulator):
         
         for site in self.island_sites:
-            if System_state.sites_generation_layer in System_state.grid_crystal[site].supp_by:
+            if simulator.sites_generation_layer in simulator.grid_crystal[site].supp_by:
                 self.attached_substrate = True
                 return
         self.attached_substrate = False # Default if not attached
         
         
     # Slice the island --> Only atoms in the plane that are in contact belong to the slice
-    def _slice_detection(self,System_state):
+    def _slice_detection(self,simulator):
         
-        z_step = next((vec[2] * 2 for vec in System_state.basis_vectors if vec[2] > 0), None)
-        z_steps = round(System_state.crystal_size[2]/z_step + 1)
+        z_step = next((vec[2] * 2 for vec in simulator.basis_vectors if vec[2] > 0), None)
+        z_steps = round(simulator.crystal_size[2]/z_step + 1)
         slice_list = [[] for _ in range(z_steps)] # Initialize each layer separately
         
-        #sites_occupied = System_state.sites_occupied
+        #sites_occupied = simulator.sites_occupied
         sites_occupied = self.island_sites
         
         # Convert occupied sites to Cartesian coordinates and sort by z-coordinate in descending order
         sites_occupied_cart = sorted(
-            ((System_state.idx_to_cart(site), site) for site in sites_occupied), 
+            ((simulator.idx_to_cart(site), site) for site in sites_occupied), 
             key=lambda coord: coord[0][2], 
             reverse=True
         )
@@ -94,7 +94,7 @@ class Island:
         
         for cart_coords, site in sites_occupied_cart:
             if site not in total_visited:
-                slice_sites = self._build_slice(System_state, {site},site)
+                slice_sites = self._build_slice(simulator, {site},site)
                 
                 # Intersection between the new slice and the total_visited atoms. If some atoms are already in total_visited -> Overlap
                 # Skip that atom
@@ -107,9 +107,9 @@ class Island:
                 
         self.slice_list = slice_list
         
-    def _build_slice(self,System_state,slice_sites,start_idx):
+    def _build_slice(self,simulator,slice_sites,start_idx):
         
-        grid_crystal = System_state.grid_crystal
+        grid_crystal = simulator.grid_crystal
         stack = [start_idx]
         
         while stack:
@@ -118,15 +118,15 @@ class Island:
             
             for element in site.migration_paths['Plane']:
     
-                if element[0] not in slice_sites and grid_crystal[element[0]].defect.chemical_specie == System_state.chemical_specie:
+                if element[0] not in slice_sites and grid_crystal[element[0]].defect.chemical_specie == simulator.chemical_specie:
                     slice_sites.add(element[0])
                     stack.append(element[0])
                     
         return slice_sites 
     
-    def _build_cluster_with_slices(self,System_state):
+    def _build_cluster_with_slices(self,simulator):
 
-        grid_crystal = System_state.grid_crystal
+        grid_crystal = simulator.grid_crystal
 
         # Find the first layer (from bottom to top) with only one slice
         # It is the layer where the peaks merge
@@ -137,9 +137,9 @@ class Island:
         )
         
         if merge_layer_index == None:
-            # System_state.layers --> Use global layers to check which layer is less than 80% populated
+            # simulator.layers --> Use global layers to check which layer is less than 80% populated
             merge_layer_index = next(
-                (i for i, layer in enumerate(System_state.layers[1]) if layer < 0.8),
+                (i for i, layer in enumerate(simulator.layers[1]) if layer < 0.8),
                 None  # in case no such layer exists
             )
             
@@ -190,13 +190,13 @@ class Island:
         self.cluster_list = cluster_list
         
                             
-    def _aspect_ratio_clusters(self,System_state):
-        grid_crystal = System_state.grid_crystal
-        z_step = next((vec[2] * 2 for vec in System_state.basis_vectors if vec[2] > 0), None)
-        z_steps = int(System_state.crystal_size[2]/z_step + 1)
+    def _aspect_ratio_clusters(self,simulator):
+        grid_crystal = simulator.grid_crystal
+        z_step = next((vec[2] * 2 for vec in simulator.basis_vectors if vec[2] > 0), None)
+        z_steps = int(simulator.crystal_size[2]/z_step + 1)
         sites_per_layer = len(grid_crystal)/z_steps
 
-        area_per_site = System_state.crystal_size[0] * System_state.crystal_size[1] / sites_per_layer
+        area_per_site = simulator.crystal_size[0] * simulator.crystal_size[1] / sites_per_layer
 
         self.cluster_aspect_ratio = []
         

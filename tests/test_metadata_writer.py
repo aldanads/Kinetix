@@ -2,14 +2,14 @@
 """
 Behavioral spec for kinetix/utils/metadata.py (MetadataWriter).
 
-Phase 1 of the crystal.py split: metadata/provenance writing extracted from
-Crystal_Lattice.write_metadata / _get_git_provenance / _sanitize_numpy.
+Phase 1 of the simulator.py split: metadata/provenance writing extracted from
+KMCSimulator.write_metadata / _get_git_provenance / _sanitize_numpy.
 
 Real artifacts, no hardcoded config literals:
   - data/parameters/presets/VCM_mock.yaml        (SimulationConfig.from_yaml)
   - data/parameters/defects/VCM_HfO2_defects_config.yaml (DefectsConfig)
   - the species-id map is produced by the REAL production
-    Crystal_Lattice._species_id_gen (on an uninitialized instance).
+    KMCSimulator._species_id_gen (on an uninitialized instance).
 
 The MP summary is served from a pre-seeded local cache, so write_json never
 touches the network. Only simulation_id (uuid) and timestamp_start are
@@ -26,7 +26,7 @@ import pytest
 
 from kinetix.configs.defect_config import DefectsConfig
 from kinetix.configs.simulation_config import SimulationConfig
-from kinetix.lattice.crystal import Crystal_Lattice
+from kinetix.lattice.simulator import KMCSimulator
 from kinetix.utils.metadata import MetadataWriter
 
 PARAMS_DIR = Path(__file__).resolve().parent.parent / "data" / "parameters"
@@ -60,13 +60,13 @@ def vcm_defects_dict() -> dict:
     PARAMS_DIR / "defects" / "VCM_HfO2_defects_config.yaml").to_dict()
 
 
-def _make_crystal(tmp_path: Path, defects_dict: dict) -> Crystal_Lattice:
-  """Uninitialized Crystal_Lattice carrying exactly the metadata attributes.
+def _make_crystal(tmp_path: Path, defects_dict: dict) -> KMCSimulator:
+  """Uninitialized KMCSimulator carrying exactly the metadata attributes.
 
   Skips __init__/physics (same pattern as tests/test_state_loader.py); the MP
   summary cache is pre-seeded so write_json never touches the network.
   """
-  crystal = Crystal_Lattice.__new__(Crystal_Lattice)
+  crystal = KMCSimulator.__new__(KMCSimulator)
   crystal.defects_config = defects_dict
   crystal.id_material = "mp-offline-test"
   crystal.rank = 0

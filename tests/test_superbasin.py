@@ -7,11 +7,11 @@ from the fix shows up as a diff here.
 
 Pinned API summary:
 
-* ``Superbasin(idx, System_state, E_min, sites_occupied)`` explores
+* ``Superbasin(idx, simulator, E_min, sites_occupied)`` explores
   migration events (``site_events`` are ``Event`` instances; migration events
   are those whose label is an int - the fixtures spell them as the rated
   ``(rate, dest, label, E_act)`` tuples ``FakeSite`` turns into Events) from
-  ``idx`` over ``System_state.grid_crystal``. States whose outgoing migrations
+  ``idx`` over ``simulator.grid_crystal``. States whose outgoing migrations
   are ALL above ``E_min`` are *absorbing*; states with at least one migration
   at or below ``E_min`` are *transient*.
 * Workflow: ``trans_absorbing_states`` -> ``transition_matrix`` ->
@@ -23,11 +23,11 @@ Pinned API summary:
   superbasin construction; the isolated-state case below is the closest
   edge and yields ``valid=False``.)
 * ``energy_step``/``time_step_limits`` are driver-level SuperbasinConfig
-  parameters consumed in ``crystal.py``, NOT constructor arguments here;
+  parameters consumed in ``simulator.py``, NOT constructor arguments here;
   the class internally derives ``epsilon_min_decrement=0.1`` and
   ``retry_limit=max(round(E_min/0.1), 2)``.
 
-System_state/site fakes implement only the attributes the class touches;
+simulator/site fakes implement only the attributes the class touches;
 ``processes`` records virtual-move calls instead of mutating physics.
 """
 
@@ -64,7 +64,7 @@ class FakeSite:
 
 
 class FakeSystemState:
-  """Minimal System_state with a process-call recorder (no physics)."""
+  """Minimal simulator with a process-call recorder (no physics)."""
 
   def __init__(self, grid_crystal, num_event=5, chemical_specie='VO', sites_occupied=()):
     self.grid_crystal = grid_crystal

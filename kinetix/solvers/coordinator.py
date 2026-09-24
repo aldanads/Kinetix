@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Field-solver orchestration for Kinetix.
 
-Phase 2 of the ``crystal.py`` split: everything that *orchestrates* the
+Phase 2 of the ``simulator.py`` split: everything that *orchestrates* the
 Poisson/Heat FEM solvers around the kMC system state lives here:
 
   * when to solve (``should_solve_fields_now`` / ``get_timestep_limit``),
@@ -12,9 +12,9 @@ Poisson/Heat FEM solvers around the kMC system state lives here:
 
 The FEM solvers themselves stay in this package (Linux/dolfinx-only);
 ``cli.py`` still constructs them and attaches them to the system state as
-``System_state._poisson_solver`` / ``System_state._heat_solver``. The
+``simulator._poisson_solver`` / ``simulator._heat_solver``. The
 coordinator reads them dynamically from the system, so the cli teardown
-(``del System_state._poisson_solver``) keeps working before pickling.
+(``del simulator._poisson_solver``) keeps working before pickling.
 
 All mutable state (``time``, ``last_field_solve_time``, ``V``) stays on the
 system — the coordinator holds no simulation state of its own.
@@ -27,23 +27,23 @@ import numpy as np
 from scipy import constants
 
 if TYPE_CHECKING:
-    from kinetix.lattice.crystal import Crystal_Lattice
+    from kinetix.lattice.simulator import KMCSimulator
 
 
 class SolverCoordinator:
     """Orchestrates Poisson/Heat field solving around the kMC system state.
 
-    Crystal_Lattice keeps thin delegates with the original method names so
+    KMCSimulator keeps thin delegates with the original method names so
     cli.py and the kMC-loop call sites are unchanged.
 
     Args:
-        system: The ``Crystal_Lattice``/``System_state`` whose fields are
+        simulator: The ``KMCSimulator``/``simulator`` whose fields are
             solved. All reads/writes of simulation state go through this
             reference; the coordinator itself is stateless.
     """
 
-    def __init__(self, system: Crystal_Lattice) -> None:
-        self.system = system
+    def __init__(self, simulator: KMCSimulator) -> None:
+        self.simulator = simulator
 
     # =========================================================================
     # Solver inputs
@@ -51,7 +51,7 @@ class SolverCoordinator:
 
     def save_electric_bias(self, V) -> None:
         """Record the applied bias V on the system (read by physics/scavenging)."""
-        self.system.V = V
+        self.simulator.V = V
 
     def get_evaluation_points(self):
         """Get evaluation points for electric field calculation.
@@ -68,7 +68,7 @@ class SolverCoordinator:
               evaluation [M, 3] in angstrom (particles + generation sites)
         """
         # === Step 1: Rank 0 computes, others prepare to receive ===
-        if self.system.rank == 0:
+        if self.simulator.rank == 0:
             particle_locations, charges = self._extract_particles_charges()
             gen_site_locations = self._extract_generation_site_location()
 
@@ -83,21 +83,21 @@ class SolverCoordinator:
             payload = None
 
         # === Step 2: Broadcast to all ranks ===
-        if self.system.mpi_ctx is not None:
-            payload = self.system.mpi_ctx.bcast(payload, root=0)
+        if self.simulator.mpi_ctx is not None:
+            payload = self.simulator.mpi_ctx.bcast(payload, root=0)
 
         # === Step 3: Unpack and return ===
         particle_locations, charges, evaluation_points = payload
         return particle_locations, charges, evaluation_points
 
     def _extract_particles_charges(self):
-        """Extract charge locations and magnitudes from System_state."""
+        """Extract charge locations and magnitudes from simulator."""
         particle_locations = []
         charges = []
 
-        for site in self.system.active_event_sites:
-            particle_locations.append(self.system.grid_crystal[site].position)
-            charges.append(self.system.grid_crystal[site].defect.charge * constants.e * self.system.screening_factor)
+        for site in self.simulator.active_event_sites:
+            particle_locations.append(self.simulator.grid_crystal[site].position)
+            charges.append(self.simulator.grid_crystal[site].defect.charge * constants.e * self.simulator.screening_factor)
 
         if len(particle_locations) == 0:
             particle_locations = np.empty((0, 3), dtype=np.float64)
@@ -109,11 +109,11 @@ class SolverCoordinator:
         return particle_locations, charges
 
     def _extract_generation_site_location(self):
-        """Extract generation site locations from System_state."""
+        """Extract generation site locations from simulator."""
         gen_site_locations = []
 
-        for site in self.system.generation_sites:
-            gen_site_locations.append(self.system.grid_crystal[site].position)
+        for site in self.simulator.generation_sites:
+            gen_site_locations.append(self.simulator.grid_crystal[site].position)
 
         if len(gen_site_locations) == 0:
             return np.empty((0, 3), dtype=np.float64)
@@ -132,10 +132,10 @@ class SolverCoordinator:
         """
         clusters = None
         # === Step 1: Rank 0 prepares clusters, others prepare to receive
-        if self.system.rank == 0:
-            clusters = self.system.clusters
+        if self.simulator.rank == 0:
+            clusters = self.simulator.clusters
             for cluster in clusters.values():
-                cluster.prepare_cluster_for_bcs(self.system.grid_crystal, self.system.crystal_size)
+                cluster.prepare_cluster_for_bcs(self.simulator.grid_crystal, self.simulator.crystal_size)
 
             # Package for broadcasting
             payload = clusters
@@ -143,8 +143,8 @@ class SolverCoordinator:
             payload = None
 
         # === Step 2: Broadcast to all ranks
-        if self.system.mpi_ctx is not None:
-            clusters = self.system.mpi_ctx.bcast(payload, root=0)
+        if self.simulator.mpi_ctx is not None:
+            clusters = self.simulator.mpi_ctx.bcast(payload, root=0)
 
         return clusters
 
@@ -159,38 +159,38 @@ class SolverCoordinator:
             tuple: (E_field_dict, T_field_dict) on rank 0, (None, None) on
             other ranks.
         """
-        if not (hasattr(self.system, '_poisson_solver') and self.system._poisson_solver is not None):
-            if self.system.rank == 0:
+        if not (hasattr(self.simulator, '_poisson_solver') and self.simulator._poisson_solver is not None):
+            if self.simulator.rank == 0:
                 return {}, {}
             else:
                 return None, None
 
         # Step 1: Rank 0 determines evaluation points
         evaluation_points = None
-        if self.system.rank == 0:
-            if self.system._fields_changed:
-                sites_to_update = set(self.system.active_event_sites) | set(self.system.generation_sites)
+        if self.simulator.rank == 0:
+            if self.simulator._fields_changed:
+                sites_to_update = set(self.simulator.active_event_sites) | set(self.simulator.generation_sites)
             else:
-                sites_to_update = self.system._dirty_sites
+                sites_to_update = self.simulator._dirty_sites
 
             if sites_to_update:
                 evaluation_points = np.array([
-                    self.system.grid_crystal[site_idx].position
+                    self.simulator.grid_crystal[site_idx].position
                     for site_idx in sites_to_update
                 ], dtype=np.float64)
             else:
                 evaluation_points = np.empty((0, 3), dtype=np.float64)
 
         # Step 2: Broadcast evaluation points to all ranks (skipped when mpi_ctx is None)
-        if self.system.mpi_ctx is not None:
-            evaluation_points = self.system.mpi_ctx.bcast(evaluation_points, root=0)
+        if self.simulator.mpi_ctx is not None:
+            evaluation_points = self.simulator.mpi_ctx.bcast(evaluation_points, root=0)
 
         # Step 3: All ranks participate in field evaluation
         if len(evaluation_points) > 0:
-            E_field_dict = self.system._poisson_solver.evaluate_electric_field_at_points(evaluation_points)
+            E_field_dict = self.simulator._poisson_solver.evaluate_electric_field_at_points(evaluation_points)
 
-            if hasattr(self.system, '_heat_solver') and self.system._heat_solver is not None:
-                T_field_dict = self.system._heat_solver.evaluate_temperature_at_points(evaluation_points)
+            if hasattr(self.simulator, '_heat_solver') and self.simulator._heat_solver is not None:
+                T_field_dict = self.simulator._heat_solver.evaluate_temperature_at_points(evaluation_points)
             else:
                 T_field_dict = {}
         else:
@@ -198,7 +198,7 @@ class SolverCoordinator:
             T_field_dict = {}
 
         # Step 4: Only rank 0 returns the results
-        if self.system.rank == 0:
+        if self.simulator.rank == 0:
             return E_field_dict, T_field_dict
         else:
             return None, None
@@ -209,16 +209,16 @@ class SolverCoordinator:
 
     def get_timestep_limit(self):
         """Calculate maximum timestep based on next Poisson solve time."""
-        next_field_time = self.system.last_field_solve_time + self.system.timestep_limits
-        timestep_limit = next_field_time - self.system.time
+        next_field_time = self.simulator.last_field_solve_time + self.simulator.timestep_limits
+        timestep_limit = next_field_time - self.simulator.time
 
-        tolerance = 1.e-12 * self.system.timestep_limits
+        tolerance = 1.e-12 * self.simulator.timestep_limits
 
         if timestep_limit < tolerance:
-            self.system.time = next_field_time
+            self.simulator.time = next_field_time
             timestep_limit = 0.0
 
-        return next_field_time - self.system.time
+        return next_field_time - self.simulator.time
 
     def should_solve_fields_now(self, elec_controller, tol=1e-12):
         """Check if field solvers (Poisson, Heat) should be solved at current time.
@@ -234,20 +234,20 @@ class SolverCoordinator:
             tuple: ``(should_solve, is_snapshot)``.
         """
         # Initialize last_poisson_time if not set
-        if not hasattr(self.system, 'last_field_solve_time'):
-            self.system.last_field_solve_time = -float('inf')
+        if not hasattr(self.simulator, 'last_field_solve_time'):
+            self.simulator.last_field_solve_time = -float('inf')
 
         # Calculate next scheduled solve time
-        next_solve_time = self.system.last_field_solve_time + elec_controller.voltage_update_time
+        next_solve_time = self.simulator.last_field_solve_time + elec_controller.voltage_update_time
 
         # Check if current time has reached next solve time
-        if self.system.time >= next_solve_time - tol:
+        if self.simulator.time >= next_solve_time - tol:
             # Update last_poisson_time for next iteration
-            if self.system.last_field_solve_time == -float('inf'):
-                self.system.last_field_solve_time = self.system.time
+            if self.simulator.last_field_solve_time == -float('inf'):
+                self.simulator.last_field_solve_time = self.simulator.time
             else:
-                self.system.last_field_solve_time = next_solve_time
-                self.system.time = next_solve_time
+                self.simulator.last_field_solve_time = next_solve_time
+                self.simulator.time = next_solve_time
 
             return True, True  # should_solve=True, is_snapshot=True
         return False, False  # should_solve=False, is_snapshot=False

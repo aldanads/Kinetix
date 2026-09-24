@@ -54,7 +54,7 @@ class Site():
             position (tuple): Cartesian coordinates (x, y, z)
             site_type (str, optional): Permanent identity ('O', 'Hf', 'interstitial', 'fcc_hollow')
             Act_E_dict (dict, optional): Activation energies for this site
-            idx (tuple, optional): Grid index key; set by Crystal_Lattice at
+            idx (tuple, optional): Grid index key; set by KMCSimulator at
                 construction (None for stand-alone sites)
         """
         # Core properties. chemical_specie is defect-carried state (Phase 3):
@@ -63,7 +63,7 @@ class Site():
         self.position = position
         self.site_type = site_type if site_type is not None else chemical_specie
 
-        # Grid index (set by Crystal_Lattice at construction; None until then)
+        # Grid index (set by KMCSimulator at construction; None until then)
         self.idx = idx
         
         # Neighbor information
@@ -1074,11 +1074,11 @@ class Site():
                 del self.defect.events[i]
                 break
             
-    def detect_planes_test(self,System_state):
+    def detect_planes_test(self,simulator):
         
-        atom_coordinates = np.array([System_state.grid_crystal[idx].position for idx in self.supp_by if idx != self.sites_generation_layer])
+        atom_coordinates = np.array([simulator.grid_crystal[idx].position for idx in self.supp_by if idx != self.sites_generation_layer])
 
-        self.miller_index = System_state.structure.lattice.get_miller_index_from_coords(atom_coordinates, coords_are_cartesian=True, round_dp=0, verbose=True)
+        self.miller_index = simulator.structure.lattice.get_miller_index_from_coords(atom_coordinates, coords_are_cartesian=True, round_dp=0, verbose=True)
                 
         return self.miller_index
     

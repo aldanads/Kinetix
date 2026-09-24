@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """kMC event execution for Kinetix.
 
-Phase 3 of the ``crystal.py`` split: everything that *applies* a chosen kMC
+Phase 3 of the ``simulator.py`` split: everything that *applies* a chosen kMC
 event to the lattice lives here:
 
   * dispatch (``processes``) and the per-event handlers
@@ -17,13 +17,13 @@ event to the lattice lives here:
     ``_update_rates_lazily``).
 
 The handler is stateless: every read/write of simulation state goes through
-``self.system`` (the ``Crystal_Lattice``/``System_state``), so MPI rank
+``self.simulator`` (the ``KMCSimulator``/``simulator``), so MPI rank
 ownership, pickles and the golden trace all observe the pre-split state.
 ``_is_active_site`` stays on the system (lattice construction uses it too) and
-is called as ``self.system._is_active_site(...)``.
+is called as ``self.simulator._is_active_site(...)``.
 
-``Crystal_Lattice`` keeps thin delegates for the names used outside this
-module: ``processes`` (superbasin.py calls ``System_state.processes``),
+``KMCSimulator`` keeps thin delegates for the names used outside this
+module: ``processes`` (superbasin.py calls ``simulator.processes``),
 ``update_sites_topology`` and ``_introduce_specie_site`` (state_loader.py and
 the deposition paths), ``_update_rates_lazily`` (the kMC loop, the golden trace
 and the kMC-loop tests) and ``_get_mobile_sites`` (lattice initialisation).
@@ -38,20 +38,20 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 if TYPE_CHECKING:
-    from kinetix.lattice.crystal import Crystal_Lattice
+    from kinetix.lattice.simulator import KMCSimulator
 
 
 class EventHandler:
     """Applies kMC events and refreshes the affected lattice state.
 
     Args:
-        system: The ``Crystal_Lattice``/``System_state`` that owns the lattice.
+        simulator: The ``KMCSimulator``/``simulator`` that owns the lattice.
             All reads/writes of simulation state go through this reference;
             the handler itself holds no simulation state.
     """
 
-    def __init__(self, system: Crystal_Lattice) -> None:
-        self.system = system
+    def __init__(self, simulator: KMCSimulator) -> None:
+        self.simulator = simulator
 
     # =========================================================================
     # Event dispatch
@@ -82,7 +82,7 @@ class EventHandler:
             sites_needing_support_update,
             sites_needing_event_update
           )
-        elif any(chosen_event[2] == reaction['name'] for reaction in self.system.reactions_config.values()):
+        elif any(chosen_event[2] == reaction['name'] for reaction in self.simulator.reactions_config.values()):
 
           self._handle_reaction_event(
             chosen_event,
@@ -94,9 +94,9 @@ class EventHandler:
         all_affected_sites = (
           sites_needing_support_update |
           sites_needing_event_update |
-          set(self.system.generation_sites)
+          set(self.simulator.generation_sites)
         )
-        self.system._dirty_sites.update(all_affected_sites)
+        self.simulator._dirty_sites.update(all_affected_sites)
 
 
     # =========================================================================
@@ -107,23 +107,23 @@ class EventHandler:
         """Handle migration events with object-transfer semantics."""
         source_idx = chosen_event[-1]
         dest_idx = chosen_event[1]
-        dest_site = self.system.grid_crystal[dest_idx]
-        source_site = self.system.grid_crystal[source_idx]
+        dest_site = self.simulator.grid_crystal[dest_idx]
+        source_site = self.simulator.grid_crystal[source_idx]
 
         # Check for removal at electrode
-        if (self.system.allow_specie_removal and dest_site.is_at_top_interface):
+        if (self.simulator.allow_specie_removal and dest_site.is_at_top_interface):
             should_scavenge, use_mass_conservation = self._should_scavenge(source_site)
 
             if should_scavenge:
               if use_mass_conservation:
                 defect_name = source_site._get_current_defect_name()
-                self.system.scavenged_ions[defect_name] = self.system.scavenged_ions.get(defect_name,0) + 1
+                self.simulator.scavenged_ions[defect_name] = self.simulator.scavenged_ions.get(defect_name,0) + 1
 
               self._remove_species_at_site(source_idx, support_update_sites,
                                            event_update_sites)
 
-              if self.system.poisson_config is not None and self.system.poisson_config.solve_Poisson:
-                event_update_sites.update(self._get_mobile_sites(self.system.active_event_sites))
+              if self.simulator.poisson_config is not None and self.simulator.poisson_config.solve_Poisson:
+                event_update_sites.update(self._get_mobile_sites(self.simulator.active_event_sites))
               return
 
         # Get source defect and resolve config
@@ -147,13 +147,13 @@ class EventHandler:
                                      event_update_sites)
 
         # Update Poisson-relevant sites
-        if self.system.poisson_config is not None and self.system.poisson_config.solve_Poisson:
-          event_update_sites.update(self._get_mobile_sites(self.system.active_event_sites))
+        if self.simulator.poisson_config is not None and self.simulator.poisson_config.solve_Poisson:
+          event_update_sites.update(self._get_mobile_sites(self.simulator.active_event_sites))
 
         # Handle cluster updates for neutral metal atoms
-        if chemical_specie in self.system.METAL_SPECIES and migrating_charge == 0:
-          self.system._remove_metal_atom_from_clusters(source_idx)
-          self.system._add_metal_atom_to_clusters(dest_idx)
+        if chemical_specie in self.simulator.METAL_SPECIES and migrating_charge == 0:
+          self.simulator._remove_metal_atom_from_clusters(source_idx)
+          self.simulator._add_metal_atom_to_clusters(dest_idx)
 
     def _should_scavenge(self, site) -> tuple[bool, bool]:
         """
@@ -170,11 +170,11 @@ class EventHandler:
             - use_mass_conservation: True if the scavenged count should be tracked
         """
         defect_name = site._get_current_defect_name()
-        if defect_name not in self.system.defects_config:
+        if defect_name not in self.simulator.defects_config:
           return False, False
 
         # If the key doesn't exist of is False, no scavenging
-        scavenging_cfg = self.system.defects_config[defect_name].get('electrode_scavenging')
+        scavenging_cfg = self.simulator.defects_config[defect_name].get('electrode_scavenging')
         if not scavenging_cfg:
           return False, False
 
@@ -187,51 +187,51 @@ class EventHandler:
           use_mass_conservation = False
 
         # Electrostatic driving force
-        should_scavenge = (site.defect.charge * self.system.V) < 0
+        should_scavenge = (site.defect.charge * self.simulator.V) < 0
 
         return should_scavenge, use_mass_conservation
 
     def _handle_generation_event(self, chosen_event, support_update_sites, event_update_sites) -> None:
         """ Handle defect generation events """
         dest_idx = chosen_event[1]
-        dest_site = self.system.grid_crystal[dest_idx]
+        dest_site = self.simulator.grid_crystal[dest_idx]
         defect_name = dest_site._get_current_defect_name()
-        chemical_specie = self.system.defects_config[defect_name]['symbol']
+        chemical_specie = self.simulator.defects_config[defect_name]['symbol']
 
 
         # Apply GB charge state modification
-        dest_pos = self.system.grid_crystal[dest_idx].position
+        dest_pos = self.simulator.grid_crystal[dest_idx].position
         gb_charge = self._get_gb_charge_state(defect_name, dest_pos, event_type='generation')
 
         if gb_charge is not None:
           generated_charge = gb_charge
         else:
-          generated_charge = self.system.defects_config[defect_name]['charge']
+          generated_charge = self.simulator.defects_config[defect_name]['charge']
 
-        electrode_scavenging = self.system.defects_config[defect_name].get('electrode_scavenging')
+        electrode_scavenging = self.simulator.defects_config[defect_name].get('electrode_scavenging')
         if electrode_scavenging:
           if electrode_scavenging.get('mass_conservation'):
-            self.system.scavenged_ions[defect_name] -= 1
+            self.simulator.scavenged_ions[defect_name] -= 1
 
         self._introduce_specie_site(dest_idx, support_update_sites, event_update_sites, chemical_specie, generated_charge)
 
     def _handle_redox_event(self, chosen_event, support_update_sites, event_update_sites) -> None:
         """Handle redox events with multi-species support."""
         site_idx = chosen_event[1]
-        site = self.system.grid_crystal[site_idx]
+        site = self.simulator.grid_crystal[site_idx]
 
         if chosen_event[2] == 'reduction':
           site.defect.charge -= 1
           event_update_sites.add(site_idx)
-          self.system._add_metal_atom_to_clusters(site_idx)
+          self.simulator._add_metal_atom_to_clusters(site_idx)
 
         elif chosen_event[2] == 'oxidation':
-          if site.is_at_top_interface and self.system.V < 0:
+          if site.is_at_top_interface and self.simulator.V < 0:
             self._remove_species_at_site(site_idx, support_update_sites, event_update_sites)
           else:
             site.defect.charge += 1
             event_update_sites.add(site_idx)
-          self.system._remove_metal_atom_from_clusters(site_idx)
+          self.simulator._remove_metal_atom_from_clusters(site_idx)
 
     def _handle_reaction_event(self, chosen_event, support_update_sites, event_update_sites) -> None:
         """
@@ -244,7 +244,7 @@ class EventHandler:
         sites_involved = [source_idx,dest_idx]
 
         # Reaction definitions
-        for reaction_name, reaction in self.system.reactions_config.items():
+        for reaction_name, reaction in self.simulator.reactions_config.items():
           if reaction['name'] == reaction_name_chosen:
             products = reaction['products']
 
@@ -257,7 +257,7 @@ class EventHandler:
           if site_index == 'neighbor':
             # Spawn product in a random empty neighbor
             # Useful for depassivation where H escapes to void
-            origin_site = self.system.grid_crystal[source_idx]
+            origin_site = self.simulator.grid_crystal[source_idx]
             target_idx = self._find_empty_neighbor(origin_site,product)
             if target_idx is None:
               # This should never happen if registration logic is correct.
@@ -267,7 +267,7 @@ class EventHandler:
           else:
             target_idx = sites_involved[site_index]
 
-          site = self.system.grid_crystal[target_idx]
+          site = self.simulator.grid_crystal[target_idx]
 
           if product['symbol'] != 'Empty':
             defect = self._defect_by_name(product['symbol'])
@@ -312,7 +312,7 @@ class EventHandler:
 
     def _defect_by_name(self, symbol) -> dict | None:
 
-        for defect in self.system.defects_config.values():
+        for defect in self.simulator.defects_config.values():
           if defect['symbol'] == symbol:
             return defect
 
@@ -332,7 +332,7 @@ class EventHandler:
 
         # 1. Collect all valid empty interstitial neighbors
         for neighbor_idx in site.nearest_neighbors_idx:
-          neighbor = self.system.grid_crystal[neighbor_idx]
+          neighbor = self.simulator.grid_crystal[neighbor_idx]
           if neighbor.site_type == product['sublattice'] and neighbor.defect.chemical_specie in defect["valid_target_species"]:
             empty_neighbors.append(neighbor_idx)
 
@@ -341,15 +341,15 @@ class EventHandler:
           return None
 
         # 3. Randomly select one neighbor (equal probability)
-        return tuple(self.system.rng.choice(empty_neighbors))
+        return tuple(self.simulator.rng.choice(empty_neighbors))
 
     def _is_at_top_electrode(self, site_idx) -> bool:
         """ Check if site is at top electrode """
-        return self.system.grid_crystal[site_idx].is_at_bottom_interface
+        return self.simulator.grid_crystal[site_idx].is_at_bottom_interface
 
     def _get_mobile_sites(self, site_indices) -> list:
         """Filter only sites that can have mobile defects"""
-        return [idx for idx in site_indices if self.system._is_active_site(self.system.grid_crystal[idx].site_type)]
+        return [idx for idx in site_indices if self.simulator._is_active_site(self.simulator.grid_crystal[idx].site_type)]
 
     def _get_gb_charge_state(self, defect_name, site_position, event_type='migration') -> int | None:
         """
@@ -370,10 +370,10 @@ class EventHandler:
         """
         # Default: no GB modification
 
-        if not self.system.gb_model:
+        if not self.simulator.gb_model:
           return None
 
-        gb_config = self.system.gb_model.gb_configurations[0]
+        gb_config = self.simulator.gb_model.gb_configurations[0]
         event_entries = gb_config['event_modifications'].get(event_type)
         if event_entries is None:
           return None
@@ -394,7 +394,7 @@ class EventHandler:
             return None # Affected by GB but has no charge modifications
 
           # Get site region and return charge state
-          site_gb_region = self.system.gb_model.get_site_gb_region(site_position)
+          site_gb_region = self.simulator.gb_model.get_site_gb_region(site_position)
           return charge_state.get(site_gb_region, None)
 
 
@@ -410,12 +410,12 @@ class EventHandler:
         charge, passivation_level and events), so no state is rebuilt. The
         dirty-site bookkeeping is identical to ``_introduce_specie_site``.
         """
-        self.system.grid_crystal[idx].install_defect(defect)
+        self.simulator.grid_crystal[idx].install_defect(defect)
         self._track_occupancy_update(idx, support_update_sites, event_update_sites)
 
     def _introduce_specie_site(self, idx, support_update_sites, event_update_sites, chemical_specie, ion_charge=None) -> None:
         """Introduce species at site and track affected sites."""
-        site = self.system.grid_crystal[idx]
+        site = self.simulator.grid_crystal[idx]
         site.introduce_specie(chemical_specie, ion_charge)
 
         self._track_occupancy_update(idx, support_update_sites, event_update_sites)
@@ -426,25 +426,25 @@ class EventHandler:
         Shared by ``_introduce_specie_site`` and ``_install_defect_site`` so
         both entry points produce bit-identical dirty-site sets.
         """
-        site = self.system.grid_crystal[idx]
+        site = self.simulator.grid_crystal[idx]
 
         # Track sites occupied
-        if idx not in self.system.active_event_sites:
-          self.system.active_event_sites.append(idx)
+        if idx not in self.simulator.active_event_sites:
+          self.simulator.active_event_sites.append(idx)
 
         event_update_sites.add(idx)
         support_update_sites.update(site.nearest_neighbors_idx)
         support_update_sites.add(idx)
         for affected_site_idx in support_update_sites:
-            affected_site = self.system.grid_crystal[affected_site_idx]
+            affected_site = self.simulator.grid_crystal[affected_site_idx]
             # Add sites that support the affected site
             for supporting_site_idx in affected_site.supp_by:
               if(isinstance(supporting_site_idx, tuple) and
-                 self.system.grid_crystal[supporting_site_idx].defect.chemical_specie != self.system.affected_site):
+                 self.simulator.grid_crystal[supporting_site_idx].defect.chemical_specie != self.simulator.affected_site):
                  event_update_sites.add(supporting_site_idx)
 
             # Add the affected site itself if occupied
-            if affected_site.defect.chemical_specie != self.system.affected_site:
+            if affected_site.defect.chemical_specie != self.simulator.affected_site:
                 event_update_sites.add(affected_site_idx)
 
     def _remove_species_at_site(self, idx, support_update_sites, event_update_sites) -> None:
@@ -454,11 +454,11 @@ class EventHandler:
         clear_defect() installs a fresh empty Defect, which resets charge,
         passivation_level and site_events in a single step.
         """
-        site = self.system.grid_crystal[idx]
-        site.remove_specie(self.system.affected_site)
+        site = self.simulator.grid_crystal[idx]
+        site.remove_specie(self.simulator.affected_site)
 
-        if idx in self.system.active_event_sites:
-          self.system.active_event_sites.remove(idx)
+        if idx in self.simulator.active_event_sites:
+          self.simulator.active_event_sites.remove(idx)
 
         event_update_sites.discard(idx)
         support_update_sites.update(site.nearest_neighbors_idx)
@@ -468,15 +468,15 @@ class EventHandler:
         # to the sites in update_supp_av --> It might change the available migrations
         # or the activation energy
         for affected_site_idx in support_update_sites:
-            affected_site = self.system.grid_crystal[affected_site_idx]
+            affected_site = self.simulator.grid_crystal[affected_site_idx]
 
             for supporting_site_idx in affected_site.supp_by:
               if(isinstance(supporting_site_idx, tuple) and
-                   self.system.grid_crystal[supporting_site_idx].defect.chemical_specie != self.system.affected_site):
+                   self.simulator.grid_crystal[supporting_site_idx].defect.chemical_specie != self.simulator.affected_site):
                    event_update_sites.add(supporting_site_idx)
 
             # Add the affected site itself if occupied
-            if affected_site.defect.chemical_specie != self.system.affected_site:
+            if affected_site.defect.chemical_specie != self.simulator.affected_site:
                 event_update_sites.add(affected_site_idx)
 
 
@@ -493,25 +493,25 @@ class EventHandler:
             # There are new sites supported by the new species
             # For loop over neighbors
             for idx in reactive_support_sites:
-                self.system.grid_crystal[idx].supported_by(
-                  self.system.grid_crystal, self.system.wulff_facets, self.system.dir_edge_facets,
+                self.simulator.grid_crystal[idx].supported_by(
+                  self.simulator.grid_crystal, self.simulator.wulff_facets, self.simulator.dir_edge_facets,
                   idx
                 )
 
         # Update generation sites
-        #self.system.generation_sites = [] # Reset
-        for defect_name, defect in self.system.defects_config.items():
+        #self.simulator.generation_sites = [] # Reset
+        for defect_name, defect in self.simulator.defects_config.items():
           if 'generation' in defect['enabled_events']:
-            generation_sites = self.system.available_generation_sites(support_update_sites,defect_name, defect)
-            self.system.generation_sites.extend(generation_sites)
+            generation_sites = self.simulator.available_generation_sites(support_update_sites,defect_name, defect)
+            self.simulator.generation_sites.extend(generation_sites)
 
         # Update event pathways for mobile sites
         if event_update_sites:
             # Sites are not available because a particle has migrated there
             reactive_event_sites = self._get_mobile_sites(event_update_sites)
             for idx in reactive_event_sites:
-                self.system.grid_crystal[idx].available_pathways(
-                  self.system.grid_crystal,idx,self.system.facets_type
+                self.simulator.grid_crystal[idx].available_pathways(
+                  self.simulator.grid_crystal,idx,self.simulator.facets_type
                 )
 
     def _update_rates_lazily(self, E_field_dict, T_field_dict) -> None:
@@ -533,15 +533,15 @@ class EventHandler:
             If None, ambient temperature is used.
         """
         # === Only rank 0 needs to update transition rates (runs kMC) ===
-        if self.system.rank != 0:
+        if self.simulator.rank != 0:
           return
 
-        if self.system._fields_changed:
+        if self.simulator._fields_changed:
           # All active + generation sites need update
-          sites_to_update = set(self.system.active_event_sites) | set(self.system.generation_sites)
-          self.system._fields_changed = False
+          sites_to_update = set(self.simulator.active_event_sites) | set(self.simulator.generation_sites)
+          self.simulator._fields_changed = False
         else:
-          sites_to_update = self.system._dirty_sites
+          sites_to_update = self.simulator._dirty_sites
 
         if not sites_to_update:
          return  # Nothing to update
@@ -550,19 +550,19 @@ class EventHandler:
         # === Update transitions rates for all relevant sites ===
         for site_idx in sites_to_update:
           # Create lookup keys from site position
-          pos_key = tuple(np.round(self.system.grid_crystal[site_idx].position, 6))
+          pos_key = tuple(np.round(self.simulator.grid_crystal[site_idx].position, 6))
 
           # Get electric field (default: zero vector)
           E_site = E_field_dict.get(pos_key, np.array([0.0, 0.0, 0.0]))
 
           # Get temperature (default: ambient)
-          T_site = T_field_dict.get(pos_key, self.system.temperature)
+          T_site = T_field_dict.get(pos_key, self.simulator.temperature)
 
-          self.system.grid_crystal[site_idx].transition_rates(
+          self.simulator.grid_crystal[site_idx].transition_rates(
               E_site_field=E_site,
               T=T_site,
-              migration_pathways = self.system.migration_pathways,
-              clusters = self.system.clusters,
-              atom_to_cluster = self.system.atom_to_cluster
+              migration_pathways = self.simulator.migration_pathways,
+              clusters = self.simulator.clusters,
+              atom_to_cluster = self.simulator.atom_to_cluster
             )
-        self.system._dirty_sites.clear()
+        self.simulator._dirty_sites.clear()

@@ -1,17 +1,17 @@
 # tests/test_cluster_island.py
 """
 Behavioral spec for morphology detection: metal clusters (kinetix/lattice/cluster.py,
-Crystal_Lattice._dfs_find_components in crystal.py) and islands/terraces
-(kinetix/lattice/island.py, Crystal_Lattice.detect_islands/build_island/islands_analysis).
+KMCSimulator._dfs_find_components in simulator.py) and islands/terraces
+(kinetix/lattice/island.py, KMCSimulator.detect_islands/build_island/islands_analysis).
 
-These algorithms will move during the crystal.py split, so they are pinned here
+These algorithms will move during the simulator.py split, so they are pinned here
 using small mock grids with known connectivity (tuple site indices, explicit
 nearest_neighbors_idx / supp_by / migration_paths).
 
-The surviving Crystal_Lattice graph-traversal methods (_dfs_find_components,
+The surviving KMCSimulator graph-traversal methods (_dfs_find_components,
 detect_islands, build_island, islands_analysis) only touch ``self.grid_crystal``
 plus a handful of scalar attributes, so they are exercised through unbound calls
-on a lightweight stand-in object - no Crystal_Lattice constructor, no physics.
+on a lightweight stand-in object - no KMCSimulator constructor, no physics.
 
 PRODUCTION QUIRKS (documented):
   1. Cluster.update_electrode_contact uses if 'bottom_layer' in supp_by / elif
@@ -21,10 +21,10 @@ PRODUCTION QUIRKS (documented):
   3. island.py::_build_cluster_with_slices evaluates self.slice_list[i+1] and
      [i+2] while scanning for the merge layer -> IndexError when a single-slice
      layer sits within the last two layers (instead of falling through to the
-     System_state.layers fallback).
+     simulator.layers fallback).
 
 REMOVED TEST SUITES: TestDfsExplore and TestMetalClustersAnalysis were deleted
-because Crystal_Lattice._dfs_explore and Crystal_Lattice.metal_clusters_analysis
+because KMCSimulator._dfs_explore and KMCSimulator.metal_clusters_analysis
 were removed as dead code in commit 8630510 ("fix bugs in cluster logic"); the
 tests exercised only the deleted methods and failed with AttributeError.
 """
@@ -36,7 +36,7 @@ from types import SimpleNamespace
 import pytest
 
 from kinetix.lattice.cluster import Cluster
-from kinetix.lattice.crystal import Crystal_Lattice
+from kinetix.lattice.simulator import KMCSimulator
 from kinetix.lattice.island import Island
 
 
@@ -105,18 +105,18 @@ def make_grid_5x5(occupied, base_specie="Ag", empty_specie="Empty", periodic=Fal
 
 
 def call(method, fake_self, *args, **kwargs):
-    """Call a Crystal_Lattice method through a stand-in self (unbound call)."""
+    """Call a KMCSimulator method through a stand-in self (unbound call)."""
     return method(fake_self, *args, **kwargs)
 
 
 def make_lattice(grid):
-    """A Crystal_Lattice without __init__ (no grid rebuild, no physics).
+    """A KMCSimulator without __init__ (no grid rebuild, no physics).
 
     Using a real instance (rather than SimpleNamespace) matters for the
     recursive traversals - detect_islands re-enters itself through
-    ``self.detect_islands``, which only resolves on a Crystal_Lattice instance.
+    ``self.detect_islands``, which only resolves on a KMCSimulator instance.
     """
-    lattice = Crystal_Lattice.__new__(Crystal_Lattice)
+    lattice = KMCSimulator.__new__(KMCSimulator)
     lattice.grid_crystal = grid
     return lattice
 
@@ -136,7 +136,7 @@ class TestDfsFindComponents:
     def test_connected_sites_form_one_component(self):
         grid, atoms = self._grid()
         components = call(
-            Crystal_Lattice._dfs_find_components, SimpleNamespace(), atoms, grid
+            KMCSimulator._dfs_find_components, SimpleNamespace(), atoms, grid
         )
         # Two components: the L-trimer and the isolated 'd'.
         assert len(components) == 2
@@ -145,14 +145,14 @@ class TestDfsFindComponents:
     def test_isolated_site_is_its_own_component(self):
         grid, atoms = self._grid()
         components = call(
-            Crystal_Lattice._dfs_find_components, SimpleNamespace(), atoms, grid
+            KMCSimulator._dfs_find_components, SimpleNamespace(), atoms, grid
         )
         assert ["d"] in components
 
     def test_cluster_size_distribution(self):
         grid, atoms = self._grid()
         components = call(
-            Crystal_Lattice._dfs_find_components, SimpleNamespace(), atoms, grid
+            KMCSimulator._dfs_find_components, SimpleNamespace(), atoms, grid
         )
         assert Counter(len(c) for c in components) == Counter({3: 1, 1: 1})
 
@@ -167,13 +167,13 @@ class TestDfsFindComponents:
             "c": make_site(position=(2, 0, 0), neighbors=["b"]),
         }
         components = call(
-            Crystal_Lattice._dfs_find_components, SimpleNamespace(), ["a", "b", "c"], grid
+            KMCSimulator._dfs_find_components, SimpleNamespace(), ["a", "b", "c"], grid
         )
         assert sorted(map(sorted, components)) == [["a"], ["b", "c"]]
 
     def test_empty_atom_list(self):
         components = call(
-            Crystal_Lattice._dfs_find_components, SimpleNamespace(), [], {}
+            KMCSimulator._dfs_find_components, SimpleNamespace(), [], {}
         )
         assert components == []
 
@@ -184,7 +184,7 @@ class TestDfsFindComponents:
         atoms = [c for c, s in grid.items() if s.defect.chemical_specie == "Ag"]
         assert atoms == [(0, 0)]
         components = call(
-            Crystal_Lattice._dfs_find_components, SimpleNamespace(), atoms, grid
+            KMCSimulator._dfs_find_components, SimpleNamespace(), atoms, grid
         )
         assert components == [[(0, 0)]]
 
@@ -194,7 +194,7 @@ class TestDfsFindComponents:
         grid = make_grid_5x5(occupied=[(1, 1), (1, 2), (2, 1)])
         atoms = [c for c, s in grid.items() if s.defect.chemical_specie == "Ag"]
         components = call(
-            Crystal_Lattice._dfs_find_components, SimpleNamespace(), atoms, grid
+            KMCSimulator._dfs_find_components, SimpleNamespace(), atoms, grid
         )
         assert len(components) == 1
         assert set(components[0]) == {(1, 1), (1, 2), (2, 1)}
@@ -204,7 +204,7 @@ class TestDfsFindComponents:
         grid = make_grid_5x5(occupied=[(0, 0), (4, 0)], periodic=True)
         atoms = [c for c, s in grid.items() if s.defect.chemical_specie == "Ag"]
         components = call(
-            Crystal_Lattice._dfs_find_components, SimpleNamespace(), atoms, grid
+            KMCSimulator._dfs_find_components, SimpleNamespace(), atoms, grid
         )
         assert len(components) == 1 and len(components[0]) == 2
 
@@ -437,7 +437,7 @@ class TestClusterResistance:
 
 
 # =============================================================================
-# Island detection - Crystal_Lattice.detect_islands (unbound call)
+# Island detection - KMCSimulator.detect_islands (unbound call)
 # =============================================================================
 
 class TestDetectIslands:
@@ -450,7 +450,7 @@ class TestDetectIslands:
         """The 3-site L cluster from the task example is one island slice."""
         grid = self._grid()
         visited, island_slice = call(
-            Crystal_Lattice.detect_islands,
+            KMCSimulator.detect_islands,
             make_lattice(grid),
             (1, 1), set(), set(), "Ag",
         )
@@ -461,7 +461,7 @@ class TestDetectIslands:
         """An 'Empty' start site never yields an 'Ag' island."""
         grid = self._grid()
         visited, island_slice = call(
-            Crystal_Lattice.detect_islands,
+            KMCSimulator.detect_islands,
             make_lattice(grid),
             (0, 0), set(), set(), "Ag",
         )
@@ -471,7 +471,7 @@ class TestDetectIslands:
         """The complement (22 Empty sites) is a single connected island."""
         grid = self._grid()
         visited, island_slice = call(
-            Crystal_Lattice.detect_islands,
+            KMCSimulator.detect_islands,
             make_lattice(grid),
             (0, 0), set(), set(), "Empty",
         )
@@ -482,7 +482,7 @@ class TestDetectIslands:
         """A start site that is already visited is not re-added."""
         grid = self._grid()
         visited, island_slice = call(
-            Crystal_Lattice.detect_islands,
+            KMCSimulator.detect_islands,
             make_lattice(grid),
             (1, 1), {(1, 1)}, set(), "Ag",
         )
@@ -491,7 +491,7 @@ class TestDetectIslands:
 
 
 # =============================================================================
-# Island building - Crystal_Lattice.build_island (unbound call)
+# Island building - KMCSimulator.build_island (unbound call)
 # =============================================================================
 
 class TestBuildIsland:
@@ -507,7 +507,7 @@ class TestBuildIsland:
     def test_vertical_and_plane_links_merge_into_one_island(self):
         grid = self._vertical_chain_grid()
         visited, island_sites = call(
-            Crystal_Lattice.build_island,
+            KMCSimulator.build_island,
             make_lattice(grid),
             set(), set(), "a", "Ag",
         )
@@ -518,7 +518,7 @@ class TestBuildIsland:
         """A differently-specied site above is not absorbed."""
         grid = self._vertical_chain_grid(top_specie="O")
         visited, island_sites = call(
-            Crystal_Lattice.build_island,
+            KMCSimulator.build_island,
             make_lattice(grid),
             set(), set(), "a", "Ag",
         )
@@ -533,7 +533,7 @@ class TestBuildIsland:
             "c": make_site(position=(0, 0, 2), specie="Ag", down=["b", "d"]),
         }
         visited, island_sites = call(
-            Crystal_Lattice.build_island,
+            KMCSimulator.build_island,
             make_lattice(grid),
             set(), set(), "a", "Ag",
         )
@@ -626,7 +626,7 @@ class TestMorphologyEdgeCases:
         atoms = [c for c, s in grid.items() if s.defect.chemical_specie == "Ag"]
         assert len(atoms) == 25
         components = call(
-            Crystal_Lattice._dfs_find_components, SimpleNamespace(), atoms, grid
+            KMCSimulator._dfs_find_components, SimpleNamespace(), atoms, grid
         )
         assert len(components) == 1
         assert len(components[0]) == 25
@@ -635,7 +635,7 @@ class TestMorphologyEdgeCases:
         grid = make_grid_5x5(occupied=[])
         atoms = [c for c, s in grid.items() if s.defect.chemical_specie == "Ag"]
         components = call(
-            Crystal_Lattice._dfs_find_components, SimpleNamespace(), atoms, grid
+            KMCSimulator._dfs_find_components, SimpleNamespace(), atoms, grid
         )
         assert atoms == []
         assert components == []

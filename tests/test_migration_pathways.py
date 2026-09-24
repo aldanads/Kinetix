@@ -17,12 +17,12 @@ from pathlib import Path
 from kinetix.lattice.defect import make_empty_defect
 
 # =============================================================================
-# Helper: Minimal mock for Crystal_Lattice methods under test
+# Helper: Minimal mock for KMCSimulator methods under test
 # =============================================================================
 
 class MinimalLattice:
     """
-    Lightweight stand-in for Crystal_Lattice that provides only the
+    Lightweight stand-in for KMCSimulator that provides only the
     attributes needed by _minimum_image_vector, _get_neighbors_for_site,
     and _generate_periodic_images.
     """
@@ -34,7 +34,7 @@ class MinimalLattice:
         self._kdtree_positions = None
         self._kdtree_indices = None
         
-    # --- Methods under test (copied from Crystal_Lattice) ---
+    # --- Methods under test (copied from KMCSimulator) ---
 
     def _minimum_image_vector(self, vec):
         vec = np.array(vec, dtype=float)

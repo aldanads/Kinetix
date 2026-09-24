@@ -34,10 +34,10 @@ def _transition_record(event, origin_idx):
 
 class Superbasin():
     
-    def __init__(self,idx, System_state,E_min,sites_occupied):
+    def __init__(self,idx, simulator,E_min,sites_occupied):
         
-        original_allow_specie_removal = System_state.allow_specie_removal 
-        System_state.allow_specie_removal = False  # disable during virtual moves
+        original_allow_specie_removal = simulator.allow_specie_removal 
+        simulator.allow_specie_removal = False  # disable during virtual moves
         
         try:
           self.particle_idx = idx
@@ -46,7 +46,7 @@ class Superbasin():
           self.retry_limit = max(round(E_min / self.epsilon_min_decrement),2)  # Maximum retry attempts
   
           # Core workflow
-          self.trans_absorbing_states(idx,System_state,sites_occupied)
+          self.trans_absorbing_states(idx,simulator,sites_occupied)
   
           if not self.absorbing_states or not self.transient_states:
               self.valid = False  # Mark the object as invalid
@@ -61,19 +61,19 @@ class Superbasin():
               self.valid = False  # Mark as invalid if poor conditioning is detected
               return
           
-          self.calculate_transition_rates_absorbing_states(System_state.num_event)
-          self.calculate_superbasin_environment(System_state.grid_crystal)
+          self.calculate_transition_rates_absorbing_states(simulator.num_event)
+          self.calculate_superbasin_environment(simulator.grid_crystal)
   
         finally:      
-          System_state.allow_specie_removal = original_allow_specie_removal
+          simulator.allow_specie_removal = original_allow_specie_removal
 
    
-    def trans_absorbing_states(self,start_idx,System_state,sites_occupied):
+    def trans_absorbing_states(self,start_idx,simulator,sites_occupied):
         
         stack = [start_idx]
         visited = set()
 
-        grid_crystal = System_state.grid_crystal
+        grid_crystal = simulator.grid_crystal
         self.absorbing_states = []
         self.transient_states_transitions = []
         self.absorbing_states_transitions = []
@@ -131,11 +131,11 @@ class Superbasin():
                 next_site = stack[-1]
                 # Perform a virtual move of the ion to `next_site` so that
                 # activation energies for its outgoing transitions are up to date.
-                System_state.processes((last_transition.rate, next_site, last_transition.label, idx))
+                simulator.processes((last_transition.rate, next_site, last_transition.label, idx))
               
         # Return to the original state
         if last_transition is not None and last_transition.is_migration:            
-            System_state.processes((last_transition.rate, start_idx, last_transition.label, idx)) 
+            simulator.processes((last_transition.rate, start_idx, last_transition.label, idx)) 
             
 
         # Construct the transitions to the absorbing states
@@ -154,7 +154,7 @@ class Superbasin():
         self.superbasin_idx = self.absorbing_states + self.transient_states 
         
         # Check that grid_crystal is in the original state
-        self.verify_grid_crystal(System_state,sites_occupied) 
+        self.verify_grid_crystal(simulator,sites_occupied) 
    
     def transition_matrix(self):
         
@@ -336,19 +336,19 @@ class Superbasin():
         self.superbasin_environment.discard('top_layer') 
 
     # Verify that we leave grid_crystal in the original state
-    def verify_grid_crystal(self,System_state,sites_occupied):       
+    def verify_grid_crystal(self,simulator,sites_occupied):       
         
         for site in sites_occupied:
             # It should be occupied, but it is not
-            if System_state.grid_crystal[site].defect.chemical_specie != System_state.chemical_specie:
+            if simulator.grid_crystal[site].defect.chemical_specie != simulator.chemical_specie:
                 # Select deposition event
-                # event = System_state.grid_crystal[site].defect.events[0]
+                # event = simulator.grid_crystal[site].defect.events[0]
                 # Remove the site from sites_occupied
-                # System_state.sites_occupied.remove(event.destination)
-                System_state.sites_occupied.remove(site)
+                # simulator.sites_occupied.remove(event.destination)
+                simulator.sites_occupied.remove(site)
                 # Introduce the particle
-                # System_state.processes((event.rate, event.destination, event.label, event.destination)) 
-                System_state.processes((0, site, System_state.num_event-1, site)) 
+                # simulator.processes((event.rate, event.destination, event.label, event.destination)) 
+                simulator.processes((0, site, simulator.num_event-1, site)) 
 
         
       

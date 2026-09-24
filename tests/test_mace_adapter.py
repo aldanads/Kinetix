@@ -241,15 +241,15 @@ def resolved_cache_dir(calculator_config):
 
 @pytest.fixture(scope="module")
 def system_state():
-    """KMC System_state built from the VCM mock preset (once per session)."""
+    """KMC simulator built from the VCM mock preset (once per session)."""
     sim_id = 0
     params = {
         "vo_initial_concentration": 1.0e-2,
         "temperature": 293.0,
         "h_generation": 0.45,
     }
-    System_state, *_ = initialization(sim_id, params, CONFIG_NAME)
-    return System_state
+    simulator, *_ = initialization(sim_id, params, CONFIG_NAME)
+    return simulator
 
 
 @pytest.fixture(scope="module")

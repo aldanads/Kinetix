@@ -26,7 +26,7 @@ Kinetix is a Python-based, open-source simulation framework (**MIT License**) th
 ---
 
 ## 🔄 Simulation Workflow
-Each simulation is driven by the command-line interface in [`kinetix/cli.py`](kinetix/cli.py), which calls `System_state.step_kmc()` ([`kinetix/lattice/crystal.py`](kinetix/lattice/crystal.py)) in the following loop:
+Each simulation is driven by the command-line interface in [`kinetix/cli.py`](kinetix/cli.py), which calls `simulator.step_kmc()` ([`kinetix/lattice/simulator.py`](kinetix/lattice/simulator.py)) in the following loop:
 
 1. **Lattice Generation:** Constructs the 3D atomic grid (lattice, interfaces, and grain boundaries) with `pymatgen`, generates interstitial sites using a Voronoi method, and builds the finite-element mesh with `gmsh`.
 2. **FEM Solvers:** Computes the electric potential (Poisson) and, when enabled, the temperature field (heat equation) for the current defect configuration and electrode potentials using DOLFINx/FEniCS.
@@ -357,7 +357,7 @@ Kinetix/
 │   ├── initialization.py        # Builds crystal, configs, solvers, output paths
 │   ├── material_fetcher.py      # Materials Project structure/property retrieval
 │   ├── configs/                 # Typed YAML loaders (simulation, defects, electrical, ...)
-│   ├── lattice/                 # Crystal_Lattice, Site, GrainBoundary, island, cluster
+│   ├── lattice/                 # KMCSimulator, Site, GrainBoundary, island, cluster
 │   ├── solvers/                 # FEM solvers: Poisson, heat, electrical (IV)
 │   ├── calculators/             # Pluggable activation-energy providers (MACE-NEB)
 │   └── utils/                   # mpi_context, balanced_tree, superbasin, analysis

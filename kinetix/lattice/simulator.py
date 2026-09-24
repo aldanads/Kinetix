@@ -65,7 +65,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-class Crystal_Lattice():
+class KMCSimulator():
     
     METAL_SPECIES = {'Ag', 'Cu', 'Pt', "Au", "Pd", "Ni"}
     
@@ -1022,7 +1022,7 @@ class Crystal_Lattice():
 
     # -------------------------------------------------------------------------
     # Delegates kept for callers outside this module: superbasin.py calls
-    # ``System_state.processes``; state_loader.py calls ``_introduce_specie_site``
+    # ``simulator.processes``; state_loader.py calls ``_introduce_specie_site``
     # / ``update_sites_topology``; the golden trace and the kMC-loop tests wrap
     # or call ``processes`` / ``_update_rates_lazily``; lattice construction
     # calls ``_get_mobile_sites``. ``_kmc_step`` calls ``self.processes(...)`` -
@@ -1934,3 +1934,7 @@ class Crystal_Lattice():
                 z.append(site.position[2])
                 
         return x,y,z
+
+
+# Backward compatibility for legacy pickled grids
+Crystal_Lattice = KMCSimulator

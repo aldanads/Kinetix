@@ -2,8 +2,8 @@
 """
 Behavioral spec for kinetix/lattice/lattice_builder.py (LatticeBuilder).
 
-Phase 5 of the crystal.py split: the 36 lattice-construction/initialization
-methods moved out of Crystal_Lattice; Crystal_Lattice keeps thin one-line
+Phase 5 of the simulator.py split: the 36 lattice-construction/initialization
+methods moved out of KMCSimulator; KMCSimulator keeps thin one-line
 delegates plus a lazy ``lattice_builder`` property, so initialization.py,
 cli.py, metadata.py and the golden trace are unchanged.
 
@@ -14,10 +14,10 @@ BEHAVIOR NOTES pinned below:
     builder's; callers rely on the defaults
   * LatticeBuilder is stateless: ``system`` is the only instance attribute;
     grid_crystal, structure, basis_vectors, coord_cache, the k-d tree and
-    rank/mpi_ctx are read/written through ``self.system``
-  * construction collaborators STAY on Crystal_Lattice and are reached as
-    ``self.system._is_active_site`` / ``self.system._minimum_image_vector``
-  * no module outside crystal.py references ``lattice_builder`` (delegate
+    rank/mpi_ctx are read/written through ``self.simulator``
+  * construction collaborators STAY on KMCSimulator and are reached as
+    ``self.simulator._is_active_site`` / ``self.simulator._minimum_image_vector``
+  * no module outside simulator.py references ``lattice_builder`` (delegate
     indirection intact)
   * INTEGRATION: the golden-trace lattice (built through the delegates with the
     production loaders) has the fixture's 3456 sites, populated neighbours and
@@ -43,7 +43,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from kinetix.lattice.crystal import Crystal_Lattice
+from kinetix.lattice.simulator import KMCSimulator
 from kinetix.lattice.lattice_builder import LatticeBuilder
 from tests.test_golden_trace import (
     FIXTURE_PATH,
@@ -145,10 +145,10 @@ def _lattice_digest(system):
 # =============================================================================
 
 def test_lattice_builder_instantiated_lazily_via_property(system):
-  """``Crystal_Lattice.lattice_builder`` builds and caches one builder."""
+  """``KMCSimulator.lattice_builder`` builds and caches one builder."""
   builder = system.lattice_builder
   assert isinstance(builder, LatticeBuilder)
-  assert builder.system is system
+  assert builder.simulator is system
   assert system.lattice_builder is builder       # cached on the instance
   assert system._lattice_builder is builder
 
@@ -156,17 +156,17 @@ def test_lattice_builder_instantiated_lazily_via_property(system):
 def test_lazy_property_uses_local_import():
   """The property must import LatticeBuilder lazily (no top-level cycle,
   Phase 5 pattern shared with ``solver_coordinator``/``kmc_loop``)."""
-  src = inspect.getsource(Crystal_Lattice.lattice_builder.fget)
+  src = inspect.getsource(KMCSimulator.lattice_builder.fget)
   assert "from kinetix.lattice.lattice_builder import LatticeBuilder" in src
   assert "hasattr(self, '_lattice_builder')" in src
 
 
 def test_delegates_are_thin_and_forward_to_builder():
-  """Every extracted method survives on Crystal_Lattice as a delegate only,
+  """Every extracted method survives on KMCSimulator as a delegate only,
   and the real body exists on LatticeBuilder."""
   assert len(DELEGATES) == 36 and len(set(DELEGATES)) == 36
   for name in DELEGATES:
-    src = inspect.getsource(getattr(Crystal_Lattice, name))
+    src = inspect.getsource(getattr(KMCSimulator, name))
     assert "self.lattice_builder." in src, name
     assert src.count("return") == 1, name
     assert src.count("\n") <= 3, name
@@ -178,7 +178,7 @@ def test_delegate_signatures_match_builder():
   """Parameter names AND defaults are identical to the builder's - external
   callers keep relying on the defaults (annotations are exempt)."""
   for name in DELEGATES:
-    assert _param_shape(getattr(Crystal_Lattice, name)) == \
+    assert _param_shape(getattr(KMCSimulator, name)) == \
         _param_shape(getattr(LatticeBuilder, name)), name
 
 
@@ -212,16 +212,16 @@ def test_bodies_live_on_builder_not_crystal():
   assert "coord_cache" in inspect.getsource(LatticeBuilder.get_idx_coords)
   assert "neighbors_analysis" in inspect.getsource(LatticeBuilder._process_batch_sites_worker)
   for name in DELEGATES:
-    src = inspect.getsource(getattr(Crystal_Lattice, name))
+    src = inspect.getsource(getattr(KMCSimulator, name))
     assert "Rodrigues" not in src, name
     assert "min_non_zero_element" not in src, name
     assert "coord_cache" not in src, name
 
 
 def test_builder_is_stateless(system):
-  """The builder holds ONLY the system reference (state stays on the system)."""
+  """The builder holds ONLY the simulator reference (state stays on it)."""
   builder = LatticeBuilder(system)
-  assert set(vars(builder)) == {"system"}
+  assert set(vars(builder)) == {"simulator"}
   for attr in ("grid_crystal", "structure", "structure_basic", "basis_vectors",
                "Act_E_dict", "defects_config", "coord_cache", "_kdtree",
                "_kdtree_indices", "radius_neighbors", "crystal_size", "cache_dir"):
@@ -243,19 +243,19 @@ def test_builder_module_has_no_runtime_crystal_import():
       runtime_imports
   guard = next(n for n in tree.body if isinstance(n, ast.If))
   assert "TYPE_CHECKING" in ast.unparse(guard.test)
-  assert "Crystal_Lattice" in ast.unparse(guard)
+  assert "KMCSimulator" in ast.unparse(guard)
 
 
 def test_collaborators_stay_on_crystal_and_are_reached_via_system():
   """``_is_active_site`` / ``_minimum_image_vector`` are NOT duplicated onto
   the builder - it calls them on the system."""
   for name in ("_is_active_site", "_minimum_image_vector"):
-    assert callable(getattr(Crystal_Lattice, name)), name
+    assert callable(getattr(KMCSimulator, name)), name
     assert not hasattr(LatticeBuilder, name), name
   mig = inspect.getsource(LatticeBuilder._initialize_migration_pathways)
-  assert "self.system._minimum_image_vector(" in mig
-  assert "self.system._is_active_site(" in mig
-  assert "self.system._is_active_site(" in inspect.getsource(LatticeBuilder.crystal_grid)
+  assert "self.simulator._minimum_image_vector(" in mig
+  assert "self.simulator._is_active_site(" in mig
+  assert "self.simulator._is_active_site(" in inspect.getsource(LatticeBuilder.crystal_grid)
 
 
 def test_no_mpi_logic_added_and_state_read_through_system(system):
@@ -265,8 +265,8 @@ def test_no_mpi_logic_added_and_state_read_through_system(system):
   src = inspect.getsource(mod)
   assert "mpi4py" not in src
   assert "self.rank" not in src and "self.mpi_ctx" not in src   # routed
-  assert "self.system.rank" in src            # guards, moved verbatim
-  assert "self.system.mpi_ctx.bcast" in src   # structure broadcast
+  assert "self.simulator.rank" in src            # guards, moved verbatim
+  assert "self.simulator.mpi_ctx.bcast" in src   # structure broadcast
   assert "gather" not in src and "scatter" not in src
   # serial construction is the documented default (initialization.py):
   # mpi_ctx=None => every guard is trivially rank 0, the bcast is skipped
@@ -274,12 +274,12 @@ def test_no_mpi_logic_added_and_state_read_through_system(system):
 
 
 def test_only_crystal_touches_lattice_builder():
-  """External callers still go through Crystal_Lattice's delegates."""
+  """External callers still go through KMCSimulator's delegates."""
   import kinetix.lattice.lattice_builder as mod
   package = Path(mod.__file__).resolve().parent.parent
   offenders = []
   for path in sorted(package.rglob("*.py")):
-    if path.name in {"crystal.py", "lattice_builder.py"}:
+    if path.name in {"simulator.py", "lattice_builder.py"}:
       continue
     if "lattice_builder" in path.read_text(encoding="utf-8"):
       offenders.append(str(path.relative_to(package)))

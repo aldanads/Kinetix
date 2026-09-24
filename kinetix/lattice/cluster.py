@@ -97,7 +97,7 @@ class Cluster:
       """
       Slice the cluster in the z axis
       """
-      #sites_occupied = System_state.sites_occupied
+      #sites_occupied = simulator.sites_occupied
       sites_occupied = self.atoms_id
         
       # Convert occupied sites to Cartesian coordinates and sort by z-coordinate in descending order

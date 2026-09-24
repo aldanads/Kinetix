@@ -1,9 +1,9 @@
 # tests/test_kmc_loop.py
 """
-Integration test for the core kMC (BKL) loop in Crystal_Lattice.
+Integration test for the core kMC (BKL) loop in KMCSimulator.
 
 This is the behavioral spec for the BKL event-selection / time-advancement
-machinery that will be refactored in the upcoming crystal.py split.
+machinery that will be refactored in the upcoming simulator.py split.
 
 What is REAL here (loaded through production loaders - no hardcoded config
 literals):
@@ -101,7 +101,7 @@ def vcm_act_e_dict(vcm_config, defects_config):
 # =============================================================================
 
 def _build_lattice(vcm_config, defects_config, vcm_act_e_dict):
-    """Build a Crystal_Lattice exactly the way the production
+    """Build a KMCSimulator exactly the way the production
     electronic_device branch of initialization() does (grid fast-path load)."""
     reactions_config = (
         vcm_config.reactions.to_dict() if vcm_config.reactions else None

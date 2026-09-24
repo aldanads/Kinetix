@@ -216,7 +216,7 @@ def defects_config_full():
 
 def get_gb_charge_state(gb_model, defect_name, site_position, event_type='migration'):
     """
-    Replicates Crystal_Lattice._get_gb_charge_state logic for testing.
+    Replicates KMCSimulator._get_gb_charge_state logic for testing.
     """
     if not gb_model:
         return None

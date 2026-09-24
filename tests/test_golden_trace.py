@@ -13,7 +13,7 @@ fingerprints the whole execution profile of the kMC loop:
   * grid      : ``data/grids/grid_HfO2_3nm.pkl`` (production ``_try_load_grid``)
   * seed      : 42 (``np.random.default_rng(42)``, used by ``defect_gen`` and
                 every ``step_kmc`` draw)
-  * steps     : 30 ``Crystal_Lattice.step_kmc`` calls
+  * steps     : 30 ``KMCSimulator.step_kmc`` calls
 
 What is recorded (per step, JSON fixture)
 -----------------------------------------
@@ -146,7 +146,7 @@ RATE_ABS_TOL = 1e-12
 #      from the start (the shipped YAML seeds none).
 # Both live in the in-memory ``defects_config`` only: no YAML edit, no grid
 # rebuild, no production change.  Note that sites carry a *pickled copy* of the
-# config (the Poisson re-injection at crystal.py:542-566 refreshes only
+# config (the Poisson re-injection at simulator.py:542-566 refreshes only
 # Act_E_dict), so the harness re-injects the live dict into every site -
 # without that step the overrides are silently ignored.
 CROSS_FIXTURE_NAME = "golden_trace_vcm_hfo2_cross_sublattice.json"
@@ -247,8 +247,8 @@ def _build_lattice(vcm_config, defects_config, vcm_act_e_dict):
   fast-path load, same documented overrides) with ONE addition: the preset's
   Poisson configuration is forwarded so that
 
-    * ``Crystal_Lattice.poisson_config`` is set, which makes
-      ``_initialize_migration_pathways`` (crystal.py:542-566) re-inject the
+    * ``KMCSimulator.poisson_config`` is set, which makes
+      ``_initialize_migration_pathways`` (simulator.py:542-566) re-inject the
       LIVE activation energies into every site and build the directional
       ``E_mig`` table, and
     * ``processes`` refreshes every mobile site's pathways each step.
@@ -297,7 +297,7 @@ def _build_lattice(vcm_config, defects_config, vcm_act_e_dict):
 def _catalog_snapshot(crystal):
   """The catalog ``_kmc_step`` builds, as ``(rate, barrier, dest, label, origin)``.
 
-  Mirrors crystal.py:2718-2728: iterate ``active_event_sites +
+  Mirrors simulator.py:2718-2728: iterate ``active_event_sites +
   generation_sites``, using the superbasin's absorbing-state list for sites
   owned by a superbasin.  Snapshotting at ``processes`` entry means the rates
   were already refreshed by ``_update_rates_lazily`` and no state has mutated
@@ -600,7 +600,7 @@ def _build_meta(defects_config, vcm_act_e_dict, crystal) -> dict:
           "loaded-grid path: each Site carries the defects_config/Act_E_dict "
           "pickled with data/grids/<grid>.pkl, and the live YAML/JSON inputs "
           "fingerprinted by inputs_sha256 are re-injected because the preset "
-          "enables Poisson (crystal.py:542-566)"),
+          "enables Poisson (simulator.py:542-566)"),
   }
 
 
@@ -903,7 +903,7 @@ def _build_cross_lattice(vcm_config, defects_config, vcm_act_e_dict):
 
   Every Site is unpickled with the defects_config stored inside the grid file,
   and the production re-injection refreshes ``Act_E_dict`` only
-  (crystal.py:542-566).  Without this step the scenario's overrides would never
+  (simulator.py:542-566).  Without this step the scenario's overrides would never
   reach the migration gate - ``Site.available_migrations`` reads
   ``self.defects_config`` - and no cross-sublattice event would be offered.
   """
