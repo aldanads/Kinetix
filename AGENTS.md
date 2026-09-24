@@ -37,6 +37,7 @@
 | `kinetix/lattice/crystal.py` (~4.0k lines) | `Crystal_Lattice`/`System_state` — kMC loop (`step_kmc`/`_kmc_step`), lattice construction, rate evaluation, superbasin driving; delegates events/solvers/metadata out |
 | `kinetix/lattice/site.py` (~1.3k lines) | `Site` — lattice site with topology + **Defect composition**; event generation (`available_pathways` :610, `available_reactions` :818) |
 | `kinetix/lattice/events.py` | EventHandler — kMC event dispatch/handlers, dirty-site bookkeeping, affected-state refresh |
+| `kinetix/lattice/kmc_loop.py` | KMCLoop — BKL kMC step orchestration (step/catalog/BKL + superbasin search & activation policy) |
 | `kinetix/lattice/defect.py` (190 lines) | `Event` (:40, `catalog_tuple` :69), `Defect` (:80), `EMPTY_DEFECT_CONFIG` (:157), `make_empty_defect` (:175) |
 | `kinetix/lattice/cluster.py` | Cluster/filament analysis (`_find_clusters`) |
 | `kinetix/lattice/island.py` | Island — deposition morphology |
@@ -54,16 +55,17 @@
 | `kinetix/cli.py` / `kinetix/__main__.py` | Simulation workflow driver |
 
 ## crystal.py Split Progress (epic: break up the 4.5k-line god class)
-Extraction order: metadata → solvers → events. Each phase moves code verbatim
-into a class that holds **no simulation state** (everything goes through
-`self.system`) and leaves thin one-line delegates on `Crystal_Lattice`, so
-`cli.py`, `superbasin.py`, `state_loader.py` and the tests are unchanged.
+Extraction order: metadata → solvers → events → kMC loop. Each phase moves code
+verbatim into a class that holds **no simulation state** (everything goes
+through `self.system`) and leaves thin one-line delegates on `Crystal_Lattice`,
+so `cli.py`, `superbasin.py`, `state_loader.py` and the tests are unchanged.
 
 | Phase | Module | Status |
 |---|---|---|
 | 1 | `kinetix/utils/metadata.py` — `MetadataWriter` (`write_json`; H5MD/NOMAD stubs) | ✅ `6b040e3` |
 | 2 | `kinetix/solvers/coordinator.py` — `SolverCoordinator` | ✅ `f15d6aa` |
 | 3 | `kinetix/lattice/events.py` — `EventHandler` (17 methods) | ✅ Phase 3 |
+| 4 | `kinetix/lattice/kmc_loop.py` — `KMCLoop` (9 methods) | ✅ Phase 4 |
 
 **Phase 3 essentials:**
 - Moved: `processes`, `_handle_{migration,generation,redox,reaction}_event`,
@@ -87,6 +89,38 @@ into a class that holds **no simulation state** (everything goes through
   from the loop.
 - Lazy `event_handler` property (same pattern as `solver_coordinator`), so
   `Crystal_Lattice.__new__` buildouts and legacy pickles resolve it.
+
+**Phase 4 essentials:**
+- Moved (9 methods): `step_kmc`, `_kmc_step`, `_search_superbasin`,
+  `update_superbasin` + the superbasin activation policy
+  (`should_activate_superbasin`, `is_filament_percolating`,
+  `_check_event_based_superbasin`, `_check_time_based_superbasin`,
+  `_slow_timesteps`). Bodies byte-identical vs `git show HEAD:…`
+  (modulo `self.system.`), verified two ways: body-diff AND a routing check
+  (no bare `self.<system-attr>` may survive — a *missing* rewrite is invisible
+  to the body-diff alone; this exact silent no-op bug was caught by the golden
+  trace during the phase).
+- **Delegates kept** for **all 9** names (one-liners under the "KMC logic"
+  banner): `step_kmc` (`cli.py:449`, golden trace, tests), `_kmc_step`
+  (`test_kmc_loop.py`, `test_event_handler.py`, `test_kmc_loop_class.py`),
+  the rest kept for API stability. `_evaluate_fields_for_kmc` remains the
+  SolverCoordinator delegate and is what `step_kmc`/`_kmc_step` call.
+- `track_time` / `add_time` **stay on `Crystal_Lattice`**
+  (`initialization.py:351/355`, `cli.py` call them); the loop reaches
+  `track_time` through `self.system.track_time(...)`.
+- Lazy `kmc_loop` property with a **local import** (same pattern as
+  `solver_coordinator`).
+- **MPI premise correction (found in Phase 4)**: `step_kmc` is NOT MPI-free —
+  it keeps the pre-existing `rank == 0` guard and the
+  `mpi_ctx.bcast(payload, root=0)` of `system.time`, moved verbatim to
+  `kmc_loop.py` (serial runs pass `mpi_ctx=None`, so the bcast is skipped).
+  No MPI logic was added/removed, and the loop holds no rank/mpi state.
+- Routing rule now lives in `kmc_loop.py`: `_kmc_step` MUST call
+  `self.system.processes(...)` — the *system* delegate — never
+  `event_handler.processes` (the golden trace wraps the instance attribute).
+  Pinned by `test_kmc_loop_class.py::test_kmc_loop_reaches_processes_via_instance_delegate`.
+- Tests: `tests/test_kmc_loop_class.py` (13) incl. a 5-step integration that
+  reproduces the first 5 golden-fixture steps through the delegate.
 
 ## Site/Defect Refactor Status (Epic: decouple defect state from Site)
 **Target:** Site *has-a* Defect composition model; the Defect carries all dynamic
@@ -165,14 +199,15 @@ state; the flat attribute-by-attribute migration machinery is gone.
   `KINETIX_UPDATE_GOLDEN_TRACE=1 python -m pytest "tests/test_golden_trace.py::test_golden_trace_cross_sublattice"`.
 
 ## Testing
-- Full suite: `pytest tests/ -q` → **405 passed, 1 skipped** (~23 min); the 39
+- Full suite: `pytest tests/ -q` → **418 passed, 1 skipped** (~23 min); the 39
   `solver`-marked tests are ~22 min of that (see *Test Execution* below).
 - Golden trace alone: `pytest tests/test_golden_trace.py -v` → 5 tests (~25 s).
 - Notable files: `test_site.py` (64), `test_cluster_island.py` (43),
   `test_migration_pathways.py` (37), `test_state_loader.py` (31),
   `test_balanced_tree.py` (29), `test_gb_charge_and_state_transfer.py` (22),
   `test_event_handler.py` (17), `test_superbasin.py` (17),
-  `test_solver_coordinator.py` (14), `test_kmc_loop.py` (12),
+  `test_solver_coordinator.py` (14), `test_kmc_loop_class.py` (13),
+  `test_kmc_loop.py` (12),
   `test_metadata_writer.py` (9), `test_golden_trace.py` (5).
 - `test_mace_adapter.py` (marked `mace`) self-skips at module level without the
   `mace` extra — collects nothing; its `slow`-marked pathway sweeps
@@ -192,7 +227,7 @@ state; the flat attribute-by-attribute migration machinery is gone.
 ```bash
 pytest tests/ -q -m "not solver and not mace"
 ```
-Runs: 366 tests + 1 module-level skip (39 solver tests deselected).
+Runs: 379 tests + 1 module-level skip (39 solver tests deselected).
 **Use this by default — do NOT run the full suite for quick feedback.**
 
 **Full suite (slow, ~23 min):**
@@ -200,7 +235,7 @@ Runs: 366 tests + 1 module-level skip (39 solver tests deselected).
 ```bash
 pytest tests/ -q
 ```
-Runs: all 405 tests (the 39 `solver` tests take ~22 min; measured 21m43s).
+Runs: all 418 tests (the 39 `solver` tests take ~22 min; measured 21m43s).
 
 **Specific categories:**
 
@@ -237,10 +272,10 @@ Measured selections (Kinetix env):
 
 | Selection | Tests | Wall time |
 |---|---|---|
-| `-m "not solver and not mace"` | 366 (+1 module skip) | ~55 s |
+| `-m "not solver and not mace"` | 379 (+1 module skip) | ~80 s |
 | `-m solver` | 39 | ~22 min |
 | `-m mace` (no `mace` extra installed) | 0 (module skip) | ~5 s |
-| full suite (`pytest tests/ -q`) | 405 (+1 module skip) | ~23 min |
+| full suite (`pytest tests/ -q`) | 418 (+1 module skip) | ~23 min |
 
 ## Known Bugs (from the 7-part decoupling investigation; report not stored in repo)
 ### Fixed
@@ -280,6 +315,12 @@ Measured selections (Kinetix env):
   and it has **no callers anywhere** in the package. Behaviour pinned by
   `tests/test_event_handler.py::test_is_at_top_electrode_reads_interface_flag` so
   a future caller cannot silently inherit the wrong flag.
+- **`step_kmc` MPI premise (found in Phase 4)**: the phase brief assumed the
+  kMC loop runs MPI-free, but `step_kmc` carries a pre-existing `rank == 0`
+  guard plus `mpi_ctx.bcast(payload, root=0)` of `system.time` — moved verbatim
+  to `kmc_loop.py`. Serial runs never hit the bcast (`mpi_ctx=None`,
+  `initialization.py`). Not a bug; documented so a future "MPI-free loop"
+  refactor does not silently drop the guard or the time broadcast.
 - **`site.py:93-94` interface flags**: `is_at_bottom_interface` /
   `is_at_top_interface` are set by `neighbors_analysis` only for the outermost
   layers; `Site.calculate_site_energy` and the removal-layer rules read them.
