@@ -34,8 +34,9 @@
 ## Architecture (Key Modules)
 | Module | Role |
 |---|---|
-| `kinetix/lattice/crystal.py` (~4.0k lines) | `Crystal_Lattice`/`System_state` — kMC loop (`step_kmc`/`_kmc_step`), lattice construction, rate evaluation, superbasin driving; delegates events/solvers/metadata out |
+| `kinetix/lattice/crystal.py` (~1.9k lines) | `Crystal_Lattice`/`System_state` — rate evaluation, superbasin driving; delegates events/solvers/metadata/lattice-construction/kMC loop out |
 | `kinetix/lattice/site.py` (~1.3k lines) | `Site` — lattice site with topology + **Defect composition**; event generation (`available_pathways` :610, `available_reactions` :818) |
+| `kinetix/lattice/lattice_builder.py` (~1.7k lines) | LatticeBuilder — lattice construction/init (36 methods): MP structure + cache, grid assembly, migration pathways, k-d tree/neighbours, interstitial generation, Wulff/coords, cluster tracking |
 | `kinetix/lattice/events.py` | EventHandler — kMC event dispatch/handlers, dirty-site bookkeeping, affected-state refresh |
 | `kinetix/lattice/kmc_loop.py` | KMCLoop — BKL kMC step orchestration (step/catalog/BKL + superbasin search & activation policy) |
 | `kinetix/lattice/defect.py` (190 lines) | `Event` (:40, `catalog_tuple` :69), `Defect` (:80), `EMPTY_DEFECT_CONFIG` (:157), `make_empty_defect` (:175) |
@@ -55,10 +56,11 @@
 | `kinetix/cli.py` / `kinetix/__main__.py` | Simulation workflow driver |
 
 ## crystal.py Split Progress (epic: break up the 4.5k-line god class)
-Extraction order: metadata → solvers → events → kMC loop. Each phase moves code
-verbatim into a class that holds **no simulation state** (everything goes
-through `self.system`) and leaves thin one-line delegates on `Crystal_Lattice`,
-so `cli.py`, `superbasin.py`, `state_loader.py` and the tests are unchanged.
+Extraction order: metadata → solvers → events → kMC loop → lattice construction.
+Each phase moves code verbatim into a class that holds **no simulation state**
+(everything goes through `self.system`) and leaves thin one-line delegates on
+`Crystal_Lattice`, so `cli.py`, `superbasin.py`, `state_loader.py` and the tests
+are unchanged.
 
 | Phase | Module | Status |
 |---|---|---|
@@ -66,6 +68,7 @@ so `cli.py`, `superbasin.py`, `state_loader.py` and the tests are unchanged.
 | 2 | `kinetix/solvers/coordinator.py` — `SolverCoordinator` | ✅ `f15d6aa` |
 | 3 | `kinetix/lattice/events.py` — `EventHandler` (17 methods) | ✅ Phase 3 |
 | 4 | `kinetix/lattice/kmc_loop.py` — `KMCLoop` (9 methods) | ✅ Phase 4 |
+| 5 | `kinetix/lattice/lattice_builder.py` — `LatticeBuilder` (36 methods) | ✅ Phase 5 |
 
 **Phase 3 essentials:**
 - Moved: `processes`, `_handle_{migration,generation,redox,reaction}_event`,
@@ -122,6 +125,66 @@ so `cli.py`, `superbasin.py`, `state_loader.py` and the tests are unchanged.
 - Tests: `tests/test_kmc_loop_class.py` (13) incl. a 5-step integration that
   reproduces the first 5 golden-fixture steps through the delegate.
 
+**Phase 5 essentials:**
+- Moved (36 methods, `crystal.py` 3410 → **1935 lines**, −1475): structure/MP
+  model (`_load_mp_cache`, `_save_mp_cache`, `lattice_model`,
+  `_is_inside_supercell`, `_apply_miller_orientation`, `_get_rotation_matrix`,
+  `_create_supercell`, `_compute_basis_vectors`); migration pathways
+  (`_initialize_migration_pathways`, `_validate_migration_network`); neighbour
+  search (`_build_kdtree`, `_get_neighbors_for_site`, `_generate_periodic_images`,
+  `_check_percolation_at_radius`, `find_optimal_radius`, `diagnose_steep_down`,
+  `diagnose_interstitial_presence`); grid assembly (`crystal_grid`);
+  site-init/interstitials (`_efficient_act_e_copy`,
+  `_get_applicable_defects_for_site`, `_compute_interface_flags`,
+  `_generate_interstitial_sites`, `_find_interstitials_voronoi`,
+  `_refine_interstitial_positions`, `_cluster_and_average`,
+  `_validate_interstitial_positions`, `create_ovito_xyz_file`,
+  `_handle_missing_neighbors`); neighbour analysis
+  (`_parallel_neighbors_analysis`, `_sequencial_neighbors_analysis`,
+  `get_num_cores`, `_process_batch_sites_worker`); `get_idx_coords`,
+  `Wulff_Shape`, `create_edges`, `_initialize_cluster_tracking`.
+- **Delegates kept for all 36 names** (one-liners under the "Lattice construction"
+  banner after `__init__`), so `initialization.py`, `cli.py`, `metadata.py`,
+  `state_loader.py` and the tests are unchanged. Pinned:
+  `test_only_crystal_touches_lattice_builder` (no module outside `crystal.py`
+  references `lattice_builder`) and `test_delegate_signatures_match_builder`
+  (parameter names + defaults identical).
+- Lazy `lattice_builder` property with a **local import** (same pattern as
+  `solver_coordinator`/`kmc_loop`).
+- **Collaborators that stay on `Crystal_Lattice`** and are reached through
+  `self.system`: `_is_active_site` (Phase 3 rule — construction calls it) and
+  `_minimum_image_vector` (runtime callers in the MACE NEB calculator/active
+  learning). Neither is duplicated on the builder.
+- **MPI premise (verbatim, unchanged)**: construction is NOT rank-free —
+  `_save_mp_cache`/`lattice_model` guard with `rank == 0`, `lattice_model`
+  broadcasts the fetched structure, and `_initialize_migration_pathways` /
+  `_generate_interstitial_sites` carry their own rank guards; all read as
+  `self.system.rank` / `self.system.mpi_ctx`. No collective added/removed, no
+  rank state on the builder.
+- Extraction mechanics: generator `/tmp/gen_lattice_builder.py` extracts **by
+  method name** from `git show HEAD:…` (not line numbers), re-indents to the
+  4-space convention and routes `self.X` → `self.system.X` with pure string ops.
+  Verified **two ways** (Phase 4 recipe): byte-identical body-diff (modulo
+  routing, reversed) **plus** a routing invariant (no un-routed `self.X` may
+  survive — a missing rewrite is invisible to the body-diff alone). 3 bare-`self`
+  argument fixes: `self._kdtree`, `self.gb_configurations`, `kx=self`. Output is
+  reproducible (re-running the generator yields identical bytes).
+- Tests: `tests/test_lattice_builder_class.py` (20) — delegate/thinness/signature
+  contract, statelessness, no runtime `crystal` import, MPI routing, behavioural
+  checks through the delegates (`_get_rotation_matrix`, `_compute_basis_vectors`,
+  `get_idx_coords` cache, `_efficient_act_e_copy` isolation,
+  `_get_applicable_defects_for_site`, `_process_batch_sites_worker` call contract,
+  `_validate_migration_network` read-only, `get_num_cores`) and an integration
+  test on the golden lattice (3456 sites, k-d tree, neighbours, interface flags,
+  Phase-6 live `defects_config` binding for every site).
+- **Pre-existing findings (Phase 5, pinned not fixed)**:
+  `_validate_migration_network()`'s default `radius=None` crashes in
+  `_generate_periodic_images` (`None / float`) — the only in-package caller
+  passes a real radius (`_initialize_migration_pathways`);
+  `_process_batch_sites_worker` forwards SIX positional args to
+  `Site.neighbors_analysis` (which declares five) and
+  `_parallel_neighbors_analysis` has no in-package callers.
+
 ## Site/Defect Refactor Status (Epic: decouple defect state from Site)
 **Target:** Site *has-a* Defect composition model; the Defect carries all dynamic
 state; the flat attribute-by-attribute migration machinery is gone.
@@ -152,7 +215,8 @@ state; the flat attribute-by-attribute migration machinery is gone.
   `_remove_species_at_site` (:3396) do the dirty-site bookkeeping.
 - `destination_CN` is guarded (`available_migrations` :777) with an actionable
   error, and loaded grids bind the **live** `defects_config` onto every site
-  (`crystal_grid` :986) — the pickled copy can no longer go stale.
+  (`crystal_grid`, now `lattice_builder.py:837` after the Phase-5 move) — the
+  pickled copy can no longer go stale.
 - `introduce_specie` (:549): same species keeps the Defect (charge refresh
   only, passivation untouched); a species swap installs a fresh Defect.
 
@@ -161,7 +225,7 @@ state; the flat attribute-by-attribute migration machinery is gone.
 - `site_type` (sublattice) belongs to Site, not Defect; `EMPTY_DEFECT_CONFIG.site_type = "Empty"`.
 - Config-time-immutable: `enabled_events`, `max_passivation_level`, barriers. Runtime-dynamic (on Defect): `chemical_specie`, `charge`, `passivation_level`, `events`.
 - No DefectRegistry — lookup is plain `dict[str, DefectConfig]`; sites share
-  ONE live reference to it (Phase 6 binding at `crystal_grid` :986).
+  ONE live reference to it (Phase 6 binding at `lattice_builder.py:837`).
 - No shared/singleton Defect instances across sites (per-site mutable state).
 - Config resolution: **occupied** sites read `defect.name`; **empty** sites
   still use the sublattice registry lookup (`_get_current_defect_name` :272),
@@ -188,7 +252,7 @@ state; the flat attribute-by-attribute migration machinery is gone.
   grid / seed plus two **test-side-only** overrides — O_i
   `valid_target_species += 'V_O'` and V_O `initial_concentration_bulk = 0.02` —
   and the live `defects_config` re-injected into every Site (sites otherwise run
-  on the copy pickled in the grid; crystal.py:542-566 re-injects `Act_E_dict`
+  on the copy pickled in the grid; lattice_builder.py:412-414 re-injects `Act_E_dict`
   only). Shipped presets CANNOT produce such a hop: `Empty`-specie sites exist
   only on the `interstitial` sublattice (measured on the main trace: 18 341
   offered migration events, 100 % interstitial→interstitial, 0 Empty-specie O
@@ -199,15 +263,15 @@ state; the flat attribute-by-attribute migration machinery is gone.
   `KINETIX_UPDATE_GOLDEN_TRACE=1 python -m pytest "tests/test_golden_trace.py::test_golden_trace_cross_sublattice"`.
 
 ## Testing
-- Full suite: `pytest tests/ -q` → **418 passed, 1 skipped** (~23 min); the 39
+- Full suite: `pytest tests/ -q` → **438 passed, 1 skipped** (~23 min); the 39
   `solver`-marked tests are ~22 min of that (see *Test Execution* below).
 - Golden trace alone: `pytest tests/test_golden_trace.py -v` → 5 tests (~25 s).
 - Notable files: `test_site.py` (64), `test_cluster_island.py` (43),
   `test_migration_pathways.py` (37), `test_state_loader.py` (31),
   `test_balanced_tree.py` (29), `test_gb_charge_and_state_transfer.py` (22),
-  `test_event_handler.py` (17), `test_superbasin.py` (17),
-  `test_solver_coordinator.py` (14), `test_kmc_loop_class.py` (13),
-  `test_kmc_loop.py` (12),
+  `test_lattice_builder_class.py` (20), `test_event_handler.py` (17),
+  `test_superbasin.py` (17), `test_solver_coordinator.py` (14),
+  `test_kmc_loop_class.py` (13), `test_kmc_loop.py` (12),
   `test_metadata_writer.py` (9), `test_golden_trace.py` (5).
 - `test_mace_adapter.py` (marked `mace`) self-skips at module level without the
   `mace` extra — collects nothing; its `slow`-marked pathway sweeps
@@ -222,12 +286,12 @@ state; the flat attribute-by-attribute migration machinery is gone.
 
 ## Test Execution
 
-**Default (fast feedback, ~55 s):**
+**Default (fast feedback, ~86 s):**
 
 ```bash
 pytest tests/ -q -m "not solver and not mace"
 ```
-Runs: 379 tests + 1 module-level skip (39 solver tests deselected).
+Runs: 399 tests + 1 module-level skip (39 solver tests deselected).
 **Use this by default — do NOT run the full suite for quick feedback.**
 
 **Full suite (slow, ~23 min):**
@@ -235,7 +299,7 @@ Runs: 379 tests + 1 module-level skip (39 solver tests deselected).
 ```bash
 pytest tests/ -q
 ```
-Runs: all 418 tests (the 39 `solver` tests take ~22 min; measured 21m43s).
+Runs: all 438 tests (the 39 `solver` tests take ~22 min; measured 21m43s).
 
 **Specific categories:**
 
@@ -259,6 +323,7 @@ pytest tests/test_golden_trace.py -v
 |---|---|
 | Site/Defect/Event classes | `pytest tests/ -q -m "not solver and not mace"` |
 | kMC loop (`crystal.py`) | `pytest tests/test_golden_trace.py tests/test_kmc_loop.py -v` |
+| Lattice construction (`lattice_builder.py`) | `pytest tests/test_lattice_builder_class.py -v` (golden lattice, ~12 s) |
 | Poisson/heat solvers | `pytest tests/ -m solver -v` |
 | MACE adapter | `pytest tests/ -m mace -v` |
 | Config loading | `pytest tests/test_config_loader.py tests/test_presets.py -v` |
@@ -272,10 +337,11 @@ Measured selections (Kinetix env):
 
 | Selection | Tests | Wall time |
 |---|---|---|
-| `-m "not solver and not mace"` | 379 (+1 module skip) | ~80 s |
+| `-m "not solver and not mace"` | 399 (+1 module skip) | ~86 s |
 | `-m solver` | 39 | ~22 min |
 | `-m mace` (no `mace` extra installed) | 0 (module skip) | ~5 s |
-| full suite (`pytest tests/ -q`) | 418 (+1 module skip) | ~23 min |
+| full suite (`pytest tests/ -q`) | 438 (+1 module skip) | ~23 min |
+| `test_lattice_builder_class.py` alone | 20 | ~12 s |
 
 ## Known Bugs (from the 7-part decoupling investigation; report not stored in repo)
 ### Fixed
@@ -287,12 +353,12 @@ Measured selections (Kinetix env):
 - `destination_CN` gap (latent KeyError/AttributeError on occupied
   destinations) ✅ guarded with an actionable error (site.py:777, Phase 6)
 - Live-vs-pickled `defects_config` staleness ✅ live registry bound onto every
-  loaded site (crystal.py:986, Phase 6)
+  loaded site (now `lattice_builder.py:837` after the Phase-5 move; Phase 6)
 - C1 / M7 ✅ occupant sites read `defect.name`, empty-site lookup documented
   (site.py:249), one shared live config reference
-- Phase-5 regression class (session of `a224b49`): deleted-method dangling
-  callers, dropped Poisson refresh / dirty-site bookkeeping, discarded GB
-  charge override, passivation reset on re-introduction — all fixed pre-commit.
+- Phase-5 regression class (Site/Defect epic, session of `a224b49`): deleted-method
+  dangling callers, dropped Poisson refresh / dirty-site bookkeeping, discarded
+  GB charge override, passivation reset on re-introduction — all fixed pre-commit.
 - H: `kinetix/__init__.py` unconditional FEM import → fixed with try/except
   (Phase 2 of the crystal.py split)
 - B: Missing `return` in `_evaluate_fields_for_kmc` → fixed
@@ -321,6 +387,21 @@ Measured selections (Kinetix env):
   to `kmc_loop.py`. Serial runs never hit the bcast (`mpi_ctx=None`,
   `initialization.py`). Not a bug; documented so a future "MPI-free loop"
   refactor does not silently drop the guard or the time broadcast.
+- **`_validate_migration_network(radius=None)` crashes (found in Phase 5, moved
+  verbatim to `lattice_builder.py:420`)**: the default `None` reaches
+  `_generate_periodic_images` (`radius / np.linalg.norm(...)` → `TypeError`).
+  The only in-package caller passes a real radius
+  (`_initialize_migration_pathways`), so no shipped path hits it. Pinned by
+  `test_lattice_builder_class.py::test_validate_migration_network_is_read_only`
+  (called with a real radius AND asserting the default still raises) so a fix
+  is deliberate.
+- **`_parallel_neighbors_analysis` dead + arity mismatch (found in Phase 5,
+  moved verbatim to `lattice_builder.py:1430`)**: the method has no in-package
+  callers, and its worker `_process_batch_sites_worker` forwards SIX positional
+  arguments to `Site.neighbors_analysis`, which declares five
+  (`site.py:328`). Reproduces at HEAD; pinned by
+  `test_process_batch_sites_worker_call_contract` (stub site, documents the
+  historical call shape incl. `neighbors_positions`).
 - **`site.py:93-94` interface flags**: `is_at_bottom_interface` /
   `is_at_top_interface` are set by `neighbors_analysis` only for the outermost
   layers; `Site.calculate_site_energy` and the removal-layer rules read them.
@@ -359,9 +440,15 @@ Measured selections (Kinetix env):
   loop must go through the `Crystal_Lattice.processes` **delegate**, because the
   golden trace wraps the *instance* attribute (`tests/test_golden_trace.py:344`)
   to observe the event catalog; bypassing it silently voids the physics contract.
-- **DO NOT** add simulation state to `EventHandler` / `SolverCoordinator` — both
-  read and write the system through `self.system` (pickles, MPI rank ownership
-  and the golden trace depend on the state staying on `Crystal_Lattice`).
+- **DO NOT** add simulation state to `EventHandler` / `SolverCoordinator` /
+  `KMCLoop` / `LatticeBuilder` — each one reads and writes the system through
+  `self.system` (pickles, MPI rank ownership and the golden trace depend on the
+  state staying on `Crystal_Lattice`).
+- **DO NOT** call the lattice builder from outside `crystal.py` — external code
+  uses the `Crystal_Lattice` delegates (the 36 one-liners are the API; pinned by
+  `test_only_crystal_touches_lattice_builder`). Changing a delegate signature
+  without the builder's drifts the defaults for `initialization.py`/`cli.py`
+  (pinned by `test_delegate_signatures_match_builder`).
 - **DO NOT** reset `passivation_level` on species re-introduction — it keys
   activation energies (`Act_E[str(level)]`) and gates capture/depassivation; resetting it yields invalid barrier keys (`KeyError`).
 - **DO NOT** re-add flat state accessors to `Site` — Phase 6 deleted the four
