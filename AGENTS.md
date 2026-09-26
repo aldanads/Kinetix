@@ -430,6 +430,19 @@ Measured selections (Kinetix env):
   (`kinetix/solvers/coordinator.py`)
 - M: Unbound `clusters` in `prepare_clusters_for_bcs` → fixed
   (`kinetix/solvers/coordinator.py`)
+- H: `deposition_specie(test=0..9)` demo scaffolding deleted; the production
+  branch moved to `EventHandler.deposit_species(time_step)`
+  (`kinetix/lattice/events.py`) and **repaired** — it called
+  `self.introduce_specie_site(...)`/`self.update_sites(...)`, which never
+  existed anywhere in the package, and both callers passed a stray third
+  argument, so the deposition branch always raised `TypeError` before any
+  physics ran (`initialization.py:306` already flagged it legacy/broken).
+  Now routed to `_introduce_specie_site` + `update_sites_topology`, with the
+  unbound `update_specie_events` fixed (sets initialised up front).
+- H: two more dangling callers of the same deleted pair → fixed:
+  `bfs_cluster` (`simulator.py`) and the legacy post-processing loop in
+  `utils/extract_data.py` (`remove_specie_site`/`update_sites`), both now on
+  the EventHandler API. `grep -rn "\.update_sites(" kinetix/` is empty.
 
 ### Open (post-epic debt — NOT addressed by Phase 6)
 - **B2**: Superbasin label convention `num_event - 2` (`superbasin.py:319`).

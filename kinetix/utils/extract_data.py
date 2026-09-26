@@ -141,8 +141,12 @@ for sub in folder_subs:
                     update_supp_av = set()
                     update_specie_events = {site}
                     
-                    update_specie_events,update_supp_av = simulator.remove_specie_site(site,update_specie_events,update_supp_av)
-                    simulator.update_sites(update_specie_events,update_supp_av)
+                    # Fixed: the legacy ``remove_specie_site``/``update_sites``
+                    # pair no longer exists - use the EventHandler API.
+                    simulator.event_handler._remove_species_at_site(
+                        site, update_supp_av, update_specie_events)
+                    simulator.event_handler.update_sites_topology(
+                        update_supp_av, update_specie_events)
                     
             
             for island in simulator.islands_list:

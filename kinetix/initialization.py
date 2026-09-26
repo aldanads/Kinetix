@@ -329,30 +329,14 @@ def initialization(n_sim,params, config_name='PZT_ZrTi_PbO3_2.yaml'):
         P_limits = 0.05
         simulator.limit_kmc_timestep(P_limits)
 
-# =============================================================================
-#     - test[0] - Normal deposition
-#     - test[1] - Introduce a single particle in a determined site
-#     - test[2] - Introduce and remove a single particle in a determined site 
-#     - test[3] - Introduce two adjacent particles
-#     - test[4] - Hexagonal seed - 7 particles in plane + 1 particle in plane
-#     - test[5] - Hexagonal seed - 7 particles in plane and 1 on the top of the layer
-#     - test[6] - 2 hexagonal seeds - 2 layers and one particle on the top 
-#     - test[7] - 2 hexagonal seeds - 2 layers and one particle attach to the lateral
-#     - test[8] - cluster
-#     - test[9] - 3 Cu layers
-
-# =============================================================================
-        test_selected = 0
-        test = [0,1,2,3,4,5,6,7,8,9]
-
         # Deposition process of chemical species
         if simulator.timestep_limits < float('inf'):
-            simulator.deposition_specie(simulator.timestep_limits,rng,test[test_selected])
-            simulator.track_time(simulator.timestep_limits) 
+            simulator.event_handler.deposit_species(simulator.timestep_limits)
+            simulator.track_time(simulator.timestep_limits)
             simulator.add_time()
         else:
-            simulator.deposition_specie(0,rng,test[test_selected])
-            simulator.track_time(0) 
+            simulator.event_handler.deposit_species(0)
+            simulator.track_time(0)
             simulator.add_time()
         
 

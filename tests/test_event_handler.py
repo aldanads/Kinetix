@@ -545,3 +545,77 @@ def test_is_at_top_electrode_reads_interface_flag(registry, act_e):
   assert handler._is_at_top_electrode(site.idx) is False
   site.is_at_bottom_interface = True
   assert handler._is_at_top_electrode(site.idx) is True
+
+
+# =============================================================================
+# Deposition (EventHandler.deposit_species)
+# =============================================================================
+
+def _deposition_targets(system, limit=4):
+  """Generation-site candidates whose defect resolves through the registry."""
+  return [
+    idx for idx, site in system.grid_crystal.items()
+    if site.defect.chemical_specie == system.affected_site
+    and site._get_current_defect_name() in system.defects_config
+  ][:limit]
+
+
+def test_deposit_species_dropped_the_demo_switch(system):
+  """The ``test=0..9`` demo scaffolding is gone: one positional ``time_step``
+  and no legacy ``deposition_specie`` on the facade."""
+  code = system.event_handler.deposit_species.__code__
+  assert code.co_varnames[:2] == ("self", "time_step")
+  assert "test" not in code.co_varnames
+  assert not hasattr(system, "deposition_specie")
+
+
+def test_deposit_species_zero_time_step_is_a_no_op(system):
+  """P = 1 - exp(-TR_gen * 0) == 0, so no generation site may be occupied."""
+  # ``TR_gen`` only exists for non-electronic_device runs (transition_rate_
+  # adsorption), so it is injected here - see KMCSimulator.__init__.
+  system.TR_gen = 1.0e6
+  targets = _deposition_targets(system)
+  assert targets, "no resolvable empty sites on the lattice"
+  system.generation_sites = list(targets)
+  before = {idx: system.grid_crystal[idx].defect.chemical_specie
+            for idx in targets}
+
+  system.event_handler.deposit_species(0)
+
+  after = {idx: system.grid_crystal[idx].defect.chemical_specie
+           for idx in targets}
+  assert after == before, "a zero-length step must deposit nothing"
+  system.generation_sites = []
+
+
+def test_deposit_species_occupies_generation_sites(system):
+  """For a long step P == 1, so every generation site is occupied with the
+  defect its sublattice resolves, tracked as an active site and marked dirty
+  for the next rate refresh."""
+  system.TR_gen = 1.0e6
+  targets = _deposition_targets(system)
+  assert targets, "no resolvable empty sites on the lattice"
+  system.generation_sites = list(targets)
+  expected = {
+    idx: system.defects_config[
+      system.grid_crystal[idx]._get_current_defect_name()]['symbol']
+    for idx in targets
+  }
+
+  system.event_handler.deposit_species(1.0)
+
+  for idx in targets:
+    site = system.grid_crystal[idx]
+    assert site.defect.chemical_specie == expected[idx]
+    assert idx in system.active_event_sites
+    assert idx in system._dirty_sites
+  # an occupied site retires from the generation list (cleanup branch of
+  # ``available_generation_sites``: it is no longer the free target surface)
+  assert set(targets).isdisjoint(system.generation_sites)
+
+  # the introduced occupant has re-derived pathways and a positive rate
+  system.event_handler._update_rates_lazily({}, {})
+  assert any(event.rate > 0
+             for idx in targets
+             for event in system.grid_crystal[idx].defect.events)
+  system.generation_sites = []

@@ -481,6 +481,61 @@ class EventHandler:
 
 
     # =========================================================================
+    # Deposition (time-driven adsorption)
+    # =========================================================================
+
+    def deposit_species(self, time_step: float) -> None:
+        """Run one deposition step: occupy generation sites stochastically.
+
+        Physics
+        -------
+        Adsorption is a Poisson process with the transient flux rate
+        ``TR_gen`` (sticking coefficient x partial pressure / sqrt(2 pi m kB T),
+        see ``KMCSimulator.transition_rate_adsorption``).  The probability that
+        a given generation site is hit during ``time_step`` is therefore::
+
+            P = 1 - exp(-TR_gen * time_step)
+
+        Every site in ``simulator.generation_sites`` is tested independently
+        against ``P`` using ``simulator.rng``.  A hit installs the defect that
+        the site resolves (symbol and charge are read from the live
+        ``defects_config``), then support relationships, generation sites and
+        migration pathways are refreshed for the affected sites - the same
+        bookkeeping ``KMCSimulator.defect_gen`` performs for its own
+        introductions.
+
+        Args:
+            time_step: Length of the deposition interval, in seconds.
+                ``0`` gives ``P == 0`` and deposits nothing.
+        """
+        P = 1 - np.exp(-self.simulator.TR_gen * time_step)
+
+        support_update_sites = set()
+        event_update_sites = set()
+
+        for idx in self.simulator.generation_sites:
+            if self.simulator.rng.random() < P:
+                defect_name = self.simulator.grid_crystal[idx]._get_current_defect_name()
+                if defect_name is None or defect_name not in self.simulator.defects_config:
+                    continue
+                config = self.simulator.defects_config[defect_name]
+                self._introduce_specie_site(
+                    idx, support_update_sites, event_update_sites,
+                    config['symbol'], config['charge'],
+                )
+
+        if support_update_sites or event_update_sites:
+            self.update_sites_topology(support_update_sites, event_update_sites)
+            # Newly occupied sites must have their rates recomputed on the next
+            # field evaluation (mirror of KMCSimulator.defect_gen).
+            all_affected_sites = (
+                support_update_sites
+                | event_update_sites
+                | set(self.simulator.generation_sites)
+            )
+            self.simulator._dirty_sites.update(all_affected_sites)
+
+    # =========================================================================
     # Affected-state refresh
     # =========================================================================
 
