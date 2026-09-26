@@ -439,10 +439,24 @@ Measured selections (Kinetix env):
   physics ran (`initialization.py:306` already flagged it legacy/broken).
   Now routed to `_introduce_specie_site` + `update_sites_topology`, with the
   unbound `update_specie_events` fixed (sets initialised up front).
-- H: two more dangling callers of the same deleted pair → fixed:
-  `bfs_cluster` (`simulator.py`) and the legacy post-processing loop in
-  `utils/extract_data.py` (`remove_specie_site`/`update_sites`), both now on
-  the EventHandler API. `grep -rn "\.update_sites(" kinetix/` is empty.
+- H: two more dangling callers of the same deleted pair → the legacy
+  post-processing loop in `utils/extract_data.py`
+  (`remove_specie_site`/`update_sites`) is now on the EventHandler API, while
+  `bfs_cluster` was deleted outright as dead code (below).
+  `grep -rn "\.update_sites(" kinetix/` is empty.
+- Dead-code purge (AST reference audit over all 359 package methods): **9
+  methods with zero callers removed — 231 lines**:
+  `KMCSimulator.{bfs_cluster, rotate_vector, dfs_iterative, build_island_2}`,
+  `Site.detect_planes_test`, `Superbasin.transition_matrix_2`, and the
+  module-level `analysis.build_island_2` / `plot_vectors` /
+  `plot_atom_neighbors`. No test, script or doc referenced any of them (only
+  `AGENTS.md` named `bfs_cluster`), and the golden trace stayed byte-identical.
+  Two cautions from that audit: (a) `build_island_2` existed **twice** — as a
+  module function *and* as a `KMCSimulator` method — and the name-keyed audit
+  masked the second, so a future run must key by `(file, line)`; (b) the same
+  audit flagged `Site.__setstate__`, `MPIContext.__reduce__` and
+  `site._as_event`, which look dead (never called by name) but are **pickle
+  hooks — never delete them**.
 
 ### Open (post-epic debt — NOT addressed by Phase 6)
 - **B2**: Superbasin label convention `num_event - 2` (`superbasin.py:319`).

@@ -1074,15 +1074,6 @@ class Site():
                 del self.defect.events[i]
                 break
             
-    def detect_planes_test(self,simulator):
-        
-        atom_coordinates = np.array([simulator.grid_crystal[idx].position for idx in self.supp_by if idx != self.sites_generation_layer])
-
-        self.miller_index = simulator.structure.lattice.get_miller_index_from_coords(atom_coordinates, coords_are_cartesian=True, round_dp=0, verbose=True)
-                
-        return self.miller_index
-    
-    
 # =============================================================================
 #     Detect planes using PCA - We search the plane that contains most of the points
 #     in supp_by  to know the surface where this site is attached 

@@ -211,19 +211,6 @@ def detect_islands(grid_crystal,idx_site,visited,island_slice,chemical_specie):
                                    
     return visited,island_slice
 
-def build_island_2(grid_crystal,visited,island_sites,island_slice,chemical_specie):
-    
-    for site in island_slice:
-        
-        for element in grid_crystal[site].migration_paths['Up']:
-
-            if element[0] not in visited and grid_crystal[element[0]].defect.chemical_specie == chemical_specie:
-                visited.add(element[0])
-                island_sites.add(element[0])
-                visited,island_sites = build_island(grid_crystal,visited,island_sites,island_slice,chemical_specie)
-                
-    return visited,island_sites
-
 def build_island(grid_crystal,visited,island_sites,idx,chemical_specie):
     
     site = grid_crystal[idx]
@@ -398,34 +385,6 @@ def detect_planes(supp_by,simulator):
     
     return plane_normal
 
-def plot_vectors(plane1,plane2):
-    
-    # Create a 3D plot
-    fig = plt.figure()
-    ax = fig.add_subplot(111, projection='3d')
-    
-    # Plot the origin
-    ax.scatter(0, 0, 0, color='k', marker='o', label='Origin')
-    
-    # Plot the normal vectors
-    origin = np.array([0, 0, 0])
-    ax.quiver(*origin, *plane1, color='r', label='Normal Vector 1')
-    ax.quiver(*origin, *plane2, color='b', label='Normal Vector 2')
-    
-    # Set plot limits
-    ax.set_xlim([0, 1.2])
-    ax.set_ylim([-1, 0])
-    ax.set_zlim([-1, 1])
-    
-    # Set labels and legend
-    ax.set_xlabel('X')
-    ax.set_ylabel('Y')
-    ax.set_zlabel('Z')
-    ax.legend()
-    
-    # Show plot
-    plt.show()
-    
 def plot_crystal(grid_crystal,sites_occupied,crystal_size,azim = 60,elev = 45,path = '',i = 0,size = 20):
     num_colors = 3  # Change this as needed
     colors_palette = sns.color_palette("tab10")
@@ -456,45 +415,6 @@ def plot_crystal(grid_crystal,sites_occupied,crystal_size,azim = 60,elev = 45,pa
     #axa.set_zlim([0, crystal_size[2]])
     axa.set_aspect('equal', 'box')
     
-def plot_atom_neighbors(grid_crystal,sites_occupied):
-    
-    from mpl_toolkits.mplot3d.art3d import Poly3DCollection
-    colors_palette = sns.color_palette(n_colors=4)
-    
-    size = 200
-    nr = 1
-    nc = 1
-    fig = plt.figure(constrained_layout=True,figsize=(15, 8),dpi=300)
-    subfigs = fig.subfigures(nr, wspace=0.1, hspace=7)
-    
-    axa = subfigs.add_subplot(111, projection='3d')
-    
-    mig_paths = grid_crystal[sites_occupied[1000]].migration_paths
-    
-    center = grid_crystal[sites_occupied[1000]].position
-    neigh_plane = [grid_crystal[mig_paths['Plane'][i][0]].position for i in range(len(mig_paths['Plane']))]
-    neigh_up = [grid_crystal[mig_paths['Up'][i][0]].position for i in range(len(mig_paths['Up']))]
-    neigh_down = [grid_crystal[mig_paths['Down'][i][0]].position for i in range(len(mig_paths['Down']))]
-        
-    axa.scatter3D(center[0], center[1], center[2], c=colors_palette[0], marker='o',s =size)
-    neigh_plane = [neigh_plane[0],neigh_plane[5],neigh_plane[3], neigh_plane[2],neigh_plane[1],neigh_plane[4]]
-    x, y, z = np.array(neigh_plane)[:,0], np.array(neigh_plane)[:,1], np.array(neigh_plane)[:,2]
-    axa.scatter3D(x, y, z, marker='o',s =size)
-    plane_poly = Poly3DCollection([list(zip(x, y, z))], alpha=0.5)
-    axa.add_collection3d(plane_poly)
-    
-    
-    x, y, z = np.array(neigh_up)[:,0], np.array(neigh_up)[:,1], np.array(neigh_up)[:,2]
-    axa.scatter3D(x, y, z, marker='o',s =size)
-    plane_poly = Poly3DCollection([list(zip(x, y, z))],color=colors_palette[1], alpha=0.5)
-    axa.add_collection3d(plane_poly)
-    
-    x, y, z = np.array(neigh_down)[:,0], np.array(neigh_down)[:,1], np.array(neigh_down)[:,2]
-    axa.scatter3D(x, y, z, marker='o',s =size)
-    plane_poly = Poly3DCollection([list(zip(x, y, z))],color=colors_palette[2], alpha=0.5)
-    axa.add_collection3d(plane_poly)
-    
-            
 plt.rcParams["figure.dpi"] = 300
 system = ['Windows','Linux']
 choose_system = system[1]

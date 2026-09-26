@@ -189,41 +189,6 @@ class Superbasin():
                     
         self.A_transitions = A_transitions
         
-    def transition_matrix_2(self):
-        self.A_transitions_2 = []
-        transitions = self.absorbing_states_transitions + self.transient_states_transitions
-
-        # Create a dictionary for quick lookup
-        transition_dict = {}
-        for transition in transitions:
-            key = (transition[1], transition[-1])
-            transition_dict[key] = transition[0]
-
-        for i,state_origin in enumerate(self.superbasin_idx):
-            row = [] # Each row include the transition from each state_origin
-            for j,state_destination in enumerate(self.superbasin_idx):
-                
-                # Aii = 0 for the absorbing border states
-                
-                if i == j:
-                    if state_origin in self.absorbing_states:
-                        row.append(0)
-                    else:
-                        # For the diagonal in transient states: sum runs over all k superbasin states
-                        tau = sum(transition[0] for transition in transitions if
-                                  state_origin == transition [-1])
-                        row.append(tau)
-                        
-                else:
-                    
-                    rate = -transition_dict.get((state_origin, state_destination), 0)
-                    rate = rate if rate > 0 else 0
-                    row.append(rate)
-                    
-            self.A_transitions_2.append(row)
-        self.A_transitions_2 = np.array(self.A_transitions_2)
-    
-     
     def markov_matrix(self):
         
         self.M_Markov = []

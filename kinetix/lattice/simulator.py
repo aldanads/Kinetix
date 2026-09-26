@@ -1191,22 +1191,6 @@ class KMCSimulator():
                                        
         return visited,island_slice
 
-# =============================================================================
-#     Function to build the full island starting from the base obtained in detect_islands()
-# =============================================================================
-    def build_island_2(self,visited,island_sites,idx,chemical_specie):
-          
-        site = self.grid_crystal[idx]
-            
-        for element in site.migration_paths['Up'] + site.migration_paths['Plane']+site.migration_paths['Down']:
-    
-            if element[0] not in visited and self.grid_crystal[element[0]].defect.chemical_specie == chemical_specie:
-                visited.add(element[0])
-                island_sites.add(element[0])
-                visited,island_sites = self.build_island(visited,island_sites,element[0],chemical_specie)
-                
-        return visited,island_sites
-    
     def build_island(self,visited,island_sites,start_idx,chemical_specie):
           
         stack = [start_idx]
@@ -1290,38 +1274,6 @@ class KMCSimulator():
         v2_u = self.unit_vector(v2)
         return np.arccos(np.clip(np.dot(v1_u, v2_u), -1.0, 1.0))
 
-    # Function to rotate a vector
-    def rotate_vector(self,vector, axis=None, theta=None, rotation_matrix=None):
-        """
-        Rotates a 3D vector around a specified axis or using a provided rotation matrix. 
-        
-        Parameters:
-        - vector: The 3D vector to rotate.
-        - axis: The axis of rotation ('x', 'y', or 'z'). Optional if rotation_matrix is provided.
-        - theta: The rotation angle in radians. Optional if rotation_matrix is provided.
-        - rotation_matrix: A 3x3 rotation matrix. Optional if axis and theta are provided.
-    
-        Returns:
-        The rotated vector.
-        """
-        if rotation_matrix is not None:
-            R = rotation_matrix
-        
-        elif axis is not None and theta is not None:
-            if axis == 'x':
-                R = np.array([[1, 0, 0], [0, np.cos(theta), -np.sin(theta)], [0, np.sin(theta), np.cos(theta)]])
-            elif axis == 'y':
-                R = np.array([[np.cos(theta), 0, np.sin(theta)], [0, 1, 0], [-np.sin(theta), 0, np.cos(theta)]])
-            elif axis == 'z':
-                R = np.array([[np.cos(theta), -np.sin(theta), 0], [np.sin(theta), np.cos(theta), 0], [0, 0, 1]])
-            else:
-                raise ValueError("Invalid axis. Use 'x', 'y', or 'z'.")
-                
-        else:
-            raise ValueError("Either rotation_matrix or both axis and theta must be provided.")
-        
-        return np.dot(R, vector)
-    
     # Depth-First Search - Traverse a network or a graph -> grid_crystal
     def dfs_recursive(self, idx_site, visited):
         # We calculate the cartesian coordinates of the site using the basis vectors
@@ -1338,65 +1290,6 @@ class KMCSimulator():
             for neighbor in self.latt.get_neighbors(idx_site):
                 self.dfs_recursive(tuple(neighbor[:3]), visited)
                 
-    def dfs_iterative(self, start_idx_site):
-        visited = set()
-        stack = [start_idx_site]
-    
-        while stack:
-            current_idx_site = stack.pop()
-            if current_idx_site in visited:
-                continue
-    
-            # Calculate the cartesian coordinates of the site using the basis vectors
-            cart_site = self.idx_to_cart(current_idx_site)
-   
-            
-            if self.lattice_builder._is_inside_supercell(cart_site, self.structure.lattice):
-                # Track the created site
-                visited.add(current_idx_site)
-                # Create the site with the cartesian coordinates
-                self.grid_crystal[current_idx_site] = Site(
-                    "Empty", tuple(cart_site), self.Act_E_dict
-                )
-    
-                # Push neighbors onto the stack
-                stack.extend(tuple(neighbor[:3]) for neighbor in self.latt.get_neighbors(current_idx_site))
-    # Breadth-First Search (Recursive) - Traverse a network or a graph -> grid_crystal
-    # to build a cluster of a certain size
-    def bfs_cluster(self,queue,visited,cluster_size):
-        
-        if not queue or len(visited) >= cluster_size:
-            return
-        
-        # Dequeue a site from the front of the queue
-        #Starting point
-        current_idx_site = queue.popleft()
-        
-        if current_idx_site not in visited:
-            visited.add(current_idx_site)
-            update_supp_av = set()
-            update_specie_events = set()
-            
-            # Fixed: the legacy ``introduce_specie_site``/``update_sites`` pair
-            # no longer exists.  Use the EventHandler API instead (the sets are
-            # mutated in place, so nothing is unpacked).
-            defect_name = self.grid_crystal[current_idx_site]._get_current_defect_name()
-            if defect_name is not None and defect_name in self.defects_config:
-                config = self.defects_config[defect_name]
-                self.event_handler._introduce_specie_site(
-                    current_idx_site, update_supp_av, update_specie_events,
-                    config['symbol'], config['charge'],
-                )
-            self.event_handler.update_sites_topology(update_supp_av, update_specie_events)
-            
-            # Enqueue all unvisited neighbors of the current site
-            for neighbor in self.grid_crystal[current_idx_site].migration_paths['Plane']:
-                if neighbor[0] not in visited:
-                    queue.append(neighbor[0])
-                
-        # Recur to process the next site in the queue
-        self.bfs_cluster(queue, visited, cluster_size)
-        
     def idx_to_cart(self,idx):
         return tuple(round(element,3) for element in np.sum(idx * np.transpose(self.basis_vectors), axis=1))
     
