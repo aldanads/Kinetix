@@ -83,4 +83,7 @@ jobs:
           # Placeholder only: read by config_loader.get_api_key(), never used,
           # because every structure is served from the committed data/cache/.
           MP_API_KEY: offline-cache-only
-        run: python -m pytest tests/ -q -m "not solver and not mace"
+        run: |
+          eval "$(micromamba shell hook --shell bash)"
+          micromamba activate Kinetix
+          python -m pytest tests/ -q -m "not solver and not mace"
