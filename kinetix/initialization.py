@@ -467,8 +467,11 @@ def initialization(n_sim,params, config_name='PZT_ZrTi_PbO3_2.yaml'):
           simulator.defect_gen()
 
         # 9. Post initialization steps
-        # Write metadata
-        MetadataWriter(paths['data'], config).write_json(simulator) 
+        # Write metadata. Metadata is part of the saved output: with
+        # save_data disabled paths['data'] is '' and writing would drop
+        # metadata.json into the current working directory.
+        if save_data:
+          MetadataWriter(paths['data'], config).write_json(simulator) 
 
         Elec_controller.crystal_size = simulator.crystal_size #  The crystal_size after the generation of the lattice may differ from the parameter provided in a NN points separation
         simulator.timestep_limits = Elec_controller.voltage_update_time  

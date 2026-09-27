@@ -196,10 +196,16 @@ def main(sim_id=None, config_name='PZT_ZrTi_PbO3_2.yaml'):
         params = get_parameters_from_sim_id(sim_id)
         simulator,rng,paths,Results,simulation_parameters,Elec_controller = initialization(sim_id, params, config_name)
         
+        # Bound before the first snapshot so the save_data guards below can
+        # test it. The rank-0 block still logs and starts the timer when
+        # saving is off: total_start_time feeds the final runtime report.
+        save_data = simulation_parameters['save_data']
+        
         if simulator.rank == 0:
           logger.info('System size: %s', simulator.crystal_size)
           total_start_time = time.time()
-          simulator.plot_crystal(45,45,paths['data'],0)    
+          if save_data:
+            simulator.plot_crystal(45,45,paths['data'],0)
           
         simulator.add_time()
             
@@ -207,7 +213,6 @@ def main(sim_id=None, config_name='PZT_ZrTi_PbO3_2.yaml'):
         j = 0
         snapshots_steps = simulation_parameters['snapshoots_steps']
         total_steps = simulation_parameters['total_steps']
-        save_data = simulation_parameters['save_data']
         
         starting_time = time.time()
 
@@ -264,8 +269,7 @@ def main(sim_id=None, config_name='PZT_ZrTi_PbO3_2.yaml'):
                         Results.measurements_crystal(simulator.list_time[-1],simulator.mass_gained,simulator.fraction_sites_occupied,
                                                       simulator.thickness,np.mean(np.array(simulator.terraces)[np.array(simulator.terraces) > 0]),np.std(np.array(simulator.terraces)[np.array(simulator.terraces) > 0]),max(simulator.terraces),
                                                       simulator.surf_roughness_RMS,end_time-starting_time)
-        
-                    simulator.plot_crystal(45,45,paths['data'],j)
+                        simulator.plot_crystal(45,45,paths['data'],j)
                     
     
     # =============================================================================
@@ -325,8 +329,7 @@ def main(sim_id=None, config_name='PZT_ZrTi_PbO3_2.yaml'):
                         Results.measurements_crystal(simulator.list_time[-1],simulator.mass_gained,simulator.fraction_sites_occupied,
                                                       simulator.thickness,np.mean(np.array(simulator.terraces)[np.array(simulator.terraces) > 0]),np.std(np.array(simulator.terraces)[np.array(simulator.terraces) > 0]),max(simulator.terraces),
                                                       simulator.surf_roughness_RMS,end_time-starting_time)
-                        
-                    simulator.plot_crystal(45,45,paths['data'],j)
+                        simulator.plot_crystal(45,45,paths['data'],j)
                     
     # =============================================================================
     #     Devices: PZT, memristors  
@@ -363,7 +366,7 @@ def main(sim_id=None, config_name='PZT_ZrTi_PbO3_2.yaml'):
                   material_config=simulator.material_config,
                   defects_config=simulator.defects_config,
                   grid_crystal=simulator.grid_crystal,
-                  path_results = paths["results"],
+                  path_results = paths.get("results", ""),
                   mpi_ctx = simulator.mpi_ctx
                 )
                 simulator._poisson_solver = poisson_solver
@@ -379,7 +382,7 @@ def main(sim_id=None, config_name='PZT_ZrTi_PbO3_2.yaml'):
                     characteristic_length=simulator.characteristic_length,
                     defects_config=simulator.defects_config,
                     grid_crystal=simulator.grid_crystal,
-                    path_results = paths["results"],
+                    path_results = paths.get("results", ""),
                     mpi_ctx=simulator.mpi_ctx
                   )
                   simulator._heat_solver = heat_solver
@@ -463,7 +466,8 @@ def main(sim_id=None, config_name='PZT_ZrTi_PbO3_2.yaml'):
                           logger.info("Current: %s", Elec_controller.measurements['current'][-1])
     
                         end_time = time.time()
-                        simulator.plot_crystal(45,45,paths['data'],j)        
+                        if save_data:
+                          simulator.plot_crystal(45,45,paths['data'],j)        
                         
     
         if simulator.rank == 0:
@@ -485,8 +489,12 @@ def main(sim_id=None, config_name='PZT_ZrTi_PbO3_2.yaml'):
             save_variables(paths['program'],variables,filename)
           
           
-        Elec_controller.save_IV_csv(paths['results'])
-        Elec_controller.plot_V_I(paths['results'])
+        # I-V artefacts are part of the saved output: with save_data disabled
+        # initialization() returns no 'results' key, so writing here would
+        # raise KeyError at the end of an otherwise successful run.
+        if save_data:
+          Elec_controller.save_IV_csv(paths['results'])
+          Elec_controller.plot_V_I(paths['results'])
 
     
         return simulator
