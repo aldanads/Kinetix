@@ -1,0 +1,10 @@
+{
+  "formula": "CeO2",
+  "density": 6.994759113436836,
+  "volume": 40.85964149792201,
+  "space_group": "Fm-3m",
+  "chem_env_symmetry": "Cube",
+  "metal_valence": 4.0,
+  "bond_length_metal_O": 2.3674754475473665,
+  "epsilon_r": null
+}

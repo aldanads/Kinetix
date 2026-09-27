@@ -1,0 +1,10 @@
+{
+  "formula": "ZrTi(PbO3)2",
+  "density": 7.511121970807825,
+  "volume": 143.58696432608696,
+  "space_group": "P4mm",
+  "chem_env_symmetry": "Octahedron",
+  "metal_valence": 4,
+  "bond_length_metal_O": 2.1518958372357235,
+  "epsilon_r": null
+}

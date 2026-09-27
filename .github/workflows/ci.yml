@@ -1,0 +1,99 @@
+# Kinetix - minimal CI for the fast test suite.
+#
+# WHAT THIS CI COVERS
+#   The 410-test fast selection:
+#       pytest tests/ -q -m "not solver and not mace"
+#   i.e. lattice / site / event / kMC / superbasin / balanced-tree / config /
+#   metadata / preset tests plus the 5-test golden-trace physics contract.
+#   It runs fully offline and takes ~90 s.
+#
+# WHAT THIS CI DELIBERATELY DOES NOT COVER (and why)
+#   * The 39 `solver`-marked tests (Poisson, heat, FEM base). They take ~22 min
+#     and exercise the DOLFINx/PETSc FEM stack, which is platform- and
+#     runtime-sensitive; they are the obvious next job, not this one.
+#   * The `mace`-marked tests (MACE CI-NEB adapter + active-learning export).
+#     They need the optional torch/MACE stack (multi-GB) and a GPU to be
+#     meaningful. Here they self-skip at import, exactly as in the fast suite.
+#   * The `slow` pathway sweeps: hours of real NEB relaxations.
+#   * MPI runs (mpiexec -n N). The fast suite is serial by design.
+#   * Multi-OS / multi-Python matrices, linting, coverage, packaging and
+#     release checks: explicitly Phase 2.
+#
+# WHY IT IS WIRED THIS WAY
+#   * One job, one OS (ubuntu-latest), one Python (3.12.8 - the pin in
+#     environment.yml). No matrix, no caching, no extra tooling.
+#   * The conda env is derived from environment.yml by dropping its `pip:`
+#     block (torch / mace-torch / ase / huggingface_hub, ~3 GB). The fast
+#     suite never imports that stack and the block is not installable on every
+#     runner. Every conda pin below it is used verbatim, so there is no drift
+#     between CI and the documented environment.
+#   * `pip install -e . --no-deps`: the scientific stack comes from conda and
+#     PyPI has no fenics-dolfinx / petsc4py wheels, so letting pip resolve the
+#     pyproject dependencies would fail.
+#   * No Materials Project secret is needed. The MP_API_KEY below is a
+#     placeholder that is only *read* (config_loader.get_api_key) and never
+#     used: structures come from the committed cache in data/cache/.
+#
+# FIRST-RUN RISKS (fix in this order if the workflow goes red)
+#   1. The conda solve of ~450 pinned packages can be slow; if it hits the
+#      job timeout, add `mamba-version` or `cache: conda` to the setup step.
+#   2. A pinned build may not exist for the runner image (ubuntu-24.04); a
+#      solve error means environment.yml needs re-exporting for that image.
+#   3. If data/grids/grid_HfO2_3nm.pkl or the data/cache/*.json files ever
+#      stop being tracked, the golden-trace and percolation tests will skip
+#      (or error) - they are deliberately not regenerated in CI.
+#
+# EXPECTED RUNTIME: ~5-10 min conda solve + install, ~90 s tests (~7 min total,
+# first run included; the same inputs were measured end-to-end on a clean clone).
+#
+# PLANNED NEXT (Phase 2): a `solver` job on a self-hosted FEM-capable runner,
+# a `mace` job on a GPU runner, `cache: conda`, ruff + coverage gates, and
+# release/tag publishing.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  fast-suite:
+    name: Fast test suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Derive the CI conda environment from environment.yml
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          text = Path("environment.yml").read_text()
+          head, sep, _ = text.partition("  - pip:")
+          if not sep:
+              raise SystemExit("could not find the '  - pip:' block in environment.yml")
+          Path("environment-ci.yml").write_text(head)
+          print("wrote environment-ci.yml: conda pins kept, MACE/torch pip block dropped")
+          PY
+
+      - name: Set up conda (Kinetix)
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          environment-file: environment-ci.yml
+          activate-environment: Kinetix
+          auto-activate-base: false
+          python-version: "3.12"
+
+      - name: Install Kinetix (editable, dependencies from conda)
+        run: python -m pip install -e . --no-deps
+
+      - name: Run the fast test suite
+        env:
+          # Placeholder only: read by config_loader.get_api_key(), never used,
+          # because every structure is served from the committed data/cache/.
+          MP_API_KEY: offline-cache-only
+        run: python -m pytest tests/ -q -m "not solver and not mace"

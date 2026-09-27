@@ -1,9 +1,21 @@
 __pycache__/
 *.pkl
+# The golden-trace grid is the one pickle tracked on purpose: the CI fast
+# suite and the 5-test physics contract need its exact bytes (the fixture
+# pins the grid's sha256), and it is regenerated nowhere else.
+!data/grids/grid_HfO2_3nm.pkl
 *.msh
 results/
 test_output/
-data/cache/
+# NOTE: the directory itself must stay traversable (git cannot re-include
+# files inside an ignored directory), so ignore its contents instead.
+data/cache/*
+# Materials Project structure/summary caches (~100 KB total) are tracked so
+# the test suite and CI run offline, without an MP_API_KEY. Heavy caches
+# (neb_cache/, HF model snapshots) stay ignored.
+!data/cache/mp-*.json
+!data/cache/structure_mp-*.json
+!data/cache/summary_mp-*.json
 outputs/
 data/experimental
 *.pyc

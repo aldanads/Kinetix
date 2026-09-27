@@ -1,0 +1,10 @@
+{
+  "formula": "HfO2",
+  "density": 10.971726163030105,
+  "volume": 31.856871997756667,
+  "space_group": "Fm-3m",
+  "chem_env_symmetry": "Cube",
+  "metal_valence": 4.0,
+  "bond_length_metal_O": 2.178988860204043,
+  "epsilon_r": null
+}
