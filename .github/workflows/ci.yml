@@ -27,6 +27,9 @@
 #   * The conda env is derived from environment.yml by dropping its `pip:`
 #     block (torch / mace-torch / ase / huggingface_hub, ~3 GB). The fast
 #     suite never imports that stack. Every conda pin below it is used verbatim.
+#   * `pymatgen-analysis-defects` is installed separately via pip: it was spun
+#     out of pymatgen core and is not on conda-forge, but simulator.py imports
+#     it at module load. Without this, every test fails at collection.
 #   * `pip install -e . --no-deps`: the scientific stack comes from conda and
 #     PyPI has no fenics-dolfinx / petsc4py wheels, so letting pip resolve the
 #     pyproject dependencies would fail.
@@ -75,8 +78,17 @@ jobs:
           cache-environment: true
           post-cleanup: 'all'
 
+      - name: Install pymatgen-analysis-defects (not on conda-forge)
+        run: |
+          eval "$(micromamba shell hook --shell bash)"
+          micromamba activate Kinetix
+          python -m pip install pymatgen-analysis-defects
+
       - name: Install Kinetix (editable, dependencies from conda)
-        run: python -m pip install -e . --no-deps
+        run: |
+          eval "$(micromamba shell hook --shell bash)"
+          micromamba activate Kinetix
+          python -m pip install -e . --no-deps
 
       - name: Run the fast test suite
         env:
