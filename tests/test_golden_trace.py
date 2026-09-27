@@ -74,6 +74,7 @@ import json
 import math
 import os
 import platform
+import re
 from pathlib import Path
 
 import numpy as np
@@ -173,31 +174,60 @@ CROSS_PROVENANCE_KEYS = ("schema", "scenario", "preset", "grid", "n_sites",
 # =============================================================================
 
 
+# NumPy 2.x changed the repr of scalars: repr(np.int64(5)) is '5' on 1.x but
+# 'np.int64(5)' on 2.x. The encoded lines are hashed into catalog_digest, so a
+# NumPy 2.x run would disagree with the NumPy 1.x-generated fixtures even when
+# the physics is byte-identical.
+_NUMPY_SCALAR_RE = re.compile(r"np\.\w+\(([^()]*)\)")
+
+
+def _py(value):
+  """Recursively convert NumPy scalars/arrays to Python natives.
+
+  repr() of the result is then identical on NumPy 1.x and 2.x, which keeps the
+  encoded event lines - and therefore the catalog digests - stable across
+  NumPy versions. Plain Python values pass through untouched.
+  """
+  if isinstance(value, np.generic):        # NumPy scalar (np.int64, np.float32, ...)
+    return value.item()
+  if isinstance(value, np.ndarray):
+    return [_py(item) for item in value.tolist()]
+  if isinstance(value, (tuple, list)):
+    return type(value)(_py(item) for item in value)
+  return value
+
+
 def _format_event(rate, barrier, dest, label, origin) -> str:
   """Encode one event as a single diff-friendly, exactly-representable line.
 
   ``repr`` of float round-trips exactly, so no precision is lost by the text
   encoding; ``ast.literal_eval`` restores the native types (grid-index tuples
   stay tuples, int migration labels stay ints, reaction-name labels stay
-  strings).
+  strings). NumPy scalars are converted to Python natives first so the text
+  does not depend on the NumPy version (see :func:`_py`).
   """
   return "|".join((
       repr(float(rate)),
       repr(None if barrier is None else float(barrier)),
-      repr(dest),
-      repr(label),
-      repr(origin),
+      repr(_py(dest)),
+      repr(_py(label)),
+      repr(_py(origin)),
   ))
 
 
 def _parse_event(text: str) -> tuple:
-  """Inverse of :func:`_format_event` -> (rate, barrier, dest, label, origin)."""
+  """Inverse of :func:`_format_event` -> (rate, barrier, dest, label, origin).
+
+  Tolerates the NumPy 2.x scalar wrappers (``np.int64(364)``) that traces
+  written elsewhere may contain, so a fixture stays readable regardless of the
+  NumPy version that produced it.
+  """
   rate, barrier, dest, label, origin = text.split("|")
   return (float(rate),
           None if barrier == "None" else float(barrier),
-          ast.literal_eval(dest),
-          ast.literal_eval(label),
-          ast.literal_eval(origin))
+          ast.literal_eval(_NUMPY_SCALAR_RE.sub(r"\1", dest)),
+          ast.literal_eval(_NUMPY_SCALAR_RE.sub(r"\1", label)),
+          ast.literal_eval(_NUMPY_SCALAR_RE.sub(r"\1", origin)))
 
 
 def _event_fields(event):
@@ -1177,6 +1207,44 @@ def test_trace_internal_invariants(actual_trace):
         f"step {step}: executed event {chosen!r} is absent from the recorded "
         "catalog it was drawn from")
 
+
+
+def test_event_encoding_is_numpy_version_independent():
+  """The encoded event text - and its digest - must not depend on NumPy.
+
+  NumPy 2.x renders scalars as ``np.int64(364)`` where 1.x rendered ``364``.
+  Because the catalog lines are hashed into ``catalog_digest`` and re-read with
+  ``ast.literal_eval``, a NumPy 2.x run would otherwise both disagree with the
+  NumPy 1.x-generated fixtures and fail to parse its own output. This test is
+  the regression guard for both halves of that contract.
+  """
+  plain = "1.7718430931127676e-63|4.5|(364, 183, 132)|3|(364, 183, 132)"
+  numpy2 = ("1.7718430931127676e-63|4.5|(np.int64(364), np.int64(183),"
+            " np.int64(132))|np.int64(3)|(np.int64(364), np.int64(183),"
+            " np.int64(132))")
+
+  # 1. The parser reads both texts and yields the same native tuple.
+  assert _parse_event(numpy2) == _parse_event(plain)
+  rate, barrier, dest, label, origin = _parse_event(numpy2)
+  assert dest == (364, 183, 132) and label == 3 and origin == (364, 183, 132)
+  assert isinstance(dest[0], int) and not isinstance(dest[0], np.generic)
+
+  # 2. Encoding numpy scalars reproduces the canonical (NumPy 1.x) text, so a
+  #    NumPy 2.x run produces the same bytes - and the same digest - as the
+  #    fixtures recorded under 1.x.
+  record = (rate, barrier, (np.int64(364), np.int64(183), np.int64(132)),
+            np.int64(3), (np.int64(364), np.int64(183), np.int64(132)))
+  encoded = _format_event(*record)
+  assert "np." not in encoded, f"NumPy repr leaked into the trace: {encoded}"
+  assert encoded == plain
+  assert _catalog_digest([encoded]) == _catalog_digest([plain])
+
+  # 3. String labels (reaction names) and nested containers survive unchanged.
+  assert _parse_event(_format_event(rate, barrier, dest, "lattice_O -> V_O + O_i",
+                                    origin))[3] == "lattice_O -> V_O + O_i"
+  assert _py(np.array([1, 2, 3])) == [1, 2, 3]
+  assert _py((np.int64(1), (np.float64(0.5),))) == (1, (0.5,))
+  assert _py("text") == "text" and _py(None) is None
 
 
 def test_comparator_detects_drift(actual_trace):
