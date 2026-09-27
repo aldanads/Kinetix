@@ -104,7 +104,13 @@ def initialization(n_sim,params, config_name='PZT_ZrTi_PbO3_2.yaml'):
         # at the repository root anymore.
         files_copy = ['data/parameters','kinetix']
         
-        output_path = Path(config.settings.output_path)
+        # Resolve the preset's output location. expanduser() makes portable
+        # '~/...' values work (without it a bare '~' becomes a literal
+        # directory name), and the mkdir below guarantees the destination
+        # exists before any rank writes into it (save_simulation() creates the
+        # Sim_<id>/{program,output} subdirectories with parents=True).
+        output_path = Path(config.settings.output_path).expanduser()
+        output_path.mkdir(parents=True, exist_ok=True)
             
         if mpi_ctx.rank == 0:
           paths,Results = save_simulation(files_copy,output_path,n_sim,simulation_type) # Create folders and python files
@@ -447,7 +453,7 @@ def initialization(n_sim,params, config_name='PZT_ZrTi_PbO3_2.yaml'):
         
         if load_state_config:
           from kinetix.utils.state_loader import load_state_from_dump
-          dump_path = load_state_config['dump_path']
+          dump_path = Path(load_state_config['dump_path']).expanduser()
           reset_time = load_state_config.get('reset_time', True)
           
           load_state_from_dump(simulator, dump_path)

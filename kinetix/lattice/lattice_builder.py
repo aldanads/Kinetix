@@ -1075,7 +1075,9 @@ class LatticeBuilder:
             min_distance=MIN_DISTANCE_FROM_ATOMS
           )
 
-        if self.simulator.calculator_config and self.simulator.calculator_config.interstitial_refinement.enabled:
+        if (self.simulator.calculator_config and 
+            getattr(self.simulator.calculator_config, 'interstitial_refinement', None) and
+            self.simulator.calculator_config.interstitial_refinement.enabled):
           base_positions_unit_cell = self._refine_interstitial_positions(base_positions_unit_cell, interstitial_species)
 
         # Validate interstitial spacing in the unit cell

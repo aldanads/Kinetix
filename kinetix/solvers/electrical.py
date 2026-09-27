@@ -650,6 +650,7 @@ class ElectricalController:
         
         if save_path is not None:
           save_path = Path(save_path)
+          save_path.mkdir(parents=True, exist_ok=True)
           plot_path = save_path / 'iv_curves.png'
           plt.savefig(plot_path, dpi=300,bbox_inches = 'tight')
         
@@ -658,6 +659,8 @@ class ElectricalController:
     def save_IV_csv(self,save_path):
         """Save I-V data to CSV file"""
         filename = 'iv_curves.csv'
+        save_path = Path(save_path)
+        save_path.mkdir(parents=True, exist_ok=True)
         save_path = save_path / filename
         df = pd.DataFrame({
         'voltage_simulation': self.measurements['voltage'],

@@ -65,10 +65,10 @@ settings:
   lammps_output: true
   log_level: "INFO"  # DEBUG, INFO, WARNING, ERROR
   activation_energies: "activation_energies/PZT_ZrPbO3.json"   
-  output_path: '/home/Docs2/samuel.delgado/linuxhome/Documents/Simulators/PZT_outputs/'
+  output_path: './outputs/Simulators/PZT_outputs/'
   
   load_state:
-    dump_path: /home/Docs2/samuel.delgado/linuxhome/Documents/Simulators/PZT_outputs/Sim_9/output/500.dump
+    dump_path: ./outputs/Simulators/PZT_outputs/Sim_9/output/500.dump
     reset_time: true                
   
 # -----------------------------------------------------------------------------

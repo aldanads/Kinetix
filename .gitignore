@@ -4,6 +4,7 @@ __pycache__/
 results/
 test_output/
 data/cache/
+outputs/
 data/experimental
 *.pyc
 activation_energies_memristors.json

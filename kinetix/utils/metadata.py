@@ -56,6 +56,10 @@ class MetadataWriter:
             crystal: Lattice state whose metadata is recorded.
             filename: File name (inside ``output_dir``) to write.
         """
+        # write_json is also callable standalone (tests, scripts), not only
+        # right after save_simulation() created the directory, so guarantee
+        # the destination exists before opening the file.
+        self.output_dir.mkdir(parents=True, exist_ok=True)
         metadata_path = self.output_dir / filename
         crystal._species_id_gen()
 
