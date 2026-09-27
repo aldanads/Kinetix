@@ -210,6 +210,14 @@ class SolverCoordinator:
 
     def get_timestep_limit(self):
         """Calculate maximum timestep based on next Poisson solve time."""
+        # A field-free run (solve_Poisson/solve_heat false) never calls
+        # should_solve_fields_now(), so there is no field deadline to honour:
+        # cap the step by timestep_limits alone. Deriving a deadline from a
+        # timestamp that nothing ever updates collapses the limit to 0.0 after
+        # the first step and livelocks the kMC loop (time stops advancing).
+        if not hasattr(self.simulator, 'last_field_solve_time'):
+            return self.simulator.timestep_limits
+
         next_field_time = self.simulator.last_field_solve_time + self.simulator.timestep_limits
         timestep_limit = next_field_time - self.simulator.time
 

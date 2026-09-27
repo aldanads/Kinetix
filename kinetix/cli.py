@@ -397,6 +397,13 @@ def main(sim_id=None, config_name='PZT_ZrTi_PbO3_2.yaml'):
             while simulator.should_continue_simulation(Elec_controller.total_simulation_time):
             
                      
+                # 'snapshots' is only assigned when the field solvers run (the
+                # should_solve_fields_now() call below). Without an initial value a
+                # field-free run (solve_Poisson: false) raises NameError on the
+                # first `if snapshots:`; None simply skips the snapshot block,
+                # which then has no field solve to report.
+                snapshots = None
+                
                 if solve_Poisson and platform.system() == 'Linux': 
                   should_solve_fields_now, snapshots = simulator.solver_coordinator.should_solve_fields_now(Elec_controller)
                        
