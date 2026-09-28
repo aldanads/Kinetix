@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/aldanads/Kinetix/schemas/poisson_solver_config.schema.json",
+  "type": "object",
+  "title": "PoissonSolverConfig",
+  "properties": {
+    "mesh_file": {
+      "type": "string",
+      "default": ""
+    },
+    "epsilon_r": {
+      "type": "number",
+      "default": 23.0
+    },
+    "chem_env_symmetry": {
+      "type": "string",
+      "default": "Unknown"
+    },
+    "metal_valence": {
+      "type": "number",
+      "default": 0.0
+    },
+    "d_metal_O": {
+      "type": "number",
+      "default": 2.0
+    },
+    "active_dipoles": {
+      "type": "integer",
+      "default": 4
+    },
+    "poisson_solve_frequency": {
+      "type": "integer",
+      "default": 100
+    },
+    "solve_Poisson": {
+      "type": "boolean",
+      "default": true
+    },
+    "save_Poisson": {
+      "type": "boolean",
+      "default": false
+    },
+    "screening_factor": {
+      "type": "number",
+      "default": 0.01
+    },
+    "conductivity": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "number"
+      },
+      "default": {}
+    },
+    "defects_config": {
+      "type": "object",
+      "additionalProperties": {},
+      "default": {}
+    }
+  },
+  "additionalProperties": false,
+  "description": "Poisson equation solver parameters."
+}

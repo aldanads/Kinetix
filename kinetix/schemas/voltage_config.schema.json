@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/aldanads/Kinetix/schemas/voltage_config.schema.json",
+  "type": "object",
+  "title": "VoltageConfig",
+  "properties": {
+    "mode": {
+      "$ref": "#/$defs/VoltageMode"
+    },
+    "initial_voltage": {
+      "type": "number",
+      "default": 0.0
+    },
+    "max_voltage": {
+      "type": "number",
+      "default": 2.0
+    },
+    "min_voltage": {
+      "type": "number",
+      "default": -2.0
+    },
+    "ramp_rate": {
+      "type": "number",
+      "default": 1.0
+    },
+    "num_cycles": {
+      "type": "integer",
+      "default": 1
+    },
+    "constant_voltage": {
+      "type": "number",
+      "default": 0.0
+    },
+    "total_time": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Optional: auto-calculated from RAMP, explicit for others",
+      "default": null
+    },
+    "voltage_update_time": {
+      "type": "number",
+      "default": 0.1
+    }
+  },
+  "additionalProperties": false,
+  "description": "Voltage protocol configuration.",
+  "$defs": {
+    "VoltageMode": {
+      "title": "VoltageMode",
+      "enum": [
+        "NONE",
+        "RAMP_CYCLE",
+        "ZERO_HOLD",
+        "CONSTANT"
+      ],
+      "x-enum-values": {
+        "NONE": 1,
+        "RAMP_CYCLE": 2,
+        "ZERO_HOLD": 3,
+        "CONSTANT": 4
+      },
+      "description": "Supported voltage application modes for the simulator Selected by member NAME in the YAML files."
+    }
+  }
+}

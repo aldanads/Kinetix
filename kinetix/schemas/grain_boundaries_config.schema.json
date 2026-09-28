@@ -1,0 +1,137 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/aldanads/Kinetix/schemas/grain_boundaries_config.schema.json",
+  "type": "object",
+  "title": "GrainBoundariesConfig",
+  "properties": {
+    "grain_boundaries": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/GrainBoundaryConfig"
+      },
+      "default": []
+    },
+    "description": {
+      "type": "string",
+      "default": ""
+    }
+  },
+  "additionalProperties": false,
+  "description": "Container for multiple grain boundary configurations.\nLoaded from a single YAML file.",
+  "$defs": {
+    "GrainBoundaryConfig": {
+      "type": "object",
+      "title": "GrainBoundaryConfig",
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "enabled": {
+          "type": "boolean",
+          "default": true
+        },
+        "orientation": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "[REQUIRED for planar] - 'xz', 'xy', 'yz'",
+          "default": null
+        },
+        "position": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "[REQUIRED for planar] - Position in \ufffd",
+          "default": null
+        },
+        "width": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "[REQUIRED for planar] - GB width in \ufffd",
+          "default": null
+        },
+        "outer_width": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "[OPTIONAL] - Transition region width",
+          "default": null
+        },
+        "center": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "number"
+              }
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "[REQUIRED for cylindrical] - [x, y] center position",
+          "default": null
+        },
+        "radius": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "[REQUIRED for cylindrical] - Inner radius in \ufffd",
+          "default": null
+        },
+        "outer_radius": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "[OPTIONAL for cylindrical] - Outer radius",
+          "default": null
+        },
+        "event_modifications": {
+          "type": "object",
+          "additionalProperties": {},
+          "default": {}
+        },
+        "description": {
+          "type": "string",
+          "default": ""
+        }
+      },
+      "additionalProperties": false,
+      "description": "Configuration for a single grain boundary.\n  \nSupports multiple GB types:\n- vertical_planar: Planar GB perpendicular to a crystal axis\n- horizontal_planar: Planar GB parallel to crystal layers\n- cylindrical: Cylindrical GB (e.g., columnar grains)",
+      "required": [
+        "type"
+      ]
+    }
+  }
+}

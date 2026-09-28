@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/aldanads/Kinetix/schemas/interstitial_refinement_config.schema.json",
+  "type": "object",
+  "title": "InterstitialRefinementConfig",
+  "properties": {
+    "enabled": {
+      "type": "boolean",
+      "description": "Whether interstitial refinement is performed.",
+      "default": false
+    },
+    "displacement_threshold": {
+      "type": "number",
+      "description": "Displacement cutoff in Angstroms.",
+      "default": 0.5
+    }
+  },
+  "additionalProperties": false,
+  "description": "Parameters for refining interstitial sites before grid generation.\n\nAttributes:\n    enabled: Whether interstitial refinement is performed.\n    displacement_threshold: Displacement cutoff in Angstroms."
+}

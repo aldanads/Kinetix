@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/aldanads/Kinetix/schemas/material_selection.schema.json",
+  "type": "object",
+  "title": "MaterialSelection",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Human-readable material name (e.g. \"PZT\")."
+    },
+    "mp_id": {
+      "type": "string",
+      "description": "Materials Project database identifier (e.g. \"mp-1234\")."
+    },
+    "radius_neighbors": {
+      "type": "number",
+      "description": "Cutoff radius in Angstroms for neighbor searches.",
+      "default": 4.0
+    }
+  },
+  "additionalProperties": false,
+  "description": "Material identification and Materials Project database info.\n\nAttributes:\n    name: Human-readable material name (e.g. \"PZT\").\n    mp_id: Materials Project database identifier (e.g. \"mp-1234\").\n    radius_neighbors: Cutoff radius in Angstroms for neighbor searches.",
+  "required": [
+    "name",
+    "mp_id"
+  ]
+}

@@ -1,0 +1,159 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/aldanads/Kinetix/schemas/defect_config.schema.json",
+  "type": "object",
+  "title": "DefectConfig",
+  "properties": {
+    "name": {
+      "type": "string"
+    },
+    "symbol": {
+      "type": "string"
+    },
+    "charge": {
+      "type": "integer"
+    },
+    "site_type": {
+      "type": "string"
+    },
+    "allowed_sublattices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "physical_element": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "element label for atomistic calculators (MACE); None = pseudo-particle (e.g. vacancy)",
+      "default": null
+    },
+    "initial_concentration_bulk": {
+      "type": "number",
+      "default": 0.0
+    },
+    "initial_concentration_GB": {
+      "type": "number",
+      "default": 0.0
+    },
+    "valid_target_species": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": []
+    },
+    "activation_energies_key": {
+      "type": "string",
+      "default": ""
+    },
+    "enabled_events": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": []
+    },
+    "CN_matters": {
+      "type": "boolean",
+      "default": false
+    },
+    "sites_generation_layer": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "interface_tolerance_generation": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": 0.0
+    },
+    "field_dependent_generation": {
+      "type": "boolean",
+      "default": false
+    },
+    "electrode_scavenging": {
+      "type": "boolean",
+      "default": false
+    },
+    "description": {
+      "type": "string",
+      "default": ""
+    },
+    "passivant": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "passivation_level": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "max_passivation_level": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "charge_per_passivation": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "is_empty": {
+      "type": "boolean",
+      "default": false
+    }
+  },
+  "additionalProperties": false,
+  "description": "Configuration for a single defect species.\n\nAttributes:\n  name: Unique identifier for the defect species.\n  symbol: Short symbol used to identify the defect in state keys.\n  charge: Charge of the defect in units of the elementary charge.\n  site_type: Either 'interstitial' or the name of a sublattice.\n  allowed_sublattices: Sublattice names the defect is allowed to occupy.\n  physical_element: Element label for atomistic calculators (MACE);\n    None means a pseudo-particle such as a vacancy.\n  initial_concentration_bulk: Initial bulk occupancy fraction.\n  initial_concentration_GB: Initial grain-boundary occupancy fraction.\n  valid_target_species: Symbols of species this defect can react with.\n  activation_energies_key: Key into the activation-energies JSON file.\n  enabled_events: Event types (EventType values) enabled for this defect.\n  CN_matters: Whether coordination number affects this defect's rates.\n  sites_generation_layer: Layer in which interstitial sites are generated.\n  interface_tolerance_generation: Tolerance (nm) for interface site\n    generation.\n  field_dependent_generation: Whether generation depends on the E-field.\n  electrode_scavenging: Whether the defect is scavenged at electrodes.\n  description: Free-text description taken from the YAML file.\n  is_empty: Structural flag marking the synthetic empty-defect template;\n    always False for defects loaded from YAML.\n  passivant: Element contributed per passivation level; required by the MACE\n    NEB calculator (kinetix/calculators/mace_neb.py) when\n    ``max_passivation_level > 0``, otherwise ignored.",
+  "required": [
+    "name",
+    "symbol",
+    "charge",
+    "site_type",
+    "allowed_sublattices"
+  ]
+}

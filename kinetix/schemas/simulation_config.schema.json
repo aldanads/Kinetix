@@ -1,0 +1,1299 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/aldanads/Kinetix/schemas/simulation_config.schema.json",
+  "type": "object",
+  "title": "SimulationConfig",
+  "properties": {
+    "name": {
+      "type": "string",
+      "default": ""
+    },
+    "description": {
+      "type": "string",
+      "default": ""
+    },
+    "author": {
+      "type": "string",
+      "default": ""
+    },
+    "material": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/MaterialConfig"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "experimental": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ExperimentalConditions"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "settings": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SimulationSettings"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "defects": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/DefectsConfig"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "reactions": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ReactionsConfig"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "mesh": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/MeshConfig"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "poisson": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PoissonSolverConfig"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "heat": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/HeatSolverConfig"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "superbasin": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SuperbasinConfig"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "calculator": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/CalculatorConfig"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "electrical": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ElectricalConfig"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "grain_boundaries": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/GrainBoundariesConfig"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "rng": {
+      "x-runtime-injected": true,
+      "description": "Injected by the runtime, not read from the YAML file.",
+      "default": null
+    },
+    "mpi_ctx": {
+      "x-runtime-injected": true,
+      "description": "Injected by the runtime, not read from the YAML file.",
+      "default": null
+    },
+    "base_path": {
+      "anyOf": [
+        {
+          "type": "string",
+          "description": "Filesystem path (YAML: a string)."
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "For resolving relative component paths Injected by the runtime, not read from the YAML file.",
+      "x-runtime-injected": true,
+      "default": null
+    }
+  },
+  "additionalProperties": false,
+  "description": "Master configuration for kMC simulation.\nCombines all sub-configurations into one object.",
+  "$defs": {
+    "MaterialConfig": {
+      "type": "object",
+      "title": "MaterialConfig",
+      "properties": {
+        "selection": {
+          "$ref": "#/$defs/MaterialSelection",
+          "description": "Material identification and database info."
+        },
+        "structure": {
+          "$ref": "#/$defs/CrystalStructure",
+          "description": "Crystal geometry and orientation."
+        },
+        "formula": {
+          "type": "string",
+          "description": "Chemical formula (filled by MaterialDataFetcher).",
+          "default": ""
+        },
+        "epsilon_r": {
+          "type": "number",
+          "description": "Relative permittivity (filled by MaterialDataFetcher).",
+          "default": 23.0
+        },
+        "chem_env_symmetry": {
+          "type": "string",
+          "description": "Local chemical environment symmetry (filled by MaterialDataFetcher).",
+          "default": "Unknown"
+        },
+        "metal_valence": {
+          "type": "number",
+          "description": "Metal cation valence (filled by MaterialDataFetcher).",
+          "default": 0.0
+        },
+        "bond_length_metal_O": {
+          "type": "number",
+          "description": "Metal-oxygen bond length in Angstroms (filled by MaterialDataFetcher).",
+          "default": 2.0
+        }
+      },
+      "additionalProperties": false,
+      "description": "Complete material configuration.\n\nAttributes:\n    selection: Material identification and database info.\n    structure: Crystal geometry and orientation.\n    formula: Chemical formula (filled by MaterialDataFetcher).\n    epsilon_r: Relative permittivity (filled by MaterialDataFetcher).\n    chem_env_symmetry: Local chemical environment symmetry\n        (filled by MaterialDataFetcher).\n    metal_valence: Metal cation valence (filled by MaterialDataFetcher).\n    bond_length_metal_O: Metal-oxygen bond length in Angstroms\n        (filled by MaterialDataFetcher).",
+      "required": [
+        "selection",
+        "structure"
+      ]
+    },
+    "MaterialSelection": {
+      "type": "object",
+      "title": "MaterialSelection",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Human-readable material name (e.g. \"PZT\")."
+        },
+        "mp_id": {
+          "type": "string",
+          "description": "Materials Project database identifier (e.g. \"mp-1234\")."
+        },
+        "radius_neighbors": {
+          "type": "number",
+          "description": "Cutoff radius in Angstroms for neighbor searches.",
+          "default": 4.0
+        }
+      },
+      "additionalProperties": false,
+      "description": "Material identification and Materials Project database info.\n\nAttributes:\n    name: Human-readable material name (e.g. \"PZT\").\n    mp_id: Materials Project database identifier (e.g. \"mp-1234\").\n    radius_neighbors: Cutoff radius in Angstroms for neighbor searches.",
+      "required": [
+        "name",
+        "mp_id"
+      ]
+    },
+    "CrystalStructure": {
+      "type": "object",
+      "title": "CrystalStructure",
+      "properties": {
+        "size": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "minItems": 3,
+          "maxItems": 3,
+          "description": "Simulation box dimensions (x, y, z) in Angstroms.",
+          "default": [
+            50.0,
+            50.0,
+            50.0
+          ]
+        },
+        "miller_indices": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "integer"
+            }
+          ],
+          "minItems": 3,
+          "maxItems": 3,
+          "description": "Surface orientation as Miller (hkl) indices.",
+          "default": [
+            0,
+            0,
+            1
+          ]
+        },
+        "sites_generation_layer": {
+          "type": "string",
+          "description": "Surface layer used for site generation (\"top_layer\" or \"bottom_layer\").",
+          "default": "top_layer"
+        },
+        "affected_site": {
+          "type": "string",
+          "description": "Identifier of the site affected by defect generation.",
+          "default": ""
+        },
+        "facets_type": {
+          "anyOf": [
+            {},
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Optional facet descriptor (structure-dependent; may be None).",
+          "default": null
+        },
+        "interstitial_generation": {
+          "anyOf": [
+            {
+              "type": "object",
+              "additionalProperties": {}
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Optional parameters for interstitial site generation, keyed by name (may be None).",
+          "default": null
+        }
+      },
+      "additionalProperties": false,
+      "description": "Crystal geometry and orientation.\n\nAttributes:\n    size: Simulation box dimensions (x, y, z) in Angstroms.\n    miller_indices: Surface orientation as Miller (hkl) indices.\n    sites_generation_layer: Surface layer used for site generation\n        (\"top_layer\" or \"bottom_layer\").\n    affected_site: Identifier of the site affected by defect generation.\n    facets_type: Optional facet descriptor (structure-dependent; may be None).\n    interstitial_generation: Optional parameters for interstitial site\n        generation, keyed by name (may be None)."
+    },
+    "ExperimentalConditions": {
+      "type": "object",
+      "title": "ExperimentalConditions",
+      "properties": {
+        "temperature": {
+          "type": "number",
+          "description": "K",
+          "default": 300.0
+        },
+        "sticking_coeff": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "partial_pressure": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Pa",
+          "default": null
+        }
+      },
+      "additionalProperties": false,
+      "description": "Experimental environment parameters."
+    },
+    "SimulationSettings": {
+      "type": "object",
+      "title": "SimulationSettings",
+      "properties": {
+        "simulation_type": {
+          "type": "string"
+        },
+        "technology": {
+          "type": "string",
+          "default": ""
+        },
+        "mode": {
+          "type": "string",
+          "description": "or 'vacancy'",
+          "default": ""
+        },
+        "total_steps": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "seed_rng": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "save_data": {
+          "type": "boolean",
+          "default": true
+        },
+        "log_level": {
+          "type": "string",
+          "description": "DEBUG, INFO, WARNING, ERROR",
+          "default": "INFO"
+        },
+        "snapshoots_steps": {
+          "type": "integer",
+          "default": 40
+        },
+        "lammps_output": {
+          "type": "boolean",
+          "default": true
+        },
+        "activation_energies": {
+          "type": "string",
+          "description": "Path relative too data/parameters",
+          "default": ""
+        },
+        "output_path": {
+          "type": "string",
+          "default": ""
+        },
+        "load_state": {
+          "type": "object",
+          "additionalProperties": {},
+          "default": {}
+        }
+      },
+      "additionalProperties": false,
+      "description": "General simulation parameters.",
+      "required": [
+        "simulation_type"
+      ]
+    },
+    "DefectsConfig": {
+      "type": "object",
+      "title": "DefectsConfig",
+      "properties": {
+        "defects": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/DefectConfig"
+          },
+          "default": {}
+        }
+      },
+      "additionalProperties": false,
+      "description": "Collection of all defect configurations.\n\nAttributes:\n  defects: Mapping from defect name to its configuration."
+    },
+    "DefectConfig": {
+      "type": "object",
+      "title": "DefectConfig",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "symbol": {
+          "type": "string"
+        },
+        "charge": {
+          "type": "integer"
+        },
+        "site_type": {
+          "type": "string"
+        },
+        "allowed_sublattices": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "physical_element": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "element label for atomistic calculators (MACE); None = pseudo-particle (e.g. vacancy)",
+          "default": null
+        },
+        "initial_concentration_bulk": {
+          "type": "number",
+          "default": 0.0
+        },
+        "initial_concentration_GB": {
+          "type": "number",
+          "default": 0.0
+        },
+        "valid_target_species": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "activation_energies_key": {
+          "type": "string",
+          "default": ""
+        },
+        "enabled_events": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "CN_matters": {
+          "type": "boolean",
+          "default": false
+        },
+        "sites_generation_layer": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "interface_tolerance_generation": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": 0.0
+        },
+        "field_dependent_generation": {
+          "type": "boolean",
+          "default": false
+        },
+        "electrode_scavenging": {
+          "type": "boolean",
+          "default": false
+        },
+        "description": {
+          "type": "string",
+          "default": ""
+        },
+        "passivant": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "passivation_level": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "max_passivation_level": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "charge_per_passivation": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "is_empty": {
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "additionalProperties": false,
+      "description": "Configuration for a single defect species.\n\nAttributes:\n  name: Unique identifier for the defect species.\n  symbol: Short symbol used to identify the defect in state keys.\n  charge: Charge of the defect in units of the elementary charge.\n  site_type: Either 'interstitial' or the name of a sublattice.\n  allowed_sublattices: Sublattice names the defect is allowed to occupy.\n  physical_element: Element label for atomistic calculators (MACE);\n    None means a pseudo-particle such as a vacancy.\n  initial_concentration_bulk: Initial bulk occupancy fraction.\n  initial_concentration_GB: Initial grain-boundary occupancy fraction.\n  valid_target_species: Symbols of species this defect can react with.\n  activation_energies_key: Key into the activation-energies JSON file.\n  enabled_events: Event types (EventType values) enabled for this defect.\n  CN_matters: Whether coordination number affects this defect's rates.\n  sites_generation_layer: Layer in which interstitial sites are generated.\n  interface_tolerance_generation: Tolerance (nm) for interface site\n    generation.\n  field_dependent_generation: Whether generation depends on the E-field.\n  electrode_scavenging: Whether the defect is scavenged at electrodes.\n  description: Free-text description taken from the YAML file.\n  is_empty: Structural flag marking the synthetic empty-defect template;\n    always False for defects loaded from YAML.\n  passivant: Element contributed per passivation level; required by the MACE\n    NEB calculator (kinetix/calculators/mace_neb.py) when\n    ``max_passivation_level > 0``, otherwise ignored.",
+      "required": [
+        "name",
+        "symbol",
+        "charge",
+        "site_type",
+        "allowed_sublattices"
+      ]
+    },
+    "ReactionsConfig": {
+      "type": "object",
+      "title": "ReactionsConfig",
+      "properties": {
+        "reactions": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/ReactionConfig"
+          },
+          "default": {}
+        },
+        "description": {
+          "type": "string",
+          "default": ""
+        }
+      },
+      "additionalProperties": false,
+      "description": "Collection of all reaction configurations.\n\nAttributes:\n  reactions: Mapping from reaction name to its configuration.\n  description: Free-text description taken from the YAML metadata."
+    },
+    "ReactionConfig": {
+      "type": "object",
+      "title": "ReactionConfig",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "reactants": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ReactionSpecies"
+          }
+        },
+        "products": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ReactionSpecies"
+          }
+        },
+        "enabled": {
+          "type": "boolean",
+          "default": true
+        },
+        "field_dependent": {
+          "type": "boolean",
+          "default": true
+        },
+        "field_coupling": {
+          "type": "number",
+          "default": 1.0
+        },
+        "sites_removal_layer": {
+          "type": "string",
+          "default": "bottom_layer"
+        }
+      },
+      "additionalProperties": false,
+      "description": "Configuration for a single reaction.\n\nAttributes:\n  name: Unique identifier of the reaction.\n  type: One of 'bimolecular_neighbor', 'bimolecular_capture',\n    'unimolecular_escape'.\n  reactants: Species consumed by the reaction.\n  products: Species produced by the reaction.\n  enabled: Whether the reaction is active.\n  field_dependent: Whether the reaction rate depends on the E-field.\n  field_coupling: Coupling factor between E-field and reaction rate.\n  sites_removal_layer: Which layer's sites are removed for this reaction.",
+      "required": [
+        "name",
+        "type",
+        "reactants",
+        "products"
+      ]
+    },
+    "ReactionSpecies": {
+      "type": "object",
+      "title": "ReactionSpecies",
+      "properties": {
+        "symbol": {
+          "type": "string"
+        },
+        "sublattice": {
+          "type": "string"
+        },
+        "site_index": {
+          "description": "int, 'neighbor', or None",
+          "default": null
+        },
+        "key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "passivation_increment": {
+          "type": "integer",
+          "default": 0
+        },
+        "min_passivation": {
+          "type": "integer",
+          "default": 0
+        }
+      },
+      "additionalProperties": false,
+      "description": "A species in a reaction (reactant or product).\n\nAttributes:\n  symbol: Chemical symbol of the species.\n  sublattice: Sublattice the species occupies.\n  site_index: Site selector: an integer index, 'neighbor', or None.\n  key: Optional unique key for the species instance.\n  passivation_increment: Change in passivation level applied by the event.\n  min_passivation: Minimum passivation level required for the event.",
+      "required": [
+        "symbol",
+        "sublattice"
+      ]
+    },
+    "MeshConfig": {
+      "type": "object",
+      "title": "MeshConfig",
+      "properties": {
+        "gdim": {
+          "type": "integer",
+          "default": 3
+        },
+        "gmsh_model_rank": {
+          "type": "integer",
+          "default": 0
+        },
+        "mesh_size": {
+          "type": "number",
+          "description": "Angstroms",
+          "default": 3.0
+        },
+        "bounding_box_padding": {
+          "type": "number",
+          "description": "Angstroms",
+          "default": 3.0
+        },
+        "epsilon_gaussian_charge": {
+          "type": "number",
+          "description": "Angstroms",
+          "default": 0.8
+        },
+        "activate_mesh_refinement": {
+          "type": "boolean",
+          "default": true
+        },
+        "fine_mesh_size": {
+          "type": "number",
+          "description": "Angstroms",
+          "default": 1.0
+        },
+        "refinement_radius": {
+          "type": "number",
+          "description": "Angstroms",
+          "default": 2.5
+        }
+      },
+      "additionalProperties": false,
+      "description": "Mesh generation parameters for Gmsh."
+    },
+    "PoissonSolverConfig": {
+      "type": "object",
+      "title": "PoissonSolverConfig",
+      "properties": {
+        "mesh_file": {
+          "type": "string",
+          "default": ""
+        },
+        "epsilon_r": {
+          "type": "number",
+          "default": 23.0
+        },
+        "chem_env_symmetry": {
+          "type": "string",
+          "default": "Unknown"
+        },
+        "metal_valence": {
+          "type": "number",
+          "default": 0.0
+        },
+        "d_metal_O": {
+          "type": "number",
+          "default": 2.0
+        },
+        "active_dipoles": {
+          "type": "integer",
+          "default": 4
+        },
+        "poisson_solve_frequency": {
+          "type": "integer",
+          "default": 100
+        },
+        "solve_Poisson": {
+          "type": "boolean",
+          "default": true
+        },
+        "save_Poisson": {
+          "type": "boolean",
+          "default": false
+        },
+        "screening_factor": {
+          "type": "number",
+          "default": 0.01
+        },
+        "conductivity": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "number"
+          },
+          "default": {}
+        },
+        "defects_config": {
+          "type": "object",
+          "additionalProperties": {},
+          "default": {}
+        }
+      },
+      "additionalProperties": false,
+      "description": "Poisson equation solver parameters."
+    },
+    "HeatSolverConfig": {
+      "type": "object",
+      "title": "HeatSolverConfig",
+      "properties": {
+        "solve_heat": {
+          "type": "boolean",
+          "default": false
+        },
+        "save_heat": {
+          "type": "boolean",
+          "default": false
+        },
+        "thermal_conductivity": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "number"
+          },
+          "description": "W/m-K",
+          "default": {}
+        },
+        "specific_heat": {
+          "type": "number",
+          "description": "J/kg-K",
+          "default": 500.0
+        },
+        "density": {
+          "type": "number",
+          "description": "kg/m\ufffd",
+          "default": 5000.0
+        },
+        "heat_solve_frequency": {
+          "type": "integer",
+          "default": 100
+        },
+        "tau_thermal": {
+          "type": "number",
+          "description": "s",
+          "default": 1.0
+        },
+        "use_thermal_inertia": {
+          "type": "boolean",
+          "default": true
+        }
+      },
+      "additionalProperties": false,
+      "description": "Heat equation solver parameters."
+    },
+    "SuperbasinConfig": {
+      "type": "object",
+      "title": "SuperbasinConfig",
+      "properties": {
+        "enabled_superbasin": {
+          "type": "boolean",
+          "default": false
+        },
+        "n_search_superbasin": {
+          "type": "integer",
+          "default": 50
+        },
+        "time_step_limits": {
+          "type": "number",
+          "default": 0.0001
+        },
+        "E_min": {
+          "type": "number",
+          "default": 0.5
+        },
+        "energy_step": {
+          "type": "number",
+          "default": 0.05
+        },
+        "time_based_superbasin": {
+          "type": "boolean",
+          "default": true
+        }
+      },
+      "additionalProperties": false,
+      "description": "Superbasin acceleration parameters."
+    },
+    "CalculatorConfig": {
+      "type": "object",
+      "title": "CalculatorConfig",
+      "properties": {
+        "type": {
+          "type": "string",
+          "description": "Calculator type, either \"mace_neb\" or \"tabulated\".",
+          "default": "tabulated"
+        },
+        "model": {
+          "type": "string",
+          "description": "Local model path or Hugging Face repository ID.",
+          "default": ""
+        },
+        "model_filename": {
+          "type": "string",
+          "description": "Filename of the model inside the HF repo, used only when ``model`` is a repository ID.",
+          "default": "model.model"
+        },
+        "n_images": {
+          "type": "integer",
+          "description": "Number of NEB images.",
+          "default": 5
+        },
+        "fmax": {
+          "type": "number",
+          "description": "Force convergence criterion in eV/Angstrom.",
+          "default": 0.05
+        },
+        "max_steps": {
+          "type": "integer",
+          "description": "Maximum optimizer steps for the NEB relaxation.",
+          "default": 300
+        },
+        "device": {
+          "type": "string",
+          "description": "Torch device, \"cpu\" or \"cuda\".",
+          "default": "cpu"
+        },
+        "default_dtype": {
+          "type": "string",
+          "description": "Torch default dtype name (e.g. \"float64\").",
+          "default": "float64"
+        },
+        "cluster": {
+          "anyOf": [
+            {
+              "type": "object",
+              "additionalProperties": {
+                "type": "number"
+              }
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Cluster radii such as {\"R_active\": 5.0, \"R_shell\": 7.0}, or None for a full periodic NEB.",
+          "default": null
+        },
+        "cache_dir": {
+          "type": "string",
+          "description": "Directory for caching computed barriers.",
+          "default": "data/cache/neb_cache"
+        },
+        "interstitial_refinement": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/InterstitialRefinementConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Optional interstitial refinement settings.",
+          "default": null
+        }
+      },
+      "additionalProperties": false,
+      "description": "Activation-energy calculator parameters.\n\nAttributes:\n    type: Calculator type, either \"mace_neb\" or \"tabulated\".\n    model: Local model path or Hugging Face repository ID.\n    model_filename: Filename of the model inside the HF repo, used only\n        when ``model`` is a repository ID.\n    n_images: Number of NEB images.\n    fmax: Force convergence criterion in eV/Angstrom.\n    max_steps: Maximum optimizer steps for the NEB relaxation.\n    device: Torch device, \"cpu\" or \"cuda\".\n    default_dtype: Torch default dtype name (e.g. \"float64\").\n    cluster: Cluster radii such as {\"R_active\": 5.0, \"R_shell\": 7.0},\n        or None for a full periodic NEB.\n    cache_dir: Directory for caching computed barriers.\n    interstitial_refinement: Optional interstitial refinement settings."
+    },
+    "InterstitialRefinementConfig": {
+      "type": "object",
+      "title": "InterstitialRefinementConfig",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Whether interstitial refinement is performed.",
+          "default": false
+        },
+        "displacement_threshold": {
+          "type": "number",
+          "description": "Displacement cutoff in Angstroms.",
+          "default": 0.5
+        }
+      },
+      "additionalProperties": false,
+      "description": "Parameters for refining interstitial sites before grid generation.\n\nAttributes:\n    enabled: Whether interstitial refinement is performed.\n    displacement_threshold: Displacement cutoff in Angstroms."
+    },
+    "ElectricalConfig": {
+      "type": "object",
+      "title": "ElectricalConfig",
+      "properties": {
+        "initial_time": {
+          "type": "number",
+          "default": 0.0
+        },
+        "series_resistance": {
+          "type": "number",
+          "default": 0.0
+        },
+        "crystal_size": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "integer"
+            }
+          ],
+          "minItems": 3,
+          "maxItems": 3,
+          "default": [
+            50,
+            50,
+            50
+          ]
+        },
+        "voltage": {
+          "$ref": "#/$defs/VoltageConfig"
+        },
+        "current": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CurrentConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "additionalProperties": false,
+      "description": "Complete electrical configuration\nThis is the main config object you'll pass to ElectricalController"
+    },
+    "VoltageConfig": {
+      "type": "object",
+      "title": "VoltageConfig",
+      "properties": {
+        "mode": {
+          "$ref": "#/$defs/VoltageMode"
+        },
+        "initial_voltage": {
+          "type": "number",
+          "default": 0.0
+        },
+        "max_voltage": {
+          "type": "number",
+          "default": 2.0
+        },
+        "min_voltage": {
+          "type": "number",
+          "default": -2.0
+        },
+        "ramp_rate": {
+          "type": "number",
+          "default": 1.0
+        },
+        "num_cycles": {
+          "type": "integer",
+          "default": 1
+        },
+        "constant_voltage": {
+          "type": "number",
+          "default": 0.0
+        },
+        "total_time": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Optional: auto-calculated from RAMP, explicit for others",
+          "default": null
+        },
+        "voltage_update_time": {
+          "type": "number",
+          "default": 0.1
+        }
+      },
+      "additionalProperties": false,
+      "description": "Voltage protocol configuration."
+    },
+    "VoltageMode": {
+      "title": "VoltageMode",
+      "enum": [
+        "NONE",
+        "RAMP_CYCLE",
+        "ZERO_HOLD",
+        "CONSTANT"
+      ],
+      "x-enum-values": {
+        "NONE": 1,
+        "RAMP_CYCLE": 2,
+        "ZERO_HOLD": 3,
+        "CONSTANT": 4
+      },
+      "description": "Supported voltage application modes for the simulator Selected by member NAME in the YAML files."
+    },
+    "CurrentConfig": {
+      "type": "object",
+      "title": "CurrentConfig",
+      "properties": {
+        "model": {
+          "$ref": "#/$defs/CurrentModel"
+        },
+        "barrier_height": {
+          "type": "number",
+          "default": 0.5
+        },
+        "temperature": {
+          "type": "number",
+          "default": 300.0
+        },
+        "area": {
+          "type": "number",
+          "default": 1e-10
+        },
+        "epsilon_r": {
+          "type": "number",
+          "default": 23.0
+        }
+      },
+      "additionalProperties": false,
+      "description": "Current measurement model parameters."
+    },
+    "CurrentModel": {
+      "title": "CurrentModel",
+      "enum": [
+        "OHMIC",
+        "SCHOTTKY"
+      ],
+      "x-enum-values": {
+        "OHMIC": 1,
+        "SCHOTTKY": 2
+      },
+      "description": "Supported conduction models for current measurement. Selected by member NAME in the YAML files."
+    },
+    "GrainBoundariesConfig": {
+      "type": "object",
+      "title": "GrainBoundariesConfig",
+      "properties": {
+        "grain_boundaries": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/GrainBoundaryConfig"
+          },
+          "default": []
+        },
+        "description": {
+          "type": "string",
+          "default": ""
+        }
+      },
+      "additionalProperties": false,
+      "description": "Container for multiple grain boundary configurations.\nLoaded from a single YAML file."
+    },
+    "GrainBoundaryConfig": {
+      "type": "object",
+      "title": "GrainBoundaryConfig",
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "enabled": {
+          "type": "boolean",
+          "default": true
+        },
+        "orientation": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "[REQUIRED for planar] - 'xz', 'xy', 'yz'",
+          "default": null
+        },
+        "position": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "[REQUIRED for planar] - Position in \ufffd",
+          "default": null
+        },
+        "width": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "[REQUIRED for planar] - GB width in \ufffd",
+          "default": null
+        },
+        "outer_width": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "[OPTIONAL] - Transition region width",
+          "default": null
+        },
+        "center": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "number"
+              }
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "[REQUIRED for cylindrical] - [x, y] center position",
+          "default": null
+        },
+        "radius": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "[REQUIRED for cylindrical] - Inner radius in \ufffd",
+          "default": null
+        },
+        "outer_radius": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "[OPTIONAL for cylindrical] - Outer radius",
+          "default": null
+        },
+        "event_modifications": {
+          "type": "object",
+          "additionalProperties": {},
+          "default": {}
+        },
+        "description": {
+          "type": "string",
+          "default": ""
+        }
+      },
+      "additionalProperties": false,
+      "description": "Configuration for a single grain boundary.\n  \nSupports multiple GB types:\n- vertical_planar: Planar GB perpendicular to a crystal axis\n- horizontal_planar: Planar GB parallel to crystal layers\n- cylindrical: Cylindrical GB (e.g., columnar grains)",
+      "required": [
+        "type"
+      ]
+    }
+  }
+}

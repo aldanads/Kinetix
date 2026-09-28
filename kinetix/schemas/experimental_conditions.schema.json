@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/aldanads/Kinetix/schemas/experimental_conditions.schema.json",
+  "type": "object",
+  "title": "ExperimentalConditions",
+  "properties": {
+    "temperature": {
+      "type": "number",
+      "description": "K",
+      "default": 300.0
+    },
+    "sticking_coeff": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "partial_pressure": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Pa",
+      "default": null
+    }
+  },
+  "additionalProperties": false,
+  "description": "Experimental environment parameters."
+}

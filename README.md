@@ -322,7 +322,24 @@ Simulation outputs (crystal snapshots, saved state, IV curves) are written under
 ---
 
 ## 🧪 Testing
-The test suite lives in [`tests/`](tests/) and covers the FEM Poisson and heat solvers, the shared FEM solver base class, grain-boundary barrier/charge modifications, PBC-aware migration pathways, and loadability of every shipped preset:
+
+The test suite lives in [`tests/`](tests/): **450 tests** in total, of which the
+**fast selection** below runs in ~90 s without an MPI cluster, a GPU or a
+Materials Project key:
+
+```bash
+conda activate Kinetix
+python -m pytest tests/ -q -m "not solver and not mace"   # 411 tests, ~90 s
+```
+
+That is exactly what CI runs on every push and pull request
+([`.github/workflows/ci.yml`](.github/workflows/ci.yml), badge at the top of this
+file). The full suite (`python -m pytest tests/ -q`) adds the 39 `solver`-marked
+tests and takes ~23 min.
+
+The suite covers the FEM Poisson and heat solvers, the shared FEM solver base
+class, grain-boundary barrier/charge modifications, PBC-aware migration
+pathways, and loadability of every shipped preset:
 
 ```text
 tests/
@@ -333,18 +350,17 @@ tests/
 ├── test_gb_charge_and_state_transfer.py # GB barriers and defect state transfer
 ├── test_migration_pathways.py           # PBC neighbor finding and pathway keys
 ├── test_mace_adapter.py                 # MACE-NEB calculator adapter (slow pathway sweeps need --runslow)
+├── test_golden_trace.py                 # Byte-level physics contract against the recorded fixtures
 ├── test_percolation.py                  # Island percolation analysis
 └── test_presets.py                      # Every shipped preset loads via SimulationConfig.from_yaml
 ```
 
-Run the suite from the project root (inside the `Kinetix` environment):
-
-```bash
-conda activate Kinetix
-python -m pytest tests/
-```
-
 The tests use lightweight mocks and do not require an MPI cluster or GPU hardware.
+Two data files ship with the repository so the physics contract is reproducible
+from a fresh clone: the golden-trace lattice `data/grids/grid_HfO2_3nm.pkl` and
+the Materials Project structure caches in `data/cache/` (~100 KB of JSON). The
+MACE adapter tests are skipped unless the optional extra is installed
+(`pip install -e ".[mace]"`).
 
 ---
 
@@ -353,8 +369,10 @@ The tests use lightweight mocks and do not require an MPI cluster or GPU hardwar
 Kinetix/
 ├── pyproject.toml               # Package metadata, dependencies, CLI entry point
 ├── environment.yml              # Conda environment (pinned builds)
+├── CITATION.cff                 # Machine-readable citation metadata (CFF 1.2.0)
 ├── config.template.json         # Template for the Materials Project API key
 ├── LICENSE                      # MIT license
+├── .github/workflows/ci.yml     # CI: the fast test suite on every push/PR
 ├── kinetix/                     # Core Python package
 │   ├── cli.py                   # CLI entry point: argparse + kMC driver loop
 │   ├── __main__.py              # Enables `python -m kinetix`
@@ -368,20 +386,23 @@ Kinetix/
 │   └── utils/                   # mpi_context, balanced_tree, superbasin, analysis
 ├── data/
 │   ├── parameters/              # All user-facing YAML/JSON parameter files
-│   ├── grids/                   # Saved crystal grids (.pkl, generated locally)
+│   ├── grids/                   # Saved crystal grids (.pkl; one is tracked, rest generated locally)
 │   ├── mesh/                    # gmsh meshes (.msh, generated locally)
-│   ├── cache/                   # Materials Project cache (git-ignored)
+│   ├── cache/                   # Materials Project cache (small JSONs tracked, heavy caches ignored)
 │   └── experimental/            # Experimental I–V data for comparison
 ├── scripts/
-│   └── hpc/                     # PBS templates and HPC deployment notes
-└── tests/                       # pytest suite
+│   └── hpc/                     # SLURM/PBS templates, profiling job and deployment notes
+└── tests/                       # pytest suite (450 tests)
 ```
 
 ---
 
 ## 📚 How to Cite
 
-If you use Kinetix in your research or adapt part of the code, please cite the following:
+If you use Kinetix in your research or adapt part of the code, please cite the
+repository itself (machine-readable metadata lives in
+[`CITATION.cff`](CITATION.cff), so GitHub renders a "Cite this repository" button
+with BibTeX/APA/RIS export) **and** the publications below.
 
 ### Core Framework (Published Versions)
 The core kMC framework has been validated and used in the following publications:

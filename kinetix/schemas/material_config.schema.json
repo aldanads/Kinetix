@@ -1,0 +1,159 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/aldanads/Kinetix/schemas/material_config.schema.json",
+  "type": "object",
+  "title": "MaterialConfig",
+  "properties": {
+    "selection": {
+      "$ref": "#/$defs/MaterialSelection",
+      "description": "Material identification and database info."
+    },
+    "structure": {
+      "$ref": "#/$defs/CrystalStructure",
+      "description": "Crystal geometry and orientation."
+    },
+    "formula": {
+      "type": "string",
+      "description": "Chemical formula (filled by MaterialDataFetcher).",
+      "default": ""
+    },
+    "epsilon_r": {
+      "type": "number",
+      "description": "Relative permittivity (filled by MaterialDataFetcher).",
+      "default": 23.0
+    },
+    "chem_env_symmetry": {
+      "type": "string",
+      "description": "Local chemical environment symmetry (filled by MaterialDataFetcher).",
+      "default": "Unknown"
+    },
+    "metal_valence": {
+      "type": "number",
+      "description": "Metal cation valence (filled by MaterialDataFetcher).",
+      "default": 0.0
+    },
+    "bond_length_metal_O": {
+      "type": "number",
+      "description": "Metal-oxygen bond length in Angstroms (filled by MaterialDataFetcher).",
+      "default": 2.0
+    }
+  },
+  "additionalProperties": false,
+  "description": "Complete material configuration.\n\nAttributes:\n    selection: Material identification and database info.\n    structure: Crystal geometry and orientation.\n    formula: Chemical formula (filled by MaterialDataFetcher).\n    epsilon_r: Relative permittivity (filled by MaterialDataFetcher).\n    chem_env_symmetry: Local chemical environment symmetry\n        (filled by MaterialDataFetcher).\n    metal_valence: Metal cation valence (filled by MaterialDataFetcher).\n    bond_length_metal_O: Metal-oxygen bond length in Angstroms\n        (filled by MaterialDataFetcher).",
+  "required": [
+    "selection",
+    "structure"
+  ],
+  "$defs": {
+    "MaterialSelection": {
+      "type": "object",
+      "title": "MaterialSelection",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Human-readable material name (e.g. \"PZT\")."
+        },
+        "mp_id": {
+          "type": "string",
+          "description": "Materials Project database identifier (e.g. \"mp-1234\")."
+        },
+        "radius_neighbors": {
+          "type": "number",
+          "description": "Cutoff radius in Angstroms for neighbor searches.",
+          "default": 4.0
+        }
+      },
+      "additionalProperties": false,
+      "description": "Material identification and Materials Project database info.\n\nAttributes:\n    name: Human-readable material name (e.g. \"PZT\").\n    mp_id: Materials Project database identifier (e.g. \"mp-1234\").\n    radius_neighbors: Cutoff radius in Angstroms for neighbor searches.",
+      "required": [
+        "name",
+        "mp_id"
+      ]
+    },
+    "CrystalStructure": {
+      "type": "object",
+      "title": "CrystalStructure",
+      "properties": {
+        "size": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "minItems": 3,
+          "maxItems": 3,
+          "description": "Simulation box dimensions (x, y, z) in Angstroms.",
+          "default": [
+            50.0,
+            50.0,
+            50.0
+          ]
+        },
+        "miller_indices": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "integer"
+            }
+          ],
+          "minItems": 3,
+          "maxItems": 3,
+          "description": "Surface orientation as Miller (hkl) indices.",
+          "default": [
+            0,
+            0,
+            1
+          ]
+        },
+        "sites_generation_layer": {
+          "type": "string",
+          "description": "Surface layer used for site generation (\"top_layer\" or \"bottom_layer\").",
+          "default": "top_layer"
+        },
+        "affected_site": {
+          "type": "string",
+          "description": "Identifier of the site affected by defect generation.",
+          "default": ""
+        },
+        "facets_type": {
+          "anyOf": [
+            {},
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Optional facet descriptor (structure-dependent; may be None).",
+          "default": null
+        },
+        "interstitial_generation": {
+          "anyOf": [
+            {
+              "type": "object",
+              "additionalProperties": {}
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Optional parameters for interstitial site generation, keyed by name (may be None).",
+          "default": null
+        }
+      },
+      "additionalProperties": false,
+      "description": "Crystal geometry and orientation.\n\nAttributes:\n    size: Simulation box dimensions (x, y, z) in Angstroms.\n    miller_indices: Surface orientation as Miller (hkl) indices.\n    sites_generation_layer: Surface layer used for site generation\n        (\"top_layer\" or \"bottom_layer\").\n    affected_site: Identifier of the site affected by defect generation.\n    facets_type: Optional facet descriptor (structure-dependent; may be None).\n    interstitial_generation: Optional parameters for interstitial site\n        generation, keyed by name (may be None)."
+    }
+  }
+}

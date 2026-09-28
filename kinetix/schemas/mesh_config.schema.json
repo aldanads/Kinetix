@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/aldanads/Kinetix/schemas/mesh_config.schema.json",
+  "type": "object",
+  "title": "MeshConfig",
+  "properties": {
+    "gdim": {
+      "type": "integer",
+      "default": 3
+    },
+    "gmsh_model_rank": {
+      "type": "integer",
+      "default": 0
+    },
+    "mesh_size": {
+      "type": "number",
+      "description": "Angstroms",
+      "default": 3.0
+    },
+    "bounding_box_padding": {
+      "type": "number",
+      "description": "Angstroms",
+      "default": 3.0
+    },
+    "epsilon_gaussian_charge": {
+      "type": "number",
+      "description": "Angstroms",
+      "default": 0.8
+    },
+    "activate_mesh_refinement": {
+      "type": "boolean",
+      "default": true
+    },
+    "fine_mesh_size": {
+      "type": "number",
+      "description": "Angstroms",
+      "default": 1.0
+    },
+    "refinement_radius": {
+      "type": "number",
+      "description": "Angstroms",
+      "default": 2.5
+    }
+  },
+  "additionalProperties": false,
+  "description": "Mesh generation parameters for Gmsh."
+}

@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/aldanads/Kinetix/schemas/reaction_species.schema.json",
+  "type": "object",
+  "title": "ReactionSpecies",
+  "properties": {
+    "symbol": {
+      "type": "string"
+    },
+    "sublattice": {
+      "type": "string"
+    },
+    "site_index": {
+      "description": "int, 'neighbor', or None",
+      "default": null
+    },
+    "key": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "passivation_increment": {
+      "type": "integer",
+      "default": 0
+    },
+    "min_passivation": {
+      "type": "integer",
+      "default": 0
+    }
+  },
+  "additionalProperties": false,
+  "description": "A species in a reaction (reactant or product).\n\nAttributes:\n  symbol: Chemical symbol of the species.\n  sublattice: Sublattice the species occupies.\n  site_index: Site selector: an integer index, 'neighbor', or None.\n  key: Optional unique key for the species instance.\n  passivation_increment: Change in passivation level applied by the event.\n  min_passivation: Minimum passivation level required for the event.",
+  "required": [
+    "symbol",
+    "sublattice"
+  ]
+}

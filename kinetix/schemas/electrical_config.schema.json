@@ -1,0 +1,161 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/aldanads/Kinetix/schemas/electrical_config.schema.json",
+  "type": "object",
+  "title": "ElectricalConfig",
+  "properties": {
+    "initial_time": {
+      "type": "number",
+      "default": 0.0
+    },
+    "series_resistance": {
+      "type": "number",
+      "default": 0.0
+    },
+    "crystal_size": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "integer"
+        },
+        {
+          "type": "integer"
+        }
+      ],
+      "minItems": 3,
+      "maxItems": 3,
+      "default": [
+        50,
+        50,
+        50
+      ]
+    },
+    "voltage": {
+      "$ref": "#/$defs/VoltageConfig"
+    },
+    "current": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/CurrentConfig"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    }
+  },
+  "additionalProperties": false,
+  "description": "Complete electrical configuration\nThis is the main config object you'll pass to ElectricalController",
+  "$defs": {
+    "VoltageConfig": {
+      "type": "object",
+      "title": "VoltageConfig",
+      "properties": {
+        "mode": {
+          "$ref": "#/$defs/VoltageMode"
+        },
+        "initial_voltage": {
+          "type": "number",
+          "default": 0.0
+        },
+        "max_voltage": {
+          "type": "number",
+          "default": 2.0
+        },
+        "min_voltage": {
+          "type": "number",
+          "default": -2.0
+        },
+        "ramp_rate": {
+          "type": "number",
+          "default": 1.0
+        },
+        "num_cycles": {
+          "type": "integer",
+          "default": 1
+        },
+        "constant_voltage": {
+          "type": "number",
+          "default": 0.0
+        },
+        "total_time": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Optional: auto-calculated from RAMP, explicit for others",
+          "default": null
+        },
+        "voltage_update_time": {
+          "type": "number",
+          "default": 0.1
+        }
+      },
+      "additionalProperties": false,
+      "description": "Voltage protocol configuration."
+    },
+    "VoltageMode": {
+      "title": "VoltageMode",
+      "enum": [
+        "NONE",
+        "RAMP_CYCLE",
+        "ZERO_HOLD",
+        "CONSTANT"
+      ],
+      "x-enum-values": {
+        "NONE": 1,
+        "RAMP_CYCLE": 2,
+        "ZERO_HOLD": 3,
+        "CONSTANT": 4
+      },
+      "description": "Supported voltage application modes for the simulator Selected by member NAME in the YAML files."
+    },
+    "CurrentConfig": {
+      "type": "object",
+      "title": "CurrentConfig",
+      "properties": {
+        "model": {
+          "$ref": "#/$defs/CurrentModel"
+        },
+        "barrier_height": {
+          "type": "number",
+          "default": 0.5
+        },
+        "temperature": {
+          "type": "number",
+          "default": 300.0
+        },
+        "area": {
+          "type": "number",
+          "default": 1e-10
+        },
+        "epsilon_r": {
+          "type": "number",
+          "default": 23.0
+        }
+      },
+      "additionalProperties": false,
+      "description": "Current measurement model parameters."
+    },
+    "CurrentModel": {
+      "title": "CurrentModel",
+      "enum": [
+        "OHMIC",
+        "SCHOTTKY"
+      ],
+      "x-enum-values": {
+        "OHMIC": 1,
+        "SCHOTTKY": 2
+      },
+      "description": "Supported conduction models for current measurement. Selected by member NAME in the YAML files."
+    }
+  }
+}

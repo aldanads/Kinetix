@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/aldanads/Kinetix/schemas/simulation_settings.schema.json",
+  "type": "object",
+  "title": "SimulationSettings",
+  "properties": {
+    "simulation_type": {
+      "type": "string"
+    },
+    "technology": {
+      "type": "string",
+      "default": ""
+    },
+    "mode": {
+      "type": "string",
+      "description": "or 'vacancy'",
+      "default": ""
+    },
+    "total_steps": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "seed_rng": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "save_data": {
+      "type": "boolean",
+      "default": true
+    },
+    "log_level": {
+      "type": "string",
+      "description": "DEBUG, INFO, WARNING, ERROR",
+      "default": "INFO"
+    },
+    "snapshoots_steps": {
+      "type": "integer",
+      "default": 40
+    },
+    "lammps_output": {
+      "type": "boolean",
+      "default": true
+    },
+    "activation_energies": {
+      "type": "string",
+      "description": "Path relative too data/parameters",
+      "default": ""
+    },
+    "output_path": {
+      "type": "string",
+      "default": ""
+    },
+    "load_state": {
+      "type": "object",
+      "additionalProperties": {},
+      "default": {}
+    }
+  },
+  "additionalProperties": false,
+  "description": "General simulation parameters.",
+  "required": [
+    "simulation_type"
+  ]
+}

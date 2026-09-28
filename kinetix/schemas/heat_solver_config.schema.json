@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/aldanads/Kinetix/schemas/heat_solver_config.schema.json",
+  "type": "object",
+  "title": "HeatSolverConfig",
+  "properties": {
+    "solve_heat": {
+      "type": "boolean",
+      "default": false
+    },
+    "save_heat": {
+      "type": "boolean",
+      "default": false
+    },
+    "thermal_conductivity": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "number"
+      },
+      "description": "W/m-K",
+      "default": {}
+    },
+    "specific_heat": {
+      "type": "number",
+      "description": "J/kg-K",
+      "default": 500.0
+    },
+    "density": {
+      "type": "number",
+      "description": "kg/m\ufffd",
+      "default": 5000.0
+    },
+    "heat_solve_frequency": {
+      "type": "integer",
+      "default": 100
+    },
+    "tau_thermal": {
+      "type": "number",
+      "description": "s",
+      "default": 1.0
+    },
+    "use_thermal_inertia": {
+      "type": "boolean",
+      "default": true
+    }
+  },
+  "additionalProperties": false,
+  "description": "Heat equation solver parameters."
+}

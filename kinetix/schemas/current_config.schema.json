@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/aldanads/Kinetix/schemas/current_config.schema.json",
+  "type": "object",
+  "title": "CurrentConfig",
+  "properties": {
+    "model": {
+      "$ref": "#/$defs/CurrentModel"
+    },
+    "barrier_height": {
+      "type": "number",
+      "default": 0.5
+    },
+    "temperature": {
+      "type": "number",
+      "default": 300.0
+    },
+    "area": {
+      "type": "number",
+      "default": 1e-10
+    },
+    "epsilon_r": {
+      "type": "number",
+      "default": 23.0
+    }
+  },
+  "additionalProperties": false,
+  "description": "Current measurement model parameters.",
+  "$defs": {
+    "CurrentModel": {
+      "title": "CurrentModel",
+      "enum": [
+        "OHMIC",
+        "SCHOTTKY"
+      ],
+      "x-enum-values": {
+        "OHMIC": 1,
+        "SCHOTTKY": 2
+      },
+      "description": "Supported conduction models for current measurement. Selected by member NAME in the YAML files."
+    }
+  }
+}
