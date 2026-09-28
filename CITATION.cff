@@ -1,0 +1,80 @@
+# Citation metadata for the Kinetix repository.
+#
+# Provenance of every field (documented so it can be re-verified on update):
+#   title/abstract/version  -> pyproject.toml, kinetix/__init__.py (0.1.0)
+#   license                 -> LICENSE (MIT, "Copyright (c) 2024 Samuel Aldana Delgado")
+#   authors                 -> git shortlog (sole code contributor), pyproject.toml, LICENSE
+#   ORCIDs                  -> supplied by the author (2026-09-28), written in
+#                             the CFF `orcid` person field: the newer
+#                             `identifiers` list is rejected by the CFF 1.2.0
+#                             person schema (verified with cffconvert 2.0.0)
+#   affiliation             -> kinetix/utils/metadata.py (provenance block)
+#   preferred-citation and  -> README.md, section "How to Cite"
+#   references
+#
+# NOTE: the `doi` field is intentionally absent. The two Zenodo DOIs quoted in
+# the README (10.5281/zenodo.18898755 and 10.5281/zenodo.19151596) archive the
+# predecessor repository "Control-of-growth-morphology-of-deposited-fcc-metals-
+# through-tuning-substrate-metal-interactions", NOT this one. Kinetix needs its
+# own Zenodo deposit before a software DOI can be listed here.
+#
+# TO REVIEW: the published papers render the first author as "Aldana, Samuel"
+# (single surname), while the software metadata uses "Samuel Aldana Delgado".
+# This file uses the full form for the software and the published form for the
+# articles; unify if the author prefers one spelling everywhere.
+cff-version: 1.2.0
+message: "If you use this software, please cite it using the metadata from this file."
+title: "Kinetix"
+abstract: "Kinetic Monte Carlo simulator for materials deposition, annealing, and memristive device modeling"
+type: software
+version: 0.1.0
+date-released: 2026-09-28
+license: MIT
+repository-code: "https://github.com/aldanads/Kinetix"
+keywords:
+  - "kinetic Monte Carlo"
+  - "memristor"
+  - "resistive switching"
+  - "neuromorphic computing"
+  - "defect kinetics"
+  - "materials simulation"
+authors:
+  - given-names: "Samuel"
+    family-names: "Aldana Delgado"
+    affiliation: "Tyndall National Institute, University College Cork"
+    orcid: "https://orcid.org/0000-0002-1719-605X"
+preferred-citation:
+  type: article
+  title: "Control of Growth Morphology of Deposited fcc Metals through Tuning Substrate–Metal Interactions"
+  authors:
+    - given-names: "Samuel"
+      family-names: "Aldana"
+      orcid: "https://orcid.org/0000-0002-1719-605X"
+    - given-names: "Michael"
+      family-names: "Nolan"
+      orcid: "https://orcid.org/0000-0002-5224-8580"
+  journal: "ACS Applied Materials & Interfaces"
+  year: 2025
+  doi: "10.1021/acsami.5c18081"
+  url: "https://doi.org/10.1021/acsami.5c18081"
+references:
+  - type: article
+    title: "Control of Cu morphology on TaN barrier and combined Ru-TaN barrier/liner substrates for nanoscale interconnects from atomistic kinetic Monte Carlo simulations"
+    authors:
+      - given-names: "Samuel"
+        family-names: "Aldana"
+        orcid: "https://orcid.org/0000-0002-1719-605X"
+      - given-names: "Cara-Lena"
+        family-names: "Nies"
+        orcid: "https://orcid.org/0000-0003-0959-2615"
+      - given-names: "Michael"
+        family-names: "Nolan"
+        orcid: "https://orcid.org/0000-0002-5224-8580"
+    journal: "Nanoscale"
+    volume: 17
+    issue: 19
+    start: 12450
+    end: 12464
+    year: 2025
+    doi: "10.1039/D4NR04505J"
+    url: "https://doi.org/10.1039/D4NR04505J"
