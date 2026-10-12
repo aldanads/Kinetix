@@ -56,6 +56,7 @@
 | `kinetix/calculators/active_learning.py` | Active-learning *export* stage: `classify_barrier`, ASE extxyz export, `manifest.json` queue. Invoked only from `tests/test_mace_adapter.py` (slow) — never from production code |
 | `kinetix/logging_config.py` | Root logger `propagate=False` (affects caplog — see Testing) |
 | `kinetix/cli.py` / `kinetix/__main__.py` | Simulation workflow driver |
+| `kinetix/termination/` | Early stopping (Strategy pattern): `base.py` (StoppingCondition ABC), `conditions.py` (AllVOPassivated — O(N_active) scan over active_event_sites), `registry.py` (keyword→class + get_stopping_condition), `enums.py` (StoppingConditionKey). CLI evaluates at dump cadence, rank-0 decides + bcast for collective break |
 | `.github/workflows/ci.yml` | CI: one job (ubuntu-latest, Python 3.12.8) running the fast selection. Derives `environment-ci.yml` from `environment.yml` (drops the torch/MACE `pip:` block), installs via **micromamba**, `pip install -e . --no-deps`, `MP_API_KEY` placeholder |
 | `CITATION.cff` | Machine-readable citation metadata (CFF 1.2.0, schema-validated with `cffconvert` 2.0.0). No top-level `doi`: the README's Zenodo DOIs archive the *predecessor* repository |
 
@@ -414,10 +415,10 @@ physics, and the golden-trace fixtures were **not** regenerated.
   ignored directory).
 
 ## Testing
-- Collected total: **456 tests** at HEAD `0839d05` + `tests/test_pzt_physics_validation.py`
-  + `tests/test_pzt_golden_trace.py` + the two generation-registration regression tests
+- Collected total: **472 tests** at HEAD `4f0a1c3` + `tests/test_termination.py`
+  (16: unit/registry/config/integration incl. active_event_sites completeness pin)
   (`pytest tests/ --collect-only -q`), of which **39 are `solver`-marked** (~22 min; they are the whole reason the full suite is slow).
-- Fast selection (the default): `pytest tests/ -q -m "not solver and not mace"` → **414 passed, 4 skipped** in ~112 s. The skips are the `mace` module (1) plus the 3 `slow` PZT physics-validation tests. (The two passes vs. the pre-fix 412 are the two `test_event_handler.py` generation-registration tests.)
+- Fast selection (the default): `pytest tests/ -q -m "not solver and not mace"` → **430 passed, 4 skipped** in ~129 s. The skips are the `mace` module (1) plus the 3 `slow` PZT physics-validation tests. (The sixteen passes vs. the pre-fix 414 are the new `test_termination.py` tests.)
 - Golden trace alone: `pytest tests/test_golden_trace.py -v` → 6 tests (~32 s).
 - Notable files (test functions): `test_site.py` (64), `test_cluster_island.py` (43),
   `test_migration_pathways.py` (32), `test_state_loader.py` (31),
@@ -430,9 +431,10 @@ physics, and the golden-trace fixtures were **not** regenerated.
   `test_kmc_loop.py` (12), `test_metadata_writer.py` (9),
   `test_simulator_rename.py` (8), `test_percolation.py` (8),
   `test_FEMSolver.py` (7), `test_golden_trace.py` (6), `test_presets.py` (3),
-  `test_pzt_physics_validation.py` (3, `slow`), `test_pzt_golden_trace.py` (1).
+  `test_pzt_physics_validation.py` (3, `slow`), `test_pzt_golden_trace.py` (1),
+  `test_termination.py` (16).
   (Counts are `grep -c "def test"` per file, so they differ slightly from the
-  454 collected — parametrization adds cases.)
+  472 collected — parametrization adds cases.)
 - `test_mace_adapter.py` (marked `mace`) self-skips at module level **because the
   `Kinetix` env has no `ase`/`torch`** — the `mace` extra was never installed
   there (the same is true of the `environment.yml` `pip:` block, which has never

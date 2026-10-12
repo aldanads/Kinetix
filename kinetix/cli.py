@@ -19,6 +19,7 @@ import platform
 import logging
 
 from kinetix.logging_config import setup_logging
+from kinetix.termination import get_stopping_condition
 
 logger = logging.getLogger(__name__)
 
@@ -339,6 +340,13 @@ def main(sim_id=None, config_name='PZT_ZrTi_PbO3_2.yaml'):
         elif simulator.simulation_type == 'electronic_device':
             
             from collections import Counter
+
+            # Resolve the (optional) early-stopping condition once, up front:
+            # None when the preset omits early_stopping or disables it ->
+            # zero overhead and behaviour identical to a run without it.
+            stopping_condition = get_stopping_condition(
+                simulation_parameters.get('early_stopping')
+            )
             solve_Poisson = (simulator.poisson_config is not None
                              and simulator.poisson_config.solve_Poisson)
             save_Poisson = (simulator.poisson_config is not None
@@ -395,6 +403,7 @@ def main(sim_id=None, config_name='PZT_ZrTi_PbO3_2.yaml'):
             
             
             while simulator.should_continue_simulation(Elec_controller.total_simulation_time):
+                early_stop = False
             
                      
                 # 'snapshots' is only assigned when the field solvers run (the
@@ -474,8 +483,28 @@ def main(sim_id=None, config_name='PZT_ZrTi_PbO3_2.yaml'):
     
                         end_time = time.time()
                         if save_data:
-                          simulator.plot_crystal(45,45,paths['data'],j)        
-                        
+                          simulator.plot_crystal(45,45,paths['data'],j)
+
+                        # --- Early stopping: evaluated at the dump cadence
+                        # (never inside the inner kMC step loop). Rank 0 owns
+                        # the decision; it is then broadcast so every rank
+                        # breaks out of the while loop together. When
+                        # absent/disabled, `stopping_condition` is None and
+                        # the only cost is one `is not None` test.
+                        if simulator.rank == 0 and stopping_condition is not None:
+                            early_stop = bool(stopping_condition.should_stop(simulator))
+                            if early_stop:
+                                logger.info(
+                                    "Early stopping triggered: %s. Saving final state.",
+                                    stopping_condition.describe(),
+                                )
+                    # MPI-collective: run on ALL ranks at the same program
+                    # point, so every rank observes the same `early_stop`
+                    # (the dump itself is rank-0-only, one level up).
+                    if simulator.mpi_ctx is not None:
+                        early_stop = simulator.mpi_ctx.bcast(early_stop, root=0)
+                    if early_stop:
+                        break
     
         if simulator.rank == 0:
           

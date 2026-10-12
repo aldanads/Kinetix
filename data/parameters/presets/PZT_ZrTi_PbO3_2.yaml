@@ -67,6 +67,15 @@ settings:
   activation_energies: "activation_energies/PZT_ZrPbO3.json"   
   output_path: './outputs/Simulators/PZT_outputs/'                
   
+  # Graceful early termination: evaluated at the dump-file cadence; the loop
+  # breaks once the condition holds (no exception - the final dump and
+  # variables.pkl are still written). Omit the block or set enabled: false
+  # to run to completion as before.
+  early_stopping:
+    enabled: true
+    condition: "all_vo_passivated"
+    threshold: 1.0  # stop when 100% of V_O are passivated (V_O_1)
+
 # -----------------------------------------------------------------------------
 # Superbasin Acceleration
 # -----------------------------------------------------------------------------

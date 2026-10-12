@@ -17,6 +17,7 @@ from kinetix.configs.solver_config import PoissonSolverConfig, HeatSolverConfig,
 from kinetix.configs.electrical_config import ElectricalConfig, VoltageConfig, VoltageMode
 from kinetix.configs.grain_boundary_config import GrainBoundariesConfig
 from kinetix.configs.calculator_config import CalculatorConfig, InterstitialRefinementConfig
+from kinetix.termination.enums import StoppingConditionKey
 
 
 class ConfigValidationError(Exception):
@@ -31,6 +32,43 @@ class ExperimentalConditions:
   temperature: float = 300.0  # K
   sticking_coeff: float | None = None
   partial_pressure: float | None = None # Pa
+
+@dataclass
+class EarlyStoppingConfig:
+  """Optional graceful-termination policy (``settings.early_stopping``).
+
+  Reserved YAML keys are ``enabled`` and ``condition``; every other key is
+  carried verbatim in ``parameters`` and forwarded to the condition
+  constructor (e.g. ``threshold`` for ``all_vo_passivated``), so new
+  conditions need no loader changes.
+  """
+  enabled: bool = False
+  condition: str | None = None
+  parameters: dict[str, Any] = field(default_factory=dict)
+
+  @classmethod
+  def from_dict(cls, data: dict) -> EarlyStoppingConfig:
+    """Parse the ``early_stopping`` mapping, validating the keyword at load.
+
+    Raises:
+      ValueError: If ``condition`` is not a registered stopping-condition
+        keyword. The message lists the valid options.
+    """
+    condition = data.get('condition')
+    if condition is not None:
+      try:
+        StoppingConditionKey(condition)
+      except ValueError:
+        raise ValueError(
+          f"Unknown settings.early_stopping.condition {condition!r}. "
+          f"Valid options: {', '.join(StoppingConditionKey.valid_options())}"
+        ) from None
+    parameters = {k: v for k, v in data.items() if k not in ('enabled', 'condition')}
+    return cls(
+      enabled=bool(data.get('enabled', False)),
+      condition=condition,
+      parameters=parameters,
+    )
 
 @dataclass
 class SimulationSettings:
@@ -48,6 +86,7 @@ class SimulationSettings:
   activation_energies: str = "" # Path relative too data/parameters
   output_path: str = ""
   load_state: dict[str, Any] = field(default_factory=dict)
+  early_stopping: EarlyStoppingConfig | None = None
 
 @dataclass
 class SimulationConfig:
@@ -290,7 +329,14 @@ class SimulationConfig:
     # Load Simulation Settings (REQUIRED)
     # =========================================================================
     settings_data = _get_required(data, 'settings', yaml_path, 'settings')
-    
+
+    # Optional early-stopping policy; absent/disabled -> None (run to completion).
+    early_stopping_data = settings_data.get('early_stopping')
+    early_stopping = (
+      EarlyStoppingConfig.from_dict(early_stopping_data)
+      if early_stopping_data else None
+    )
+
     config.settings = SimulationSettings(
       simulation_type=settings_data.get('simulation_type'),
       technology=settings_data.get('technology'),
@@ -303,7 +349,8 @@ class SimulationConfig:
       lammps_output=settings_data.get('lammps_output', True),
       activation_energies=settings_data.get('activation_energies'),
       output_path=settings_data.get('output_path'),
-      load_state=settings_data.get('load_state')
+      load_state=settings_data.get('load_state'),
+      early_stopping=early_stopping
     )
     
     # =========================================================================

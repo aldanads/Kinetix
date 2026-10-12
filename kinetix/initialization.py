@@ -92,7 +92,7 @@ def initialization(n_sim,params, config_name='PZT_ZrTi_PbO3_2.yaml'):
     
     simulation_parameters = {
       'save_data':save_data, 'snapshoots_steps':snapshoots_steps,
-      'total_steps':total_steps
+      'total_steps':total_steps, 'early_stopping':config.settings.early_stopping
     }    
 
     # Default resolution for figures
