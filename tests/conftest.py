@@ -16,13 +16,23 @@ import pytest
 
 
 def pytest_addoption(parser):
-    """Add the `--runslow` command-line flag (opt-in for long-running tests)."""
+    """Add the `--runslow` and `--update-pzt-trace` command-line flags."""
     parser.addoption(
         "--runslow",
         action="store_true",
         default=False,
         help="Also run tests marked `slow` (real MACE CI-NEB pathway sweeps; "
         "can take many hours or even a day).",
+    )
+    parser.addoption(
+        "--update-pzt-trace",
+        action="store_true",
+        default=False,
+        help="Regenerate the miniature-PZT golden-trace fixtures consumed by "
+        "tests/test_pzt_golden_trace.py: rebuild tests/fixtures/"
+        "grid_PZT_trace.pkl.gz from the production lattice builder, record "
+        "2000 seeded kMC events, and overwrite tests/fixtures/"
+        "pzt_golden_trace.json. Review the fixture diff before committing.",
     )
 
 

@@ -130,7 +130,7 @@ instance attribute). Every other extracted name is reached directly as
   `git diff` a mechanical rename.
 - Verification: golden trace **5/5** with the fixtures byte-identical, fast
   suite **407 passed / 1 skipped**, new `tests/test_simulator_rename.py` **8/8**
-  (measured during that phase; the fast suite is now 411 — see *Testing*).
+  (measured during that phase; the fast suite is now 412 — see *Testing*).
 
 **Phase 3 essentials:**
 - Moved: `processes`, `_handle_{migration,generation,redox,reaction}_event`,
@@ -332,6 +332,17 @@ state; the flat attribute-by-attribute migration machinery is gone.
   stays `interstitial`) and that the source is left empty.
   Regenerate with
   `KINETIX_UPDATE_GOLDEN_TRACE=1 python -m pytest "tests/test_golden_trace.py::test_golden_trace_cross_sublattice"`.
+- **PZT golden trace** (`tests/test_pzt_golden_trace.py::test_pzt_golden_trace`,
+  fixtures `tests/fixtures/grid_PZT_trace.pkl.gz` + `pzt_golden_trace.json`):
+  the miniature-PZT counterpart (see the *Data requirement* bullet in
+  *Testing* for the artifact design). 2000 recorded events pin migration /
+  passivation / GB-trapping event selection on the real PZT configs at
+  miniature scale. Regenerate ONLY for a deliberate change with
+  `pytest tests/test_pzt_golden_trace.py --update-pzt-trace` and review the
+  fixture diff; the same "never regenerate to make a refactor pass" rule
+  applies. Deterministic on the committed grid (sha256 in the JSON meta);
+  a different pymatgen/scipy stack could in principle build a different
+  grid — that shows up as a trace mismatch and is fixed by regenerating.
 
 ## Post-refactor Hardening (2026-09-26 → 2026-09-28, after the Site/Defect epic)
 All of this landed on `main` after the two refactor epics; none of it changes
@@ -403,8 +414,10 @@ physics, and the golden-trace fixtures were **not** regenerated.
   ignored directory).
 
 ## Testing
-- Collected total: **450 tests** at HEAD `d18a7b8` (`pytest tests/ --collect-only -q`), of which **39 are `solver`-marked** (~22 min; they are the whole reason the full suite is slow).
-- Fast selection (the default): `pytest tests/ -q -m "not solver and not mace"` → **411 passed, 1 module-level skip** in ~90 s. The single skip is the `mace` module.
+- Collected total: **454 tests** at HEAD `0839d05` + `tests/test_pzt_physics_validation.py`
+  + `tests/test_pzt_golden_trace.py`
+  (`pytest tests/ --collect-only -q`), of which **39 are `solver`-marked** (~22 min; they are the whole reason the full suite is slow).
+- Fast selection (the default): `pytest tests/ -q -m "not solver and not mace"` → **412 passed, 4 skipped** in ~112 s. The skips are the `mace` module (1) plus the 3 `slow` PZT physics-validation tests. (The 412nd pass vs the pre-2026-10 count is `test_pzt_golden_trace`.)
 - Golden trace alone: `pytest tests/test_golden_trace.py -v` → 6 tests (~32 s).
 - Notable files (test functions): `test_site.py` (64), `test_cluster_island.py` (43),
   `test_migration_pathways.py` (32), `test_state_loader.py` (31),
@@ -416,9 +429,10 @@ physics, and the golden-trace fixtures were **not** regenerated.
   `test_config_loader.py` (13), `test_mace_adapter.py` (12),
   `test_kmc_loop.py` (12), `test_metadata_writer.py` (9),
   `test_simulator_rename.py` (8), `test_percolation.py` (8),
-  `test_FEMSolver.py` (7), `test_golden_trace.py` (6), `test_presets.py` (3).
+  `test_FEMSolver.py` (7), `test_golden_trace.py` (6), `test_presets.py` (3),
+  `test_pzt_physics_validation.py` (3, `slow`), `test_pzt_golden_trace.py` (1).
   (Counts are `grep -c "def test"` per file, so they differ slightly from the
-  450 collected — parametrization adds cases.)
+  454 collected — parametrization adds cases.)
 - `test_mace_adapter.py` (marked `mace`) self-skips at module level **because the
   `Kinetix` env has no `ase`/`torch`** — the `mace` extra was never installed
   there (the same is true of the `environment.yml` `pip:` block, which has never
@@ -433,22 +447,50 @@ physics, and the golden-trace fixtures were **not** regenerated.
   tests *error* with `Failed to fetch structure: Invalid or old API key`. A real
   `MP_API_KEY` is not required when the cache is present (the value is read by
   `get_api_key()` but never used).
+- **`test_pzt_golden_trace.py`** (1 test, unmarked — runs in the fast suite,
+  ~28 s): golden-trace regression on a MINIATURE PZT device (5 375 sites,
+  ~22.8×62.6×22.2 A, planar GB at y=27) built from the real preset with only
+  `material.structure.size=(20,60,20)` overridden. Fixtures are COMMITTED:
+  `tests/fixtures/grid_PZT_trace.pkl.gz` (2.8 MB — the raw production pickle
+  is 29.2 MB and `*.pkl` is gitignored, so the gzip of the exact
+  `_save_grid_atomic` bytes is the tracked artifact; the test decompresses it
+  into the gitignored `data/grids/grid_PZT_trace.pkl` and loads through the
+  production path) + `tests/fixtures/pzt_golden_trace.json` (2000 events:
+  ~1995 migrations / 3 generations / 2 passivations with seed 42; site
+  indices stored as JSON arrays `[ix,iy,iz]` because grid keys are tuples of
+  `np.int64`). Regenerate ONLY for a deliberate physics/geometry change:
+  `pytest tests/test_pzt_golden_trace.py --update-pzt-trace` (option lives in
+  `tests/conftest.py`), then review `git diff` of both fixtures.
 - Conventions: tests use **real parameter files via the production loaders**
   (`load_activation_energies`, preset loader) — avoid hardcoded literals.
 - **caplog quirk**: `pytest.caplog` does NOT capture `kinetix.*` records
   (root logger `propagate=False`, see `kinetix/logging_config.py`). Use the
   `kinetix_log_collector` fixture in `tests/conftest.py` instead.
+- `test_pzt_physics_validation.py` (3 tests, module-level `slow`): physics
+  validation of Boltzmann-weighted event selection on the real PZT device
+  (GB entry bias / bulk migration-vs-passivation / GB residence) using the
+  production `grid_ZrTi(PbO3)2_10nm.pkl` (44 574 sites, **local-only, not
+  tracked** — the module SKIPS at collection when it is absent, so clones and
+  CI stay green). Module-scoped build takes ~2.5 min (the production GB-barrier
+  pass over all sites dominates; no FEniCS involved); individual runs are
+  seconds. Solver-free: no FEM, the field-assisted test injects a synthetic
+  uniform field through the coordinator. NOTE (load-bearing): the directional
+  `E_mig` table is only built when `poisson_config.solve_Poisson` is true
+  (`_initialize_migration_pathways`), so the harness forwards the preset's
+  Poisson *config* even though no solver object is ever constructed.
 - `--runslow` flag (conftest) enables `@pytest.mark.slow` tests (real MACE
-  CI-NEB pathway sweeps; many hours). Skipped by default.
+  CI-NEB pathway sweeps — many hours — plus the init-heavy PZT
+  physics-validation module, ~3 min). Skipped by default.
 
 ## Test Execution
 
-**Default (fast feedback, ~90 s):**
+**Default (fast feedback, ~112 s):**
 
 ```bash
 pytest tests/ -q -m "not solver and not mace"
 ```
-Runs: 411 tests + 1 module-level skip (39 solver tests deselected).
+Runs: 412 passed + 4 skipped (39 solver tests deselected; skips = mace module
++ 3 slow PZT physics-validation tests).
 **Use this by default — do NOT run the full suite for quick feedback.**
 This is exactly the command CI runs (`.github/workflows/ci.yml`).
 
@@ -457,8 +499,9 @@ This is exactly the command CI runs (`.github/workflows/ci.yml`).
 ```bash
 pytest tests/ -q
 ```
-Runs: all 450 collected tests (the 39 `solver` tests take ~22 min; measured
-21m43s before the 2026-09 additions).
+Runs: all 453 collected tests (the 39 `solver` tests take ~22 min; measured
+21m43s before the 2026-09 additions; +3 min if `--runslow` adds the PZT
+physics-validation module).
 
 **Specific categories:**
 
@@ -486,6 +529,8 @@ pytest tests/test_golden_trace.py -v
 | Poisson/heat solvers | `pytest tests/ -m solver -v` |
 | MACE adapter | `pytest tests/ -m mace -v` |
 | Config loading | `pytest tests/test_config_loader.py tests/test_presets.py -v` |
+| PZT event selection / GB barriers (Boltzmann statistics) | `pytest tests/test_pzt_physics_validation.py -v --runslow` (~3 min; needs the local-only PZT grid) |
+| kMC event sequence (PZT) / event-catalog changes | `pytest tests/test_pzt_golden_trace.py -v` (~28 s; committed miniature-grid fixture) |
 | Renames / public API (`KMCSimulator`, `simulator.py`) | `pytest tests/test_simulator_rename.py -v` (8, ~5 s) |
 | Any refactor phase | Golden trace + `pytest tests/ -q -m "not solver and not mace"` |
 
@@ -497,13 +542,15 @@ Measured selections (Kinetix env):
 
 | Selection | Tests | Wall time |
 |---|---|---|
-| `-m "not solver and not mace"` (default, = CI) | 411 (+1 module skip) | ~90 s |
+| `-m "not solver and not mace"` (default, = CI) | 412 passed (+4 skipped: mace + slow PZT) | ~112 s |
 | `-m solver` | 39 | ~22 min |
 | `-m mace` (no `mace` extra installed) | 0 (module skip) | ~5 s |
-| full suite (`pytest tests/ -q`) | 450 collected | ~23 min |
+| full suite (`pytest tests/ -q`) | 454 collected | ~24 min |
 | `test_lattice_builder_class.py` alone | 20 | ~12 s |
 | `test_simulator_rename.py` alone | 8 | ~5 s |
 | `test_golden_trace.py` alone | 6 | ~32 s |
+| `test_pzt_physics_validation.py` alone (`--runslow`) | 3 | ~3 min (150 s module build) |
+| `test_pzt_golden_trace.py` alone | 1 | ~28 s |
 
 ## Known Bugs (from the 7-part decoupling investigation; report not stored in repo)
 ### Fixed
@@ -598,6 +645,17 @@ Measured selections (Kinetix env):
   source's DefectConfig (object transfer), pinned by
   `test_golden_trace_cross_sublattice` (4 hops); scenario needs its documented
   overrides — shipped presets offer 0 such hops, and the *main* trace has none.
+- **`generation_sites` double registration** (found while building the PZT
+  golden trace, 2026-10; pinned by its fixture): after `KMCSimulator.__init__`
+  on the PZT preset, `crystal.generation_sites` holds 120 entries for 60
+  unique top-interface interstitial sites — every site is appended twice, so
+  its `generation` event is contributed twice to the TR catalog in
+  `_kmc_step` (double-weighted electrode-generation rate). Deterministic
+  (reproduces on every load of the committed miniature grid); likely the
+  init's support/event bookkeeping passes. Severity M. Do not paper over it
+  in the fixture — fixing production is a physics change that requires
+  regenerating the PZT golden trace deliberately (and re-checking the HfO2
+  trace).
 - **`interstitial_refinement.displacement_threshold` is dead config** (found
   2026-09): parsed at `simulation_config.py:281`, stored in
   `calculator_config.py:20`, and read **nowhere** (`grep` matches the config
@@ -733,10 +791,12 @@ When completing any refactor task, the agent MUST:
 ## Quick Start
 ```bash
 conda activate Kinetix                              # base env lacks pymatgen
-pytest tests/ -q -m "not solver and not mace"       # fast suite: 411 tests, ~90 s (= CI)
+pytest tests/ -q -m "not solver and not mace"       # fast suite: 412 tests, ~112 s (= CI)
 pytest tests/test_golden_trace.py -v                # physics contracts (6 tests, ~32 s)
-pytest tests/ -q                                    # full suite: 450 tests (~23 min)
+pytest tests/test_pzt_golden_trace.py -v            # PZT event-sequence contract (1 test, ~28 s)
+pytest tests/ -q                                    # full suite: 454 tests (~24 min)
 pytest tests/test_site.py -v                        # single file
 pytest tests/ -q --runslow                          # + MACE pathway sweeps (hours)
 KINETIX_UPDATE_GOLDEN_TRACE=1 pytest tests/test_golden_trace.py   # regen both fixtures (review diff!)
+pytest tests/test_pzt_golden_trace.py --update-pzt-trace          # regen PZT fixtures (review diff!)
 ```
