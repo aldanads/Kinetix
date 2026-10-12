@@ -619,3 +619,116 @@ def test_deposit_species_occupies_generation_sites(system):
              for idx in targets
              for event in system.grid_crystal[idx].defect.events)
   system.generation_sites = []
+
+
+# =============================================================================
+# Generation-site registration (one entry per site)
+# =============================================================================
+
+def _enable_generation(system):
+  """Open the production generation gate and return (defect_name, restore).
+
+  ``available_generation_sites`` registers nothing while
+  ``_should_generate_at_electrode`` refuses (the VCM preset gates on
+  ``electrode_scavenging.mass_conservation``, and a pristine lattice has
+  scavenged no ions yet - that is why this fixture's own ``generation_sites``
+  is empty). Satisfying the gate the way ``_should_scavenge`` does is the
+  production mechanism, not a test-side stub.
+  """
+  enabled = [
+    name for name, cfg in system.defects_config.items()
+    if "generation" in cfg["enabled_events"]
+  ]
+  assert enabled, "no generation-enabled defect in the loaded registry"
+  saved = {name: system.scavenged_ions.get(name, 0) for name in enabled}
+  for name in enabled:
+    system.scavenged_ions[name] = 1
+    assert system._should_generate_at_electrode(name), (
+      f"{name}: the production gate still refuses generation"
+    )
+  return enabled, saved
+
+
+def test_generation_sites_are_registered_exactly_once(system):
+  """Each generation site appears ONCE in ``generation_sites`` and carries ONE
+  generation Event.
+
+  Regression: the ``interstitial`` branch of ``available_generation_sites``
+  used to append to ``self.generation_sites`` *and* return the same sites in
+  ``update_gen_sites``; the sole caller then extended the list with that
+  return value, so every site was registered twice. ``_kmc_step`` iterates
+  ``active_event_sites + generation_sites`` **by position**, so a duplicated
+  entry contributed its generation Event twice to the TR catalog - a silently
+  double-weighted electrode-injection rate and an inflated ``sumTR`` (hence a
+  systematically short time step). Measured on the PZT preset before the fix:
+  120 entries for 60 unique top-interface sites.
+  """
+  enabled, saved = _enable_generation(system)
+  try:
+    system.generation_sites = []
+    mobile = system.event_handler._get_mobile_sites(system.grid_crystal.keys())
+    system.event_handler.update_sites_topology(set(mobile), set())
+
+    sites = list(system.generation_sites)
+    assert sites, "no generation site registered; the gate or lattice changed"
+    duplicates = len(sites) - len(set(sites))
+    assert duplicates == 0, (
+      f"{duplicates} duplicate generation-site entries "
+      f"({len(sites)} entries for {len(set(sites))} unique sites) - the TR "
+      f"catalog would double-weight the generation rate"
+    )
+
+    # one entry must also mean one rate-bearing Event on the site itself
+    for idx in sites:
+      n_events = sum(
+        1 for event in system.grid_crystal[idx].defect.events
+        if event.label == "generation"
+      )
+      assert n_events == 1, (
+        f"site {idx} carries {n_events} 'generation' events "
+        f"(expected exactly 1)"
+      )
+
+    print(f"[generation] {len(sites)} sites, {len(set(sites))} unique, "
+          f"defects={enabled}")
+  finally:
+    # restore the gate and let the documented cleanup branch drain the list
+    for name, value in saved.items():
+      system.scavenged_ions[name] = value
+    system.event_handler.update_sites_topology(
+      set(system.event_handler._get_mobile_sites(system.grid_crystal.keys())),
+      set(),
+    )
+    assert system.generation_sites == [], (
+      "closing the gate must retire every generation site"
+    )
+
+
+def test_update_sites_topology_is_idempotent_for_generation_sites(system):
+  """Repeated topology refreshes must not re-register generation sites.
+
+  ``defect_gen`` and every ``EventHandler`` mutation path call
+  ``update_sites_topology``, so the kMC loop would otherwise accumulate
+  duplicate entries over the course of a run.
+  """
+  enabled, saved = _enable_generation(system)
+  try:
+    system.generation_sites = []
+    mobile = set(system.event_handler._get_mobile_sites(system.grid_crystal.keys()))
+
+    counts = []
+    for _ in range(3):
+      system.event_handler.update_sites_topology(set(mobile), set())
+      counts.append(len(system.generation_sites))
+
+    print(f"[generation] successive refresh sizes: {counts}")
+    assert counts[0] > 0, "no generation site registered"
+    assert counts[1] == counts[0] == counts[2], (
+      f"generation_sites grew across identical refreshes: {counts}"
+    )
+  finally:
+    for name, value in saved.items():
+      system.scavenged_ions[name] = value
+    system.event_handler.update_sites_topology(set(mobile), set())
+    assert system.generation_sites == []
+

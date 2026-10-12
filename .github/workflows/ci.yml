@@ -1,7 +1,7 @@
 # Kinetix - minimal CI for the fast test suite.
 #
 # WHAT THIS CI COVERS
-#   The 410-test fast selection:
+#   The 414-test fast selection:
 #       pytest tests/ -q -m "not solver and not mace"
 #   i.e. lattice / site / event / kMC / superbasin / balanced-tree / config /
 #   metadata / preset tests plus the 5-test golden-trace physics contract.

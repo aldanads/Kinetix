@@ -130,7 +130,7 @@ instance attribute). Every other extracted name is reached directly as
   `git diff` a mechanical rename.
 - Verification: golden trace **5/5** with the fixtures byte-identical, fast
   suite **407 passed / 1 skipped**, new `tests/test_simulator_rename.py` **8/8**
-  (measured during that phase; the fast suite is now 412 — see *Testing*).
+  (measured during that phase; the fast suite is now 414 — see *Testing*).
 
 **Phase 3 essentials:**
 - Moved: `processes`, `_handle_{migration,generation,redox,reaction}_event`,
@@ -414,15 +414,15 @@ physics, and the golden-trace fixtures were **not** regenerated.
   ignored directory).
 
 ## Testing
-- Collected total: **454 tests** at HEAD `0839d05` + `tests/test_pzt_physics_validation.py`
-  + `tests/test_pzt_golden_trace.py`
+- Collected total: **456 tests** at HEAD `0839d05` + `tests/test_pzt_physics_validation.py`
+  + `tests/test_pzt_golden_trace.py` + the two generation-registration regression tests
   (`pytest tests/ --collect-only -q`), of which **39 are `solver`-marked** (~22 min; they are the whole reason the full suite is slow).
-- Fast selection (the default): `pytest tests/ -q -m "not solver and not mace"` → **412 passed, 4 skipped** in ~112 s. The skips are the `mace` module (1) plus the 3 `slow` PZT physics-validation tests. (The 412nd pass vs the pre-2026-10 count is `test_pzt_golden_trace`.)
+- Fast selection (the default): `pytest tests/ -q -m "not solver and not mace"` → **414 passed, 4 skipped** in ~112 s. The skips are the `mace` module (1) plus the 3 `slow` PZT physics-validation tests. (The two passes vs. the pre-fix 412 are the two `test_event_handler.py` generation-registration tests.)
 - Golden trace alone: `pytest tests/test_golden_trace.py -v` → 6 tests (~32 s).
 - Notable files (test functions): `test_site.py` (64), `test_cluster_island.py` (43),
   `test_migration_pathways.py` (32), `test_state_loader.py` (31),
   `test_grain_boundary.py` (30), `test_gb_charge_and_state_transfer.py` (22),
-  `test_lattice_builder_class.py` (20), `test_event_handler.py` (20),
+  `test_lattice_builder_class.py` (20), `test_event_handler.py` (22),
   `test_heat_solver.py` (18), `test_superbasin.py` (16),
   `test_balanced_tree.py` (16), `test_solver_coordinator.py` (14),
   `test_poisson_solver.py` (14), `test_kmc_loop_class.py` (13),
@@ -489,7 +489,7 @@ physics, and the golden-trace fixtures were **not** regenerated.
 ```bash
 pytest tests/ -q -m "not solver and not mace"
 ```
-Runs: 412 passed + 4 skipped (39 solver tests deselected; skips = mace module
+Runs: 414 passed + 4 skipped (39 solver tests deselected; skips = mace module
 + 3 slow PZT physics-validation tests).
 **Use this by default — do NOT run the full suite for quick feedback.**
 This is exactly the command CI runs (`.github/workflows/ci.yml`).
@@ -542,7 +542,7 @@ Measured selections (Kinetix env):
 
 | Selection | Tests | Wall time |
 |---|---|---|
-| `-m "not solver and not mace"` (default, = CI) | 412 passed (+4 skipped: mace + slow PZT) | ~112 s |
+| `-m "not solver and not mace"` (default, = CI) | 414 passed (+4 skipped: mace + slow PZT) | ~112 s |
 | `-m solver` | 39 | ~22 min |
 | `-m mace` (no `mace` extra installed) | 0 (module skip) | ~5 s |
 | full suite (`pytest tests/ -q`) | 454 collected | ~24 min |
@@ -645,17 +645,39 @@ Measured selections (Kinetix env):
   source's DefectConfig (object transfer), pinned by
   `test_golden_trace_cross_sublattice` (4 hops); scenario needs its documented
   overrides — shipped presets offer 0 such hops, and the *main* trace has none.
-- **`generation_sites` double registration** (found while building the PZT
-  golden trace, 2026-10; pinned by its fixture): after `KMCSimulator.__init__`
-  on the PZT preset, `crystal.generation_sites` holds 120 entries for 60
-  unique top-interface interstitial sites — every site is appended twice, so
-  its `generation` event is contributed twice to the TR catalog in
-  `_kmc_step` (double-weighted electrode-generation rate). Deterministic
-  (reproduces on every load of the committed miniature grid); likely the
-  init's support/event bookkeeping passes. Severity M. Do not paper over it
-  in the fixture — fixing production is a physics change that requires
-  regenerating the PZT golden trace deliberately (and re-checking the HfO2
-  trace).
+- **`generation_sites` double registration ✅ FIXED**: after `KMCSimulator.__init__`
+  on the PZT preset, `crystal.generation_sites` held 120 entries for 60 unique
+  top-interface interstitial sites — every site appended twice, so its
+  `generation` event was contributed twice to the TR catalog in `_kmc_step`
+  (double-weighted electrode-generation rate; also inflated `sumTR`, hence a
+  systematically short time step).
+  **Root cause**: the `interstitial` branch of
+  `KMCSimulator.available_generation_sites` did
+  `self.generation_sites.append(idx)` **and** `update_gen_sites.add(idx)`; its
+  sole caller `EventHandler.update_sites_topology` then did
+  `self.simulator.generation_sites.extend(generation_sites)` with that return
+  value. The `deposition` branch (immediately below) is *not* duplicated — it
+  appends and returns only in **different** branches (site resolvable → append
+  + `site.deposition_event(...)`; site already occupied → `continue`). **Fix**
+  (physics change): drop the two `self.generation_sites.append(idx)` lines from
+  the interstitial branch (and the now-dead `update_gen_sites` accumulator +
+  its commented-out warning) so the caller's `extend` is the single registration
+  point — mirroring the deposition branch, which already relies on the same
+  `extend`. PZT miniature: 120/60 → **60/60**, zero duplicates, 1 generation
+  Event per site; HfO2 (golden) lattice: 12/6 → 6/6, idempotent across repeated
+  refreshes. Pinned by `tests/test_event_handler.py::
+  test_generation_sites_are_registered_exactly_once` and
+  `::test_update_sites_topology_is_idempotent_for_generation_sites` (both open
+  the production gate via `scavenged_ions[name] = 1` +
+  `_should_generate_at_electrode`, restore it in `finally`, and assert the list
+  drains back to `[]` through the documented occupied-site cleanup branch).
+  **The PZT golden trace fixture was regenerated deliberately** for this physics
+  change (the trace now carries 2 generation events — the fixed/halved injection
+  rate no longer draws 3 — plus 2 passivations, now guaranteed by seeding an H
+  adjacent to each bulk V_O in the scenario); the HfO2 golden trace is *not*
+  affected (`n_generation_sites: 0` in that fixture —
+  `simulation_type` there is not `electronic_device`, and the VCM preset's gate
+  never opens on a pristine lattice).
 - **`interstitial_refinement.displacement_threshold` is dead config** (found
   2026-09): parsed at `simulation_config.py:281`, stored in
   `calculator_config.py:20`, and read **nowhere** (`grep` matches the config
@@ -791,7 +813,7 @@ When completing any refactor task, the agent MUST:
 ## Quick Start
 ```bash
 conda activate Kinetix                              # base env lacks pymatgen
-pytest tests/ -q -m "not solver and not mace"       # fast suite: 412 tests, ~112 s (= CI)
+pytest tests/ -q -m "not solver and not mace"       # fast suite: 414 tests, ~112 s (= CI)
 pytest tests/test_golden_trace.py -v                # physics contracts (6 tests, ~32 s)
 pytest tests/test_pzt_golden_trace.py -v            # PZT event-sequence contract (1 test, ~28 s)
 pytest tests/ -q                                    # full suite: 454 tests (~24 min)

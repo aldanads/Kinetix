@@ -341,7 +341,14 @@ class KMCSimulator():
                 )
                       
                 if (is_at_interface and site.defect.chemical_specie == self.affected_site):
-                  self.generation_sites.append(idx)
+                  # Register the site through the RETURNED set only: the sole
+                  # caller (EventHandler.update_sites_topology) extends
+                  # ``simulator.generation_sites`` with this value, so appending
+                  # here as well registered every site twice and double-weighted
+                  # its generation rate in the TR catalog (_kmc_step iterates
+                  # ``active_event_sites + generation_sites`` by position).
+                  # ``update_gen_sites`` is the single output channel; the
+                  # entry-time snapshot above keeps repeat calls idempotent.
                   site.ion_generation_interface(idx)
                   update_gen_sites.add(idx)    
                         

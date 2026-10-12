@@ -114,6 +114,20 @@ PASSIVATION = "H + V_O -> V_OH"
 GENERATION = "generation"
 V_O = "V_O"
 LATTICE_O = "O"
+H_SPECIE = "H"
+
+# H atoms seeded next to each BULK V_O, so the capture physics is guaranteed
+# inside the 2000-event window instead of relying on electrode generation to
+# happen to deliver one. Selection is deterministic (sorted neighbour index,
+# no RNG) and the two bulk sites are the landmark picks of ``_seed_v_o``.
+# WHY bulk and not core: with the ``generation_sites`` double-registration bug
+# fixed (2026-10, ``available_generation_sites``) the electrode-injection rate
+# is no longer artificially doubled, so the miniature window injects only ~2 H
+# instead of ~3. Seeding H next to the CORE V_Os starves generation to 0 (the
+# extra interstitial sites inflate ``sumTR``, shrinking the time step and thus
+# every Poisson draw); seeding next to the BULK V_Os yields BOTH a passivation
+# and a generation event - the two behaviours this fixture exists to protect.
+H_PER_BULK_V_O = 2
 
 FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
 GRID_PKL = FIXTURES_DIR / f"{GRID_NAME}.pkl"       # optional uncompressed form
@@ -253,6 +267,49 @@ def _seed_v_o(crystal) -> dict:
     return {"core": _native(core), "bulk": _native(bulk)}
 
 
+def _empty_interstitial_neighbors(crystal, idx):
+    """Sorted Empty interstitial neighbours of ``idx`` (candidate H hosts)."""
+    neighbors = crystal.grid_crystal[idx].nearest_neighbors_idx or []
+    return sorted(
+        j for j in neighbors
+        if crystal.grid_crystal[j].site_type == "interstitial"
+        and crystal.grid_crystal[j].defect.chemical_specie == "Empty"
+    )
+
+
+def _seed_h(crystal, seeded_v_o: dict) -> list:
+    """Introduce ``H_PER_BULK_V_O`` H next to each seeded BULK V_O.
+
+    Same production EventHandler API as ``_seed_v_o``, same deterministic
+    rule (sorted neighbour index, no RNG) - see ``H_PER_BULK_V_O`` for why
+    the bulk sites are the ones used. Returns the seeded H indices.
+    """
+    support, events = set(), set()
+    h_sites = []
+    for v_o in seeded_v_o["bulk"]:
+        candidates = _empty_interstitial_neighbors(crystal, tuple(v_o))
+        assert len(candidates) >= H_PER_BULK_V_O, (
+            f"V_O {v_o} has only {len(candidates)} Empty interstitial "
+            f"neighbours (wanted {H_PER_BULK_V_O})"
+        )
+        for h in candidates[:H_PER_BULK_V_O]:
+            crystal.event_handler._introduce_specie_site(
+                h, support, events, H_SPECIE, 1
+            )
+            h_sites.append(_native(h))
+    crystal.event_handler.update_sites_topology(support, events)
+    crystal._dirty_sites.update(support | events)
+    crystal._fields_changed = True
+    return h_sites
+
+
+def _seed_scenario(crystal) -> dict:
+    """Seed the V_O *and* the H; returns both index lists for the fixture meta."""
+    seeded_v_o = _seed_v_o(crystal)
+    seeded_h = _seed_h(crystal, seeded_v_o)
+    return {"v_o": seeded_v_o, "h": seeded_h}
+
+
 # =============================================================================
 # Trace recording
 # =============================================================================
@@ -366,7 +423,7 @@ def _generate_fixtures(config, defects, act_e) -> dict:
     # Reload exactly like the test does, so fixture == round-trip.
     _install_grid()
     crystal = _build_crystal(config, defects, act_e)
-    seeded = _seed_v_o(crystal)
+    seeded = _seed_scenario(crystal)
     trace = _record_trace(crystal)
 
     labels = Counter(str(record["event_label"]) for record in trace)
@@ -434,7 +491,7 @@ def test_pzt_golden_trace(pzt_mini_inputs, request):
 
     _install_grid()
     crystal = _build_crystal(config, defects, act_e)
-    seeded = _seed_v_o(crystal)
+    seeded = _seed_scenario(crystal)
     actual = _record_trace(crystal)
 
     payload = json.loads(TRACE_JSON.read_text())
