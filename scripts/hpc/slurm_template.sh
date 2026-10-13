@@ -19,7 +19,29 @@
 
 # 1. Navigate to submission directory
 cd $SLURM_SUBMIT_DIR
-
+export PYTHONPATH="$PBS_O_WORKDIR:$PYTHONPATH"
+# =============================================================================
+# CRITICAL: Thread Limiting (Prevents CPU Oversubscription)
+# =============================================================================
+# Without these limits, each MPI rank spawns threads equal to the TOTAL
+# core count on the node. With 4 MPI ranks on a 96-core node, this creates
+# 4 × 96 = 384 threads competing for 96 cores, causing severe oversubscription.
+#
+# Setting these to 1 ensures each MPI rank uses exactly 1 thread,
+# so 4 ranks × 1 thread = 4 threads on 4 cores (clean parallelism).
+#
+# This does NOT make the simulation sequential — MPI still provides
+# parallelism across the 4 cores. Thread limits only prevent each rank
+# from trying to grab ALL cores for internal threading.
+# =============================================================================
+export OMP_NUM_THREADS=1
+export OPENBLAS_NUM_THREADS=1
+export MKL_NUM_THREADS=1
+export NUMEXPR_NUM_THREADS=1
+export VECLIB_MAXIMUM_THREADS=1
+export BLAS_NUM_THREADS=1
+export PETSC_NUM_THREADS=1
+export PYTHON_NUM_THREADS=1
 # =============================================================================
 # CUSTOMIZE THESE PATHS FOR YOUR CLUSTER
 # =============================================================================
@@ -29,7 +51,7 @@ cd $SLURM_SUBMIT_DIR
  module load gcc/13.1.0
 
 # Initialize conda for batch scripts
-source ~/.bashrc
+source $(conda info --base)/etc/profile.d/conda.sh
 conda activate Kinetix
 
 # Use Python and MPI from the conda environment
@@ -80,7 +102,7 @@ echo "Time: $(date)"
 echo "=================================================="
 
 # Run simulation
-$MPI_EXEC -n $CORES $PYTHON_EXEC run_simulation.py $SIM_ID --config "$CONFIG_FILE"
+$MPI_EXEC -n $CORES $PYTHON_EXEC kinetix $SIM_ID --config "$CONFIG_FILE"
 
 echo "=================================================="
 echo "Completed at $(date)"
