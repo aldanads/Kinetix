@@ -349,11 +349,22 @@ def initialization(n_sim,params, config_name='PZT_ZrTi_PbO3_2.yaml'):
         
     elif simulation_type == 'electronic_device':        
         
+        # Activation energies are loaded up-front (previously step 7 below) so
+        # the parameter-sweep block can validate that the table carries the
+        # material key (e.g. 'PZT') before any override is applied, and so the
+        # vo/temperature overrides run before the config snapshots taken
+        # further down (defects_config, experimental_config).
+        ae_data = load_activation_energies(config_path, config.settings)
+        
         ### ----------------- PARAMETER SWEEP ----------------- ###
-        #config.defects.defects["oxygen_vacancy"].initial_concentration_bulk = params["vo_initial_concentration"]
-        config.defects.defects["oxygen_vacancy"].initial_concentration_GB = params["vo_initial_concentration"] 
-        config.experimental.temperature = params["temperature"]
-    
+        # Guarded HPC parameter-sweep overrides (see cli.get_parameters_from_sim_id
+        # and README, "Parameter sweeps"): each override runs only when `params`
+        # is a non-empty mapping carrying its specific key AND the target
+        # structure exists (oxygen_vacancy defect / experimental conditions /
+        # 'PZT' activation-energy entry). Tests and non-sweep runs (params
+        # None/{} or non-PZT presets such as VCM/HfO2) are silently skipped —
+        # the previous unguarded lines raised KeyError('PZT') in CI.
+        _apply_parameter_sweep_overrides(config, params, ae_data)
         
         # 1. Fetch Material Data from Materials Project
         api_key = get_api_key()
@@ -413,11 +424,9 @@ def initialization(n_sim,params, config_name='PZT_ZrTi_PbO3_2.yaml'):
           'characteristic_length': characteristic_length,
         }
         
-        # 7. Activation energies
-        ae_data = load_activation_energies(config_path, config.settings)
-        ### ----------------- PARAMETER SWEEP ----------------- ###
-        ae_data['PZT'][1]['activation_energies']['E_gen_defect'] = params['h_generation']
-
+        # Activation energies: ae_data was loaded up-front (before the
+        # parameter-sweep block); Act_E_dict is built from the possibly
+        # sweep-overridden table.
         Act_E_dict = _process_activation_energies(
           defects_config,
           ae_data,
@@ -665,6 +674,57 @@ def initialize_grid_crystal(
           
 
            
+def _apply_parameter_sweep_overrides(
+  config: SimulationConfig, params: Any, ae_data: Dict
+) -> None:
+  """Apply the optional parameter-sweep overrides, defensively.
+
+  HPC batch sweeps (see ``kinetix.cli.get_parameters_from_sim_id``) pass a
+  ``params`` mapping with per-run values. Every override is applied only
+  when *all* of the following hold, otherwise it is silently skipped:
+
+  * ``params`` is a non-empty mapping (``None`` / ``{}`` -> no-op),
+  * the activation-energy table carries the PZT material key
+    (``'PZT' in ae_data``; the table is keyed by ``settings.technology``,
+    so non-PZT presets such as VCM/HfO2 never see any override), and
+  * the specific key and its target structure exist:
+    - ``vo_initial_concentration`` -> the ``oxygen_vacancy`` defect entry,
+    - ``temperature`` -> the experimental-conditions block,
+    - ``h_generation`` -> ``ae_data['PZT'][1]['activation_energies']``.
+
+  Args:
+    config: Loaded simulation configuration; mutated in place.
+    params: Sweep parameters from the caller, or ``None`` / ``{}``.
+    ae_data: Activation-energy table keyed by technology; the
+      ``E_gen_defect`` entry of ``'PZT'`` is mutated in place.
+  """
+  if not isinstance(params, dict) or not params:
+    return
+
+  if not ae_data or 'PZT' not in ae_data:
+    # Not a PZT run: the sweep is PZT-specific (a previous unguarded
+    # version raised KeyError('PZT') here for e.g. VCM presets).
+    return
+
+  vo_concentration = params.get('vo_initial_concentration')
+  if (vo_concentration is not None and config.defects is not None
+      and 'oxygen_vacancy' in config.defects.defects):
+    #config.defects.defects['oxygen_vacancy'].initial_concentration_bulk = vo_concentration
+    config.defects.defects['oxygen_vacancy'].initial_concentration_GB = vo_concentration
+
+  temperature = params.get('temperature')
+  if temperature is not None and config.experimental is not None:
+    config.experimental.temperature = temperature
+
+  h_generation = params.get('h_generation')
+  pzt_entries = ae_data.get('PZT')
+  if (h_generation is not None
+      and isinstance(pzt_entries, list) and len(pzt_entries) > 1
+      and isinstance(pzt_entries[1], dict)
+      and isinstance(pzt_entries[1].get('activation_energies'), dict)):
+    pzt_entries[1]['activation_energies']['E_gen_defect'] = h_generation
+
+
 def _process_activation_energies(defects_config, ae_data:Dict, technology: str) -> Dict:
   """
   Process activation energies from JSON into Act_E_dict format.
