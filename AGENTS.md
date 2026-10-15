@@ -627,6 +627,13 @@ Measured selections (Kinetix env):
   (9 tests: None/`{}`/non-PZT no-ops, PZT full-apply, partial-params,
   missing-target, malformed-entry, plus 2 e2e `initialization()` runs with
   `params=None`/`{}`); the golden trace was NOT regenerated (6/6 pass).
+  **Physics follow-up (2026-10):** the `vo` override targets the
+  `oxygen_vacancy` **`initial_concentration_GB` ONLY** — the initial version
+  of the helper also set `initial_concentration_bulk`, which violates the
+  PZT study design (bulk must stay fixed at the preset `0.5e-2`). The bulk
+  assignment is gone; `test_full_params_apply_on_pzt` and
+  `test_malformed_pzt_entry_is_skipped` pin GB == sweep value AND
+  bulk == preset baseline.
 
 ### Open (post-epic debt — NOT addressed by Phase 6)
 

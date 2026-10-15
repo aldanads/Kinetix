@@ -4,7 +4,8 @@
 
 The HPC PZT batch workflow passes a ``params`` dict (see
 ``kinetix.cli.get_parameters_from_sim_id``) that overrides the oxygen-vacancy
-concentration, the temperature and the hydrogen-generation barrier. The old
+**GB core** concentration (the bulk concentration must stay fixed at its
+preset value), the temperature and the hydrogen-generation barrier. The old
 unguarded implementation of those overrides crashed the test suite with
 ``KeyError: 'PZT'`` whenever a non-PZT preset (e.g. the VCM HfO2 mock, whose
 activation-energy table is keyed ``'VCM'``) or no sweep dict at all reached
@@ -107,17 +108,25 @@ class TestParameterSweepGuards:
         assert _snapshot(config, ae_data) == before
 
     def test_full_params_apply_on_pzt(self):
-        """The PZT HPC workflow: with the correct params dict all three
-        overrides must be applied exactly as the original unguarded lines."""
+        """The PZT HPC workflow: with the correct params dict the GB-core
+        vo concentration, the temperature and the generation barrier are
+        overridden — while the bulk vo concentration stays FIXED at its
+        preset value (experimental design: the sweep targets the GB core
+        only)."""
         config = SimulationConfig.from_yaml(PZT_PRESET)
         ae_data = load_activation_energies(PZT_PRESET, config.settings)
         assert ae_data["PZT"][1]["specie"] == "H"  # precondition: entry 1 = H
+        # Baseline straight from PZT_ZrPbO3_defects_config.yaml (0.5e-2)
+        preset_bulk = config.defects.defects["oxygen_vacancy"].initial_concentration_bulk
+        assert preset_bulk == 0.005
 
         _apply_parameter_sweep_overrides(config, dict(FULL_PARAMS), ae_data)
 
         vo = config.defects.defects["oxygen_vacancy"]
-        assert vo.initial_concentration_bulk == FULL_PARAMS["vo_initial_concentration"]
+        # The sweep applies to the GB core concentration ...
         assert vo.initial_concentration_GB == FULL_PARAMS["vo_initial_concentration"]
+        # ... and ONLY to the GB core: bulk must remain at its preset value.
+        assert vo.initial_concentration_bulk == preset_bulk
         assert config.experimental.temperature == FULL_PARAMS["temperature"]
         assert (ae_data["PZT"][1]["activation_energies"]["E_gen_defect"]
                 == FULL_PARAMS["h_generation"])
@@ -151,15 +160,18 @@ class TestParameterSweepGuards:
 
     def test_malformed_pzt_entry_is_skipped(self):
         """An ae_data['PZT'] list without the expected second entry must not
-        crash the h_generation override; the other two overrides still apply."""
+        crash the h_generation override; the other two overrides still apply
+        (vo on the GB core only — bulk stays at its preset value)."""
         config = SimulationConfig.from_yaml(PZT_PRESET)
+        preset_bulk = config.defects.defects["oxygen_vacancy"].initial_concentration_bulk
         ae_data = load_activation_energies(PZT_PRESET, config.settings)
         ae_data["PZT"] = ae_data["PZT"][:1]  # drop the 'H' entry
 
         _apply_parameter_sweep_overrides(config, dict(FULL_PARAMS), ae_data)
 
         vo = config.defects.defects["oxygen_vacancy"]
-        assert vo.initial_concentration_bulk == FULL_PARAMS["vo_initial_concentration"]
+        assert vo.initial_concentration_GB == FULL_PARAMS["vo_initial_concentration"]
+        assert vo.initial_concentration_bulk == preset_bulk
         assert config.experimental.temperature == FULL_PARAMS["temperature"]
 
 

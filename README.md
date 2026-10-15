@@ -267,7 +267,7 @@ kinetix 0 --config PZT_ZrTi_PbO3_2.yaml
 ```
 
 ### Parameter sweeps and preset selection
-`sim_id` indexes the sweep array defined in `get_parameters_from_sim_id()` (initial vacancy concentration × temperature × hydrogen-generation rate; edit that function to customize the mapping). The sweep values are applied as guarded overrides in `initialization()` (`_apply_parameter_sweep_overrides`): they take effect only for **PZT presets** (whose activation-energy table carries the `'PZT'` key) and only for the specific keys present in the `params` dict — other presets and `params=None`/`{}` runs are silently unaffected. Use `--config` to select a different preset:
+`sim_id` indexes the sweep array defined in `get_parameters_from_sim_id()` (initial vacancy concentration × temperature × hydrogen-generation rate; edit that function to customize the mapping). The sweep values are applied as guarded overrides in `initialization()` (`_apply_parameter_sweep_overrides`): they take effect only for **PZT presets** (whose activation-energy table carries the `'PZT'` key) and only for the specific keys present in the `params` dict — other presets and `params=None`/`{}` runs are silently unaffected. The `vo_initial_concentration` sweep targets the oxygen-vacancy **GB core** concentration only: the bulk concentration always stays at its preset value. Use `--config` to select a different preset:
 
 ```bash
 kinetix 4 --config VCM_HfO2_cylindrical_gb.yaml

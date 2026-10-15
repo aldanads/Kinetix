@@ -688,7 +688,9 @@ def _apply_parameter_sweep_overrides(
     (``'PZT' in ae_data``; the table is keyed by ``settings.technology``,
     so non-PZT presets such as VCM/HfO2 never see any override), and
   * the specific key and its target structure exist:
-    - ``vo_initial_concentration`` -> the ``oxygen_vacancy`` defect entry,
+    - ``vo_initial_concentration`` -> the ``oxygen_vacancy`` **GB core**
+      concentration ONLY; the bulk concentration is never touched (it must
+      stay fixed at its preset value — experimental design of the PZT study),
     - ``temperature`` -> the experimental-conditions block,
     - ``h_generation`` -> ``ae_data['PZT'][1]['activation_energies']``.
 
@@ -709,7 +711,8 @@ def _apply_parameter_sweep_overrides(
   vo_concentration = params.get('vo_initial_concentration')
   if (vo_concentration is not None and config.defects is not None
       and 'oxygen_vacancy' in config.defects.defects):
-    #config.defects.defects['oxygen_vacancy'].initial_concentration_bulk = vo_concentration
+    # ONLY update the GB concentration. Bulk must remain fixed at its
+    # preset value (experimental design of the PZT sweep study).
     config.defects.defects['oxygen_vacancy'].initial_concentration_GB = vo_concentration
 
   temperature = params.get('temperature')
