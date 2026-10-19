@@ -34,3 +34,4 @@ batch_sim.sh
 slurm_batch.sh
 AGENTS.md
 GAP_ANALYSIS_VERIFIED.md
+*.out

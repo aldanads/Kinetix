@@ -48,7 +48,7 @@ export PYTHON_NUM_THREADS=1
 
 # Path to modern GCC (REQUIRED: must be >= 9.0)
 # Option A: Use module system
- module load gcc/13.1.0
+module load gcc/13.1.0
 
 # Initialize conda for batch scripts
 source $(conda info --base)/etc/profile.d/conda.sh
