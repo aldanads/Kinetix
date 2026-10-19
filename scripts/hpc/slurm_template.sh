@@ -19,18 +19,18 @@
 
 # 1. Navigate to submission directory
 cd $SLURM_SUBMIT_DIR
-export PYTHONPATH="$PBS_O_WORKDIR:$PYTHONPATH"
+export PYTHONPATH="$SLURM_SUBMIT_DIR:$PYTHONPATH"
 # =============================================================================
 # CRITICAL: Thread Limiting (Prevents CPU Oversubscription)
 # =============================================================================
 # Without these limits, each MPI rank spawns threads equal to the TOTAL
 # core count on the node. With 4 MPI ranks on a 96-core node, this creates
-# 4 × 96 = 384 threads competing for 96 cores, causing severe oversubscription.
+# 4 ï¿½ 96 = 384 threads competing for 96 cores, causing severe oversubscription.
 #
 # Setting these to 1 ensures each MPI rank uses exactly 1 thread,
-# so 4 ranks × 1 thread = 4 threads on 4 cores (clean parallelism).
+# so 4 ranks ï¿½ 1 thread = 4 threads on 4 cores (clean parallelism).
 #
-# This does NOT make the simulation sequential — MPI still provides
+# This does NOT make the simulation sequential ï¿½ MPI still provides
 # parallelism across the 4 cores. Thread limits only prevent each rank
 # from trying to grab ALL cores for internal threading.
 # =============================================================================
@@ -93,7 +93,8 @@ CORES=$SLURM_NTASKS
 echo "=================================================="
 echo "Kinetix Simulation ID: $SIM_ID"
 echo "Cores: $CORES"
-echo "Partition: cpuq-short"
+echo "Partition: $SLURM_JOB_PARTITION"
+echo "Node: $SLURMD_NODENAME"
 echo "GCC: $(gcc --version | head -n 1)"
 echo "Python: $($PYTHON_EXEC --version)"
 echo "Working Dir: $SLURM_SUBMIT_DIR"
@@ -102,7 +103,7 @@ echo "Time: $(date)"
 echo "=================================================="
 
 # Run simulation
-$MPI_EXEC -n $CORES $PYTHON_EXEC kinetix $SIM_ID --config "$CONFIG_FILE"
+$MPI_EXEC -n $CORES $PYTHON_EXEC -m kinetix $SIM_ID --config "$CONFIG_FILE"
 
 echo "=================================================="
 echo "Completed at $(date)"
