@@ -10,11 +10,12 @@ at import so the two can never drift apart.
 from __future__ import annotations
 
 from kinetix.termination.base import StoppingCondition
-from kinetix.termination.conditions import AllVOPassivated
+from kinetix.termination.conditions import AllVOPassivated, GBVOPassivated
 from kinetix.termination.enums import StoppingConditionKey
 
 _REGISTRY: dict[str, type[StoppingCondition]] = {
   StoppingConditionKey.ALL_VO_PASSIVATED.value: AllVOPassivated,
+  StoppingConditionKey.GB_VO_PASSIVATED.value: GBVOPassivated,
 }
 
 _missing = set(StoppingConditionKey.valid_options()) - set(_REGISTRY)

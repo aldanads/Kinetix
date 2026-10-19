@@ -17,6 +17,11 @@ class StoppingConditionKey(str, Enum):
   #: PZT: stop once (a threshold fraction of) the oxygen vacancies are passivated.
   ALL_VO_PASSIVATED = "all_vo_passivated"
 
+  #: PZT: stop once (a threshold fraction of) the oxygen vacancies INSIDE the
+  #: grain-boundary region are passivated; bulk vacancies are ignored (the
+  #: ``regions`` parameter selects inner/outer GB regions).
+  GB_VO_PASSIVATED = "gb_vo_passivated"
+
   @classmethod
   def valid_options(cls) -> list[str]:
     """Accepted keyword strings, for error messages and metadata."""

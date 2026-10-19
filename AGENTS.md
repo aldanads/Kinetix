@@ -56,7 +56,7 @@
 | `kinetix/calculators/active_learning.py` | Active-learning *export* stage: `classify_barrier`, ASE extxyz export, `manifest.json` queue. Invoked only from `tests/test_mace_adapter.py` (slow) — never from production code |
 | `kinetix/logging_config.py` | Root logger `propagate=False` (affects caplog — see Testing) |
 | `kinetix/cli.py` / `kinetix/__main__.py` | Simulation workflow driver |
-| `kinetix/termination/` | Early stopping (Strategy pattern): `base.py` (StoppingCondition ABC), `conditions.py` (AllVOPassivated — O(N_active) scan over active_event_sites), `registry.py` (keyword→class + get_stopping_condition), `enums.py` (StoppingConditionKey). CLI evaluates at dump cadence, rank-0 decides + bcast for collective break |
+| `kinetix/termination/` | Early stopping (Strategy pattern): `base.py` (StoppingCondition ABC), `conditions.py` (`AllVOPassivated` + `GBVOPassivated` — both O(N_active) scans over active_event_sites; the GB variant filters V_O through `gb_model.get_site_gb_region` and returns False when no GB is configured), `registry.py` (keyword→class + get_stopping_condition), `enums.py` (StoppingConditionKey: `all_vo_passivated`, `gb_vo_passivated` — `PZT_ZrTi_PbO3_2.yaml` uses the latter, GB-core only). CLI evaluates at dump cadence, rank-0 decides + bcast for collective break |
 | `.github/workflows/ci.yml` | CI: one job (ubuntu-latest, Python 3.12.8) running the fast selection. Derives `environment-ci.yml` from `environment.yml` (drops the torch/MACE `pip:` block), installs via **micromamba**, `pip install -e . --no-deps`, `MP_API_KEY` placeholder |
 | `CITATION.cff` | Machine-readable citation metadata (CFF 1.2.0, schema-validated with `cffconvert` 2.0.0). No top-level `doi`: the README's Zenodo DOIs archive the *predecessor* repository |
 
@@ -415,9 +415,9 @@ physics, and the golden-trace fixtures were **not** regenerated.
   ignored directory).
 
 ## Testing
-- Collected total: **481 tests** (measured at the guarded parameter-sweep fix,
-  `pytest tests/ --collect-only -q`), of which **39 are `solver`-marked** (~22 min; they are the whole reason the full suite is slow).
-- Fast selection (the default): `pytest tests/ -q -m "not solver and not mace"` → **439 passed, 4 skipped** in ~148 s. The skips are the `mace` module (1) plus the 3 `slow` PZT physics-validation tests. (439 = the 430 measured after `test_termination.py` landed + the 9 new `tests/test_initialization.py` tests.)
+- Collected total: **490 tests** (re-measured after the `GBVOPassivated`
+  condition landed, `pytest tests/ --collect-only -q`), of which **39 are `solver`-marked** (~22 min; they are the whole reason the full suite is slow).
+- Fast selection (the default): `pytest tests/ -q -m "not solver and not mace"` → **448 passed, 4 skipped** in ~160 s. The skips are the `mace` module (1) plus the 3 `slow` PZT physics-validation tests. (448 = the 439 measured at the initialization guard fix + the 9 new `GBVOPassivated` tests in `tests/test_termination.py`.)
 - Golden trace alone: `pytest tests/test_golden_trace.py -v` → 6 tests (~32 s).
 - Notable files (test functions): `test_site.py` (64), `test_cluster_island.py` (43),
   `test_migration_pathways.py` (32), `test_state_loader.py` (31),
@@ -431,7 +431,7 @@ physics, and the golden-trace fixtures were **not** regenerated.
   `test_simulator_rename.py` (8), `test_percolation.py` (8),
   `test_FEMSolver.py` (7), `test_golden_trace.py` (6), `test_presets.py` (3),
   `test_pzt_physics_validation.py` (3, `slow`), `test_pzt_golden_trace.py` (1),
-  `test_termination.py` (16), `test_initialization.py` (7 defs → 9 collected;
+  `test_termination.py` (25), `test_initialization.py` (7 defs → 9 collected;
   guard contract of the parameter-sweep overrides in `initialization()`).
   (Counts are `grep -c "def test"` per file, so they differ slightly from the
   collected total — parametrization adds cases.)
@@ -486,12 +486,12 @@ physics, and the golden-trace fixtures were **not** regenerated.
 
 ## Test Execution
 
-**Default (fast feedback, ~148 s):**
+**Default (fast feedback, ~160 s):**
 
 ```bash
 pytest tests/ -q -m "not solver and not mace"
 ```
-Runs: 439 passed + 4 skipped (39 solver tests deselected; skips = mace module
+Runs: 448 passed + 4 skipped (39 solver tests deselected; skips = mace module
 + 3 slow PZT physics-validation tests).
 **Use this by default — do NOT run the full suite for quick feedback.**
 This is exactly the command CI runs (`.github/workflows/ci.yml`).
@@ -501,7 +501,7 @@ This is exactly the command CI runs (`.github/workflows/ci.yml`).
 ```bash
 pytest tests/ -q
 ```
-Runs: all 481 collected tests (the 39 `solver` tests take ~22 min; measured
+Runs: all 490 collected tests (the 39 `solver` tests take ~22 min; measured
 21m43s before the 2026-09 additions; +3 min if `--runslow` adds the PZT
 physics-validation module).
 
@@ -531,6 +531,7 @@ pytest tests/test_golden_trace.py -v
 | Poisson/heat solvers | `pytest tests/ -m solver -v` |
 | MACE adapter | `pytest tests/ -m mace -v` |
 | Config loading | `pytest tests/test_config_loader.py tests/test_presets.py -v` |
+| Early stopping (`kinetix/termination/`, preset `early_stopping`) | `pytest tests/test_termination.py -v` (25, ~22 s) |
 | PZT event selection / GB barriers (Boltzmann statistics) | `pytest tests/test_pzt_physics_validation.py -v --runslow` (~3 min; needs the local-only PZT grid) |
 | kMC event sequence (PZT) / event-catalog changes | `pytest tests/test_pzt_golden_trace.py -v` (~28 s; committed miniature-grid fixture) |
 | Renames / public API (`KMCSimulator`, `simulator.py`) | `pytest tests/test_simulator_rename.py -v` (8, ~5 s) |
@@ -544,10 +545,10 @@ Measured selections (Kinetix env):
 
 | Selection | Tests | Wall time |
 |---|---|---|
-| `-m "not solver and not mace"` (default, = CI) | 439 passed (+4 skipped: mace + slow PZT) | ~148 s |
+| `-m "not solver and not mace"` (default, = CI) | 448 passed (+4 skipped: mace + slow PZT) | ~160 s |
 | `-m solver` | 39 | ~22 min |
 | `-m mace` (no `mace` extra installed) | 0 (module skip) | ~5 s |
-| full suite (`pytest tests/ -q`) | 481 collected | ~24 min |
+| full suite (`pytest tests/ -q`) | 490 collected | ~24 min |
 | `test_lattice_builder_class.py` alone | 20 | ~12 s |
 | `test_simulator_rename.py` alone | 8 | ~5 s |
 | `test_golden_trace.py` alone | 6 | ~32 s |
@@ -848,10 +849,10 @@ When completing any refactor task, the agent MUST:
 ## Quick Start
 ```bash
 conda activate Kinetix                              # base env lacks pymatgen
-pytest tests/ -q -m "not solver and not mace"       # fast suite: 439 tests, ~148 s (= CI)
+pytest tests/ -q -m "not solver and not mace"       # fast suite: 448 tests, ~160 s (= CI)
 pytest tests/test_golden_trace.py -v                # physics contracts (6 tests, ~32 s)
 pytest tests/test_pzt_golden_trace.py -v            # PZT event-sequence contract (1 test, ~28 s)
-pytest tests/ -q                                    # full suite: 481 tests (~24 min)
+pytest tests/ -q                                    # full suite: 490 tests (~24 min)
 pytest tests/test_site.py -v                        # single file
 pytest tests/ -q --runslow                          # + MACE pathway sweeps (hours)
 KINETIX_UPDATE_GOLDEN_TRACE=1 pytest tests/test_golden_trace.py   # regen both fixtures (review diff!)

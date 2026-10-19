@@ -10,12 +10,13 @@ dump-file cadence and breaks out of the main loop on ``True``.
 from __future__ import annotations
 
 from kinetix.termination.base import StoppingCondition
-from kinetix.termination.conditions import AllVOPassivated
+from kinetix.termination.conditions import AllVOPassivated, GBVOPassivated
 from kinetix.termination.enums import StoppingConditionKey
 from kinetix.termination.registry import get_stopping_condition
 
 __all__ = [
   "AllVOPassivated",
+  "GBVOPassivated",
   "StoppingCondition",
   "StoppingConditionKey",
   "get_stopping_condition",

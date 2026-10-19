@@ -22,6 +22,7 @@ from kinetix.configs.simulation_config import (
 from kinetix.initialization import _process_activation_energies
 from kinetix.termination import (
   AllVOPassivated,
+  GBVOPassivated,
   StoppingConditionKey,
   get_stopping_condition,
 )
@@ -59,6 +60,48 @@ class _FakeSimulator:
     # Mirror the production occupancy invariant: every occupied site is
     # listed in active_event_sites (events._track_occupancy_update).
     self.active_event_sites = list(self.grid_crystal)
+
+
+class _FakeGBModel:
+  """GrainBoundary double: position -> region lookup, no geometry needed."""
+  def __init__(self, region_by_position, gb_configurations=None):
+    # A real GrainBoundary always carries configurations; [] models
+    # "GB configured but empty/disabled".
+    self.gb_configurations = (
+      [{}] if gb_configurations is None else gb_configurations
+    )
+    self._region_by_position = region_by_position
+
+  def get_site_gb_region(self, position):
+    return self._region_by_position.get(tuple(position), "bulk")
+
+
+class _NoConfigsGBModel:
+  """gb_model double exposing the region API but no ``gb_configurations``."""
+  def get_site_gb_region(self, position):
+    return "inner_boundary"
+
+
+_AUTO_GB = object()
+
+
+def _fake_gb_simulator(entries, gb_model=_AUTO_GB):
+  """Simulator double whose sites carry positions plus a fake GB model.
+
+  entries: (specie, level, region) triples; site i gets position (i, 0, 0)
+  and the default GB model maps that position to ``region``. Pass
+  ``gb_model=None`` (or any object) to model missing/no GB configuration.
+  """
+  entries = list(entries)
+  sim = _FakeSimulator([(specie, level) for specie, level, _region in entries])
+  region_by_position = {}
+  for i, site in sim.grid_crystal.items():
+    site.position = (i, 0, 0)
+    region_by_position[site.position] = entries[i][2]
+  if gb_model is _AUTO_GB:
+    gb_model = _FakeGBModel(region_by_position)
+  sim.gb_model = gb_model
+  return sim
 
 
 # =============================================================================
@@ -102,6 +145,115 @@ def test_all_vo_passivated_describe_and_parameters():
 
 
 # =============================================================================
+# Unit: GBVOPassivated predicate (GB-region-filtered V_O saturation)
+# =============================================================================
+
+def test_gb_vo_passivated_counts_only_inner_boundary_by_default():
+  # Core V_O passivated; outer + bulk V_O unpassivated.
+  entries = [
+    ("V_O", 1, "inner_boundary"),
+    ("V_O", 0, "outer_boundary"),
+    ("V_O", 0, "bulk"),
+  ]
+  # 1/1 inner V_O passivated -> stop; the outer/bulk vacancies must not
+  # dilute the fraction (they are outside the default regions).
+  assert GBVOPassivated().should_stop(_fake_gb_simulator(entries)) is True
+  # Flip it: only the core V_O is unpassivated -> must not stop, even though
+  # every outer/bulk V_O is passivated (they are never counted).
+  entries = [
+    ("V_O", 0, "inner_boundary"),
+    ("V_O", 1, "outer_boundary"),
+    ("V_O", 1, "bulk"),
+  ]
+  assert GBVOPassivated().should_stop(_fake_gb_simulator(entries)) is False
+
+
+def test_gb_vo_passivated_region_filter_includes_outer_boundary():
+  entries = [
+    ("V_O", 1, "inner_boundary"),
+    ("V_O", 0, "outer_boundary"),
+    ("V_O", 0, "bulk"),
+  ]
+  both = GBVOPassivated(regions=["inner_boundary", "outer_boundary"])
+  # Outer now counts: 1/2 passivated -> below the default threshold, whereas
+  # the inner-only default (1/1) stops. Bulk is excluded either way.
+  assert both.should_stop(_fake_gb_simulator(entries)) is False
+  assert GBVOPassivated().should_stop(_fake_gb_simulator(entries)) is True
+  # With the filter, saturating inner + outer stops even with bulk left over.
+  entries = [
+    ("V_O", 1, "inner_boundary"),
+    ("V_O", 1, "outer_boundary"),
+    ("V_O", 0, "bulk"),
+  ]
+  assert both.should_stop(_fake_gb_simulator(entries)) is True
+
+
+def test_gb_vo_passivated_vacuous_when_no_gb_vacancies():
+  # V_O exist but none in the requested region -> vacuous count -> False,
+  # even though every one of them is passivated.
+  entries = [
+    ("V_O", 1, "outer_boundary"),
+    ("V_O", 1, "bulk"),
+    ("O", 1, "inner_boundary"),
+  ]
+  assert GBVOPassivated().should_stop(_fake_gb_simulator(entries)) is False
+  # No vacancies anywhere at all: the GB subset guard fires the same way.
+  assert GBVOPassivated().should_stop(_fake_gb_simulator([("O", 0, "bulk")])) is False
+
+
+def test_gb_vo_passivated_no_gb_model_returns_false():
+  entries = [("V_O", 1, "inner_boundary")]  # fully saturated ...
+  # ... but no GB configured in any of its shapes -> False, never a crash:
+  # gb_model explicitly None.
+  sim = _fake_gb_simulator(entries, gb_model=None)
+  assert GBVOPassivated().should_stop(sim) is False
+  # gb_model attribute absent entirely (plain _FakeSimulator has none).
+  assert GBVOPassivated().should_stop(_FakeSimulator([("V_O", 1)])) is False
+  # gb_model present but with no configurations.
+  sim = _fake_gb_simulator(
+    entries, gb_model=_FakeGBModel({}, gb_configurations=[])
+  )
+  assert GBVOPassivated().should_stop(sim) is False
+  # gb_model without a gb_configurations attribute at all.
+  sim = _fake_gb_simulator(entries, gb_model=_NoConfigsGBModel())
+  assert GBVOPassivated().should_stop(sim) is False
+
+
+def test_gb_vo_passivated_threshold_fraction():
+  entries = [
+    ("V_O", 1, "inner_boundary"),
+    ("V_O", 0, "inner_boundary"),
+    ("V_O", 0, "bulk"),  # never counted
+  ]
+  # 50% of the GB V_O passivated: threshold 0.5 triggers, 0.51 does not.
+  assert GBVOPassivated(threshold=0.5).should_stop(
+    _fake_gb_simulator(entries)
+  ) is True
+  assert GBVOPassivated(threshold=0.51).should_stop(
+    _fake_gb_simulator(entries)
+  ) is False
+  assert GBVOPassivated(threshold=1.0).should_stop(
+    _fake_gb_simulator(entries)
+  ) is False
+
+
+def test_gb_vo_passivated_rejects_bad_threshold():
+  with pytest.raises(ValueError):
+    GBVOPassivated(threshold=0.0)
+  with pytest.raises(ValueError):
+    GBVOPassivated(threshold=1.5)
+
+
+def test_gb_vo_passivated_describe_and_parameters():
+  cond = GBVOPassivated(threshold=0.95)
+  assert "gb_vo_passivated" in cond.describe()
+  assert "inner_boundary" in cond.describe()
+  params = cond.parameters()
+  assert params["threshold"] == pytest.approx(0.95)
+  assert params["regions"] == ["inner_boundary"]
+
+
+# =============================================================================
 # Registry + config validation
 # =============================================================================
 
@@ -140,6 +292,19 @@ def test_config_from_dict_carries_extra_keys_as_parameters():
   assert cond.parameters()["threshold"] == pytest.approx(0.95)
 
 
+def test_get_stopping_condition_gb_vo_passivated_keyword():
+  cfg = EarlyStoppingConfig(
+    enabled=True,
+    condition="gb_vo_passivated",
+    parameters={"threshold": 0.8,
+                "regions": ["inner_boundary", "outer_boundary"]},
+  )
+  cond = get_stopping_condition(cfg)
+  assert isinstance(cond, GBVOPassivated)
+  assert cond.parameters()["threshold"] == pytest.approx(0.8)
+  assert cond.parameters()["regions"] == ["inner_boundary", "outer_boundary"]
+
+
 def test_registry_covers_every_enum_member():
   from kinetix.termination import registry as _registry
 
@@ -152,9 +317,11 @@ def test_pzt_preset_enables_early_stopping():
   )
   es = config.settings.early_stopping
   assert es is not None and es.enabled is True
-  assert es.condition == StoppingConditionKey.ALL_VO_PASSIVATED.value
+  assert es.condition == StoppingConditionKey.GB_VO_PASSIVATED.value
   cond = get_stopping_condition(es)
-  assert isinstance(cond, AllVOPassivated)
+  assert isinstance(cond, GBVOPassivated)
+  assert cond.parameters()["threshold"] == pytest.approx(1.0)
+  assert cond.parameters()["regions"] == ["inner_boundary"]
 
 
 def test_presets_without_block_stay_disabled():
@@ -192,6 +359,35 @@ def _vo_sites(crystal):
     site for site in crystal.grid_crystal.values()
     if site.defect.chemical_specie == "V_O"
   ]
+
+
+def test_integration_gb_condition_counts_only_gb_core_vo(pzt_crystal):
+  # Runs FIRST in this section (module-scoped fixture is fresh: `_seed_v_o`
+  # has just introduced 2 core + 2 bulk V_O) and leaves every V_O
+  # unpassivated, so the tests that follow see a clean state.
+  cond = GBVOPassivated()
+  vo = _vo_sites(pzt_crystal)
+  assert vo, "expected seeded V_O on the miniature grid"
+  inner = [
+    site for site in vo
+    if pzt_crystal.gb_model.get_site_gb_region(tuple(site.position))
+    == "inner_boundary"
+  ]
+  assert inner, "expected seeded V_O in the GB core (_seed_v_o picks 2)"
+  # Fresh state: nothing passivated anywhere -> nothing stops.
+  for site in vo:
+    site.defect.passivation_level = 0
+  assert cond.should_stop(pzt_crystal) is False
+  # Saturate the GB core ONLY: the GB condition stops while bulk V_O are
+  # still unpassivated (the global condition must keep running).
+  for site in inner:
+    site.defect.passivation_level = 1
+  assert cond.should_stop(pzt_crystal) is True
+  assert AllVOPassivated().should_stop(pzt_crystal) is False
+  # Leave every V_O unpassivated for the tests that follow.
+  for site in vo:
+    site.defect.passivation_level = 0
+  assert cond.should_stop(pzt_crystal) is False
 
 
 def test_integration_vo_saturation_triggers_stop(pzt_crystal):

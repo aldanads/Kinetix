@@ -73,8 +73,8 @@ settings:
   # to run to completion as before.
   early_stopping:
     enabled: true
-    condition: "all_vo_passivated"
-    threshold: 1.0  # stop when 100% of V_O are passivated (V_O_1)
+    condition: "gb_vo_passivated"
+    threshold: 1.0  # stop when 100% of the GB-region V_O are passivated (V_O_1)
 
 # -----------------------------------------------------------------------------
 # Superbasin Acceleration
