@@ -65,7 +65,7 @@ settings:
   lammps_output: true
   log_level: "INFO"  # DEBUG, INFO, WARNING, ERROR
   activation_energies: "activation_energies/PZT_ZrPbO3.json"   
-  output_path: '/home/Samuel.Delgado/saturation_time_3'                
+  output_path: '/home/Samuel.Delgado/saturation_time_4'                
   
   # Graceful early termination: evaluated at the dump-file cadence; the loop
   # breaks once the condition holds (no exception - the final dump and
@@ -74,7 +74,7 @@ settings:
   early_stopping:
     enabled: true
     condition: "gb_vo_passivated"
-    threshold: 1.0  # stop when 100% of the GB-region V_O are passivated (V_O_1)
+    threshold: 0.9  # stop when X% of the GB-region V_O are passivated (V_O_1)
 
 # -----------------------------------------------------------------------------
 # Superbasin Acceleration

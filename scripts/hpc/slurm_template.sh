@@ -12,6 +12,7 @@
 
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=4
+#SBATCH --time=UNLIMITED
 #SBATCH --job-name=Kinetix_PZT
 #SBATCH --partition=cpuq-short             # Customize: check available partitions with 'sinfo'
 #SBATCH --output=Kinetix_%A_%a.out      # %A = Job ID, %a = Array Task ID (joins stdout/stderr)
